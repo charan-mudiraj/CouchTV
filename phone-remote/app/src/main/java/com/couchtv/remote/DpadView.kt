@@ -7,7 +7,6 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.util.AttributeSet
-import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import kotlin.math.atan2
@@ -137,24 +136,29 @@ class DpadView @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
         }
     }
 
-    @SuppressLint("ClickableViewAccessibility")
-    override fun onTouchEvent(event: MotionEvent): Boolean {
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                val part = partAt(event.x, event.y) ?: return false
-                parent?.requestDisallowInterceptTouchEvent(true)   // don't let the page scroll steal a held press
+    // A drag that starts on the pad scrolls the page; holding still or tapping presses.
+    private var touchedPart: Part? = null
+    private val gesture = PressGesture(
+        this,
+        onPress = {
+            touchedPart?.let { part ->
                 pressed = part
-                performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                 listener?.onPress(part)
                 invalidate()
             }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                val part = pressed ?: return true
+        },
+        onRelease = {
+            pressed?.let { part ->
                 pressed = null
                 listener?.onRelease(part)
                 invalidate()
             }
-        }
-        return true
+        },
+    )
+
+    @SuppressLint("ClickableViewAccessibility")
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) touchedPart = partAt(event.x, event.y) ?: return false
+        return gesture.onTouch(event)
     }
 }

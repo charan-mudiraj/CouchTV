@@ -10,7 +10,6 @@ import android.os.SystemClock
 import android.provider.Settings
 import android.text.InputType
 import android.view.Gravity
-import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.widget.Button
@@ -216,25 +215,25 @@ class MainActivity : Activity() {
         override fun onRelease(part: DpadView.Part) = remote.release(pressId)
     }
 
-    /** Sends while the finger is down, like holding a button on a real remote. */
+    /** Sends while the finger is down, like holding a button on a real remote; a drag scrolls the page instead. */
     @SuppressLint("ClickableViewAccessibility")
     private fun bindHold(view: View, address: Int, command: Int) {
         var pressId = 0
+        val gesture = PressGesture(
+            view,
+            onPress = {
+                view.isPressed = true
+                pressId = remote.press(address, command)
+            },
+            onRelease = {
+                view.isPressed = false
+                remote.release(pressId)
+            },
+        )
         view.setOnTouchListener { v, event ->
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    v.parent?.requestDisallowInterceptTouchEvent(true)   // keep the page from scrolling mid-press
-                    v.isPressed = true
-                    v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                    pressId = remote.press(address, command)
-                }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    v.isPressed = false
-                    remote.release(pressId)
-                    if (event.actionMasked == MotionEvent.ACTION_UP) v.performClick()
-                }
-            }
-            true
+            val handled = gesture.onTouch(event)
+            if (event.actionMasked == MotionEvent.ACTION_UP) v.performClick()
+            handled
         }
     }
 
