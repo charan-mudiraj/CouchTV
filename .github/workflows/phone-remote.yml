@@ -1,4 +1,5 @@
-# Builds the CouchTV Remote Android app and publishes the APK, so no Android Studio is needed.
+# Builds the CouchTV Remote Android app whenever phone-remote/ changes on main, and publishes it to the
+# "phone-remote" release with a version.json the app checks for updates.
 # Download: https://github.com/charan-mudiraj/CouchTV/releases/download/phone-remote/CouchTV-Remote.apk
 name: Phone remote APK
 
@@ -11,17 +12,21 @@ on:
   workflow_dispatch:          # "Run workflow" button on the Actions tab
 
 permissions:
-  contents: write             # to update the download release
+  contents: write             # to update the release
 
 concurrency:
   group: phone-remote
-  cancel-in-progress: true
+  cancel-in-progress: false   # let each build finish, so versions are published in order
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      VERSION_CODE: ${{ github.run_number }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 50     # to find the latest commit that changed the app
 
       - uses: actions/setup-java@v4
         with:
@@ -32,8 +37,19 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      # Reuse one signing key between builds, so a new APK installs over the old one.
-      # (GitHub drops caches unused for 7 days; after that, uninstall once before installing.)
+      # Updates only install over an app signed with the same key: use the permanent key from the repo secrets.
+      - name: Signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.REMOTE_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/remote-signing.p12"
+            echo "REMOTE_KEYSTORE_FILE=$RUNNER_TEMP/remote-signing.p12" >> "$GITHUB_ENV"
+          else
+            echo "::warning::The REMOTE_KEYSTORE_B64 secret isn't set, so this build is signed with a temporary key and in-app updates will break when it changes. See phone-remote/README.md."
+          fi
+
+      # Fallback when there's no permanent key: reuse a debug key between builds (GitHub drops it after 7 idle days).
       - uses: actions/cache@v4
         with:
           path: ~/.android/debug.keystore
@@ -41,22 +57,40 @@ jobs:
 
       - name: Build
         working-directory: phone-remote
-        run: gradle assembleDebug --no-daemon --stacktrace
+        env:
+          REMOTE_KEYSTORE_PASSWORD: ${{ secrets.REMOTE_KEYSTORE_PASSWORD }}
+        run: gradle assembleDebug --no-daemon --stacktrace -PversionCode="$VERSION_CODE" -Pcommit="${GITHUB_SHA::7}"
 
-      - name: Name the APK
-        run: cp phone-remote/app/build/outputs/apk/debug/app-debug.apk CouchTV-Remote.apk
+      - name: Describe the build
+        run: |
+          cp phone-remote/app/build/outputs/apk/debug/app-debug.apk CouchTV-Remote.apk
+          message="$(git log -1 --format=%s -- phone-remote)"
+          [ -n "$message" ] || message="$(git log -1 --format=%s)"
+          jq -n \
+            --argjson versionCode "$VERSION_CODE" \
+            --arg versionName "1.$VERSION_CODE" \
+            --arg commit "${GITHUB_SHA::7}" \
+            --arg message "$message" \
+            --arg apk "https://github.com/$GITHUB_REPOSITORY/releases/download/phone-remote/CouchTV-Remote.apk" \
+            --arg sha256 "$(sha256sum CouchTV-Remote.apk | cut -d' ' -f1)" \
+            '{versionCode: $versionCode, versionName: $versionName, commit: $commit, message: $message, apk: $apk, sha256: $sha256}' \
+            > version.json
+          cat version.json
 
       - uses: actions/upload-artifact@v4
         with:
           name: CouchTV-Remote
-          path: CouchTV-Remote.apk
+          path: |
+            CouchTV-Remote.apk
+            version.json
 
-      - name: Publish to the download link
+      # The APK goes up before version.json, so the app never sees a version whose APK isn't there yet.
+      - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete phone-remote --yes --cleanup-tag || true
-          gh release create phone-remote CouchTV-Remote.apk \
-            --target "$GITHUB_SHA" \
-            --title "CouchTV Remote (latest build)" \
-            --notes "Built from ${GITHUB_SHA::7}. On the phone, open this page, tap CouchTV-Remote.apk and install it."
+          gh release view phone-remote >/dev/null 2>&1 || \
+            gh release create phone-remote --target "$GITHUB_SHA" --title "CouchTV Remote" --notes "Latest build of the phone remote."
+          gh release upload phone-remote CouchTV-Remote.apk --clobber
+          gh release upload phone-remote version.json --clobber
+          gh release edit phone-remote --notes "Version 1.$VERSION_CODE, built from ${GITHUB_SHA::7}: $(jq -r .message version.json). On the phone, tap CouchTV-Remote.apk to install; after that the app updates itself."

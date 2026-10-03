@@ -2,6 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.TRANSMIT_IR" />
+    <!-- Updates: check GitHub, download the new APK and install it. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
     <uses-feature android:name="android.hardware.consumerir" android:required="true" />
 
     <application
@@ -19,5 +23,8 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <receiver
+            android:name=".InstallReceiver"
+            android:exported="false" />
     </application>
 </manifest>

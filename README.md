@@ -156,6 +156,7 @@ CouchTV keeps itself up to date from the `main` branch of [github.com/charan-mud
 - **Only CouchTV itself updates.** If a change touches the installer (Windows settings, browser policies), run `Install-CouchTV.cmd` again.
 - The installed commit is in `C:\CouchTV\version.txt`. Set `Updates = off` in `couchtv.ini` to stop checking, or use `UpdateRepo` / `UpdateBranch` to follow a fork or another branch.
 - Anyone who can push to `main` can change what runs on the TV, so keep two-factor sign-in on your GitHub account.
+- **The phone remote app updates itself the same way:** when `phone-remote/` changes on `main`, GitHub builds a new APK and the app offers it the next time you open it. See [phone-remote/README.md](phone-remote/README.md#updates) for the one-time signing-key setup.
 
 ---
 

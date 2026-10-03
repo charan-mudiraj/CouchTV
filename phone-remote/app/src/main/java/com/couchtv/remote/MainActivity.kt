@@ -3,7 +3,11 @@ package com.couchtv.remote
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.os.SystemClock
+import android.provider.Settings
 import android.text.InputType
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
@@ -13,6 +17,8 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
+import java.util.concurrent.Executors
 
 /** The remote: D-pad, TV buttons, app shortcuts, a pointer pad, and buttons you add yourself. */
 class MainActivity : Activity() {
@@ -20,6 +26,14 @@ class MainActivity : Activity() {
     private lateinit var store: CustomButtons
     private lateinit var myButtons: MutableList<CustomButton>
     private var editing = false
+
+    // Updates from GitHub
+    private lateinit var updater: AppUpdater
+    private val background = Executors.newSingleThreadExecutor()
+    private var lastUpdateCheck = 0L
+    private var availableUpdate: AppUpdater.Release? = null
+    private var updating = false
+    private var installStarted = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -67,7 +81,112 @@ class MainActivity : Activity() {
         }
         findViewById<View>(R.id.add_button).setOnClickListener { editButton(null) }
         showMyButtons()
+
+        updater = AppUpdater(this)
+        findViewById<TextView>(R.id.version).apply {
+            text = getString(R.string.version_label, BuildConfig.VERSION_NAME, BuildConfig.COMMIT)
+            setOnClickListener { checkForUpdate(manual = true) }
+        }
+        findViewById<Button>(R.id.update_now).setOnClickListener { startUpdate() }
+        InstallReceiver.onFailure = { message ->
+            updating = false
+            installStarted = false
+            findViewById<View>(R.id.update_banner).visibility = View.VISIBLE
+            findViewById<TextView>(R.id.update_text).text = message
+            findViewById<Button>(R.id.update_now).isEnabled = true
+        }
     }
+
+    override fun onDestroy() {
+        InstallReceiver.onFailure = null
+        super.onDestroy()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (installStarted) {
+            // Back from Android's install screen without updating (if it had updated, this app would have restarted).
+            installStarted = false
+            updating = false
+            showUpdate(availableUpdate)
+        }
+        if (lastUpdateCheck == 0L || SystemClock.elapsedRealtime() - lastUpdateCheck > 15 * 60_000) checkForUpdate(manual = false)
+    }
+
+    // ---------------------------------------------------------------- updates
+
+    private fun checkForUpdate(manual: Boolean) {
+        if (updating) return
+        lastUpdateCheck = SystemClock.elapsedRealtime()
+        if (manual) toast(getString(R.string.checking))
+        background.execute {
+            val result = runCatching { updater.check() }
+            runOnUiThread {
+                if (isDestroyed) return@runOnUiThread
+                result.onSuccess { release ->
+                    showUpdate(release)
+                    if (manual && release == null) toast(getString(R.string.up_to_date))
+                }.onFailure {
+                    if (manual) toast(getString(R.string.check_failed, it.message ?: ""))
+                }
+            }
+        }
+    }
+
+    private fun showUpdate(release: AppUpdater.Release?) {
+        availableUpdate = release
+        findViewById<View>(R.id.update_banner).visibility = if (release == null) View.GONE else View.VISIBLE
+        if (release == null) return
+        val title = release.message.ifBlank { release.versionName }
+        findViewById<TextView>(R.id.update_text).text = getString(R.string.update_available, title)
+        findViewById<Button>(R.id.update_now).isEnabled = true
+    }
+
+    private fun startUpdate() {
+        val release = availableUpdate ?: return
+        if (!packageManager.canRequestPackageInstalls()) {
+            askToAllowInstalls()
+            return
+        }
+        updating = true
+        val text = findViewById<TextView>(R.id.update_text)
+        val button = findViewById<Button>(R.id.update_now)
+        button.isEnabled = false
+        text.text = getString(R.string.downloading, 0)
+        background.execute {
+            try {
+                val apk = updater.download(release) { percent ->
+                    runOnUiThread { text.text = getString(R.string.downloading, percent) }
+                }
+                runOnUiThread {
+                    text.setText(R.string.installing)
+                    installStarted = true
+                }
+                updater.install(apk)
+            } catch (e: Exception) {
+                runOnUiThread {
+                    updating = false
+                    installStarted = false
+                    button.isEnabled = true
+                    text.text = getString(R.string.update_failed, e.message ?: e.javaClass.simpleName)
+                }
+            }
+        }
+    }
+
+    /** Android only lets an app install updates after you allow it once in Settings. */
+    private fun askToAllowInstalls() {
+        AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+            .setTitle(R.string.allow_updates_title)
+            .setMessage(R.string.allow_updates_message)
+            .setPositiveButton(R.string.open_settings) { _, _ ->
+                startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
 
     private fun showStatus() {
         val status = findViewById<TextView>(R.id.status)

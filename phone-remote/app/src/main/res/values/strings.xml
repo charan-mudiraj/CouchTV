@@ -50,6 +50,21 @@
     <string name="ok">OK</string>
     <string name="need_name">Give it a name</string>
     <string name="need_hex">Two hex digits, 00 to FF</string>
+    <string name="version_label">Version %1$s (%2$s) · Check for updates</string>
+    <string name="checking">Checking for updates…</string>
+    <string name="up_to_date">You have the latest version</string>
+    <string name="check_failed">Couldn\'t check for updates: %1$s</string>
+    <string name="update">Update</string>
+    <string name="update_available">Update available: “%1$s”</string>
+    <string name="downloading">Downloading the update… %1$d%%</string>
+    <string name="installing">Installing… the app restarts when it\'s done</string>
+    <string name="update_failed">Update failed: %1$s</string>
+    <string name="update_checksum">the download was damaged; try again</string>
+    <string name="update_not_published">no build has been published yet</string>
+    <string name="allow_updates_title">Allow updates</string>
+    <string name="allow_updates_message">To install its own updates, CouchTV Remote needs your permission once. On the next screen, turn on “Allow from this source”, then come back and tap Update again.</string>
+    <string name="open_settings">Open settings</string>
+
     <string name="teach_tv_title">Now teach the TV</string>
     <string name="teach_tv_message">“%1$s” sends %2$s.\n\nOn the TV, open Settings &amp; power &gt; Remote and press this button when you reach the action you want. Or add a line to remote.ini, for example:\n\n%2$s = key:M</string>
 </resources>

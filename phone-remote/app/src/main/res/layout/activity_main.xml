@@ -55,6 +55,38 @@
                 android:stateListAnimator="@null" />
         </LinearLayout>
 
+        <!-- Shown when a newer build is on GitHub -->
+        <LinearLayout
+            android:id="@+id/update_banner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:background="@drawable/update_bg"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="14dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/update_text"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textColor="@color/ink"
+                android:textSize="14sp" />
+
+            <Button
+                android:id="@+id/update_now"
+                style="@style/RemoteKey.Text"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:layout_marginStart="12dp"
+                android:paddingStart="18dp"
+                android:paddingEnd="18dp"
+                android:text="@string/update"
+                android:textColor="@color/good" />
+        </LinearLayout>
+
         <!-- App shortcuts -->
         <TextView
             style="@style/Section"
@@ -318,5 +350,15 @@
             android:layout_marginTop="8dp"
             android:text="@string/add_button_label"
             android:textColor="@color/good" />
+
+        <TextView
+            android:id="@+id/version"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="28dp"
+            android:gravity="center"
+            android:padding="8dp"
+            android:textColor="@color/muted"
+            android:textSize="13sp" />
     </LinearLayout>
 </ScrollView>
