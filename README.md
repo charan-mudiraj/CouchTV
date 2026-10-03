@@ -1,0 +1,166 @@
+# CouchTV
+
+CouchTV turns a Windows mini PC into a TV box. The PC starts straight into a full-screen home screen with big tiles (Netflix, YouTube, Prime Video, JioHotstar, the web) that you drive with a remote. You never see the Windows desktop, Start menu, taskbar or notifications, and ads are blocked where a browser can block them.
+
+![Home screen](docs/home.png)
+
+---
+
+## The plan, and why it isn't a brand-new OS
+
+The slow start and the clutter come from the Windows *desktop layer*: Explorer, the taskbar, tray apps and everything that launches at sign-in. The kernel and drivers underneath are fine, and they're the part that makes your Ethernet, Bluetooth dongle and GPU work. So CouchTV replaces only that top layer. This is the same idea as Android TV, which is a TV launcher running on top of Android.
+
+I looked at swapping the whole OS. Every alternative loses on the thing you're about to pay for, which is Netflix:
+
+| Option | Netflix on this PC | Ad blocking | Verdict |
+|---|---|---|---|
+| **Windows + CouchTV** (this) | **Full HD** in Edge, or 4K with a 4K screen and a recent GPU. Officially supported. | Brave Shields for YouTube and free sites | Best picture, keeps all your drivers, fully reversible |
+| Android-x86 / Bliss OS ("Android box" feel) | Netflix refuses devices that aren't Google-certified, which a PC can't be. Where it does run, users report no HD. | YouTube needs extra apps | Looks right, but Netflix often won't play |
+| ChromeOS Flex | Web only (Flex has no Play Store), and Netflix keeps its best quality for real Chromebooks | Chrome extensions only | No Brave, no Android apps |
+| Linux / LibreELEC (Kodi) | 1080p at best, which Netflix says it "can't guarantee" | Brave works | Fastest boot, but Netflix is unsupported |
+
+If you ever want the genuine Android TV experience, a ₹3,000–5,000 streaming stick is certified for full-HD Netflix and beats putting Android on a PC. For this PC, Windows + CouchTV is the best fit.
+
+## What the installer changes
+
+- **Boots straight into CouchTV.** It becomes the Windows "shell" for your user, so Explorer, the taskbar and all start-up apps (OneDrive, Teams, tray icons) never load. That is faster and there's nothing to click by mistake.
+- **The power button sleeps instead of shutting down**, like a TV's standby. Waking takes about 2 seconds. A cold boot takes 15–30 seconds even on a fast SSD.
+- **No password on wake, and (optionally) automatic sign-in**, so you go from power button to home screen with no typing.
+- **Volume keys show a TV-style volume bar.** Windows normally draws that, but its usual code isn't running in TV mode.
+- **No pop-ups.** Notifications, "finish setting up your PC" screens and Windows Update restarts between 8 AM and 2 AM are switched off.
+- **Browser clean-up.** Edge and Brave skip their welcome, sign-in and sync screens, sidebars and crypto/VPN/AI prompts, and quit fully when you leave an app.
+
+Everything is undone by `Uninstall-CouchTV.cmd`.
+
+---
+
+## Install (about 10 minutes)
+
+1. **Copy this folder to the TV PC.** If both PCs use the same OneDrive account it is already there; otherwise use a USB stick.
+2. *(Optional)* Double-click **`Try-CouchTV.cmd`** to preview CouchTV full screen without installing anything. Press Alt+F4 to close it.
+3. Double-click **`Install-CouchTV.cmd`** and click **Yes** when Windows asks for administrator rights.
+   - Run it while signed in to the account the TV should use. TV mode only applies to that account.
+   - When it asks about **automatic sign-in**, say yes. A small Microsoft tool (Sysinternals Autologon) opens: type your Windows password and click *Enable*. For a Microsoft account, use the account password, not your PIN.
+4. Restart. The PC now starts into CouchTV.
+5. **First run:** open Netflix, Prime Video and JioHotstar once each and sign in, **ticking "Remember me"**. CouchTV's TV windows keep remembered logins but forget the rest when they close. YouTube and Web use your normal Brave, where you're probably signed in already.
+
+> **Plug in the remote's USB receiver before installing.** The installer lets USB keyboards and remotes wake the PC from sleep, and it can only see devices that are connected. If you buy the remote later, run the installer again.
+
+## Using it
+
+| Press | What happens |
+|---|---|
+| Arrow keys / remote D-pad | Move between tiles |
+| OK / Enter | Open the tile |
+| **Home** (house button), **hold Back**, or tap the Windows key | Close the app you're in and return to the home screen |
+| Back | Go back inside the app (browser back) |
+| Volume / Mute | Change volume, with an on-screen bar |
+| Power button (PC, or remotes whose power key sends Sleep) | Sleep / wake |
+| Air-mouse pointer or touchpad | Point and click works everywhere, including on tiles. A click right after using the arrows counts as OK. |
+| F5 on the home screen | Reload `couchtv.ini` after editing it |
+
+The **Settings & power** row has:
+
+- **Bluetooth**: Windows' *Add a device* wizard, for pairing headphones and speakers.
+- **Sound**: the classic Sound panel, to choose between speakers and headphones.
+- Display and Network.
+- A **sleep timer** (30/60/90/120 min; press it again to change it).
+- Sleep, Restart, Turn off and *Windows desktop*.
+
+When Windows has installed an update, the Restart button shows an orange dot and reads *Restart to update*.
+
+Display and Network open Windows' Settings app, which only runs while the desktop is running. In TV mode, CouchTV starts the desktop in the background first, which takes a few extra seconds. Restart to go back to TV-only mode.
+
+*Windows desktop* opens the normal desktop for maintenance (installing things, file management). Press Home to come back to CouchTV, and restart to return to pure TV mode.
+
+## Make it start fast
+
+1. **Use Sleep, not Turn off.** The remote's power button already does this after installing. Android boxes feel instant for the same reason: they almost never actually boot.
+2. **Check that it has an SSD.** In Task Manager → Performance → Disk, it should say *SSD*. If it says *HDD*, a ₹1,500–2,500 SSD is the biggest speed-up you can buy, bigger than anything software can do.
+3. **BIOS settings** (press Del or F2 while it starts): turn on *Fast Boot*, turn off *Network/PXE boot*, and enable *USB wake from S3/S4* (sometimes called *Wake on USB*, or disable *ErP*) so the remote can wake it.
+4. **Automatic sign-in** (the installer offers it).
+
+---
+
+## Customise: `C:\CouchTV\couchtv.ini`
+
+Open it in Notepad, save, and press **F5** on the home screen. Every option is explained at the top of the file. Common changes:
+
+**Add a tile**, for example a site you watch:
+
+```ini
+[Hoichoi]
+Type = web
+Url = https://www.hoichoi.tv
+Browser = edge
+Background = #E21D2E
+Foreground = #FFFFFF
+```
+
+- **Hide a tile:** add `Enabled = false`. SonyLIV, ZEE5, Spotify and *YouTube for TV* tiles are included but hidden.
+- **YouTube made for the remote:** set `Enabled = true` on the *YouTube for TV* tile. It's YouTube's TV interface, where you use the arrows and OK instead of pointing. Brave's built-in blocker misses its ads, though, so it's best paired with YouTube Premium Lite.
+- **Use your own tile art:** put a PNG in `C:\CouchTV\icons\` and add `Image = icons\name.png`.
+- **Bigger text on a website** (helpful from the sofa): `Scale = 1.25`.
+- **Remote's Home button does nothing?** Add the key it sends to `HomeKeys` in the `[CouchTV]` section, for example `HomeKeys = BrowserHome, Win, Hold:BrowserBack, F12`.
+- **Wallpaper:** `Wallpaper = C:\Users\Public\Pictures\beach.jpg`.
+- Kodi and VLC tiles appear by themselves if those programs are installed.
+
+**Which browser for what:** paid services (Netflix, Prime Video, JioHotstar) open in **Edge**. Edge is Netflix's best-supported Windows browser (up to 4K with HDR), while Brave isn't on Netflix's supported list, and paid plans have no ads for Brave to block anyway. Free, ad-supported sites (YouTube, the web) open in **Brave**, whose Shields block the ads.
+
+---
+
+## Streaming: what to pay for
+
+*India prices, checked 2 October 2026.*
+
+Netflix is a good call, and much better than pirate sites. Those sites earn their money from malicious ads and fake download buttons, and their servers disappear without warning. Legal streaming in India is cheap if you are choosy:
+
+| Service | Ad-free option | Price | Watch out for |
+|---|---|---|---|
+| **Netflix** | Standard: 1080p, 2 screens | ₹499/month | No ads on any Netflix plan in India. **Don't buy Mobile (₹149):** Netflix blocks it on PCs and TVs. Basic (₹199) is 720p; Premium (₹649) adds 4K. |
+| **JioHotstar** | Premium: up to 4K, 4 screens | ₹299/month or ₹2,199/year | Only Premium is ad-free, and live sports still carry ads. The ₹79 Mobile plan doesn't work in a browser. |
+| **Prime Video** | Prime plus the ad-free add-on | ₹1,499 + ₹699 per year | Prime has shown ads since June 2025 unless you buy the add-on. Computers get HD, not 4K. |
+| **YouTube** | Premium Lite / Premium | ₹89 / ₹149 per month | Optional, since Brave already blocks ads on the normal site. Lite removes ads from most videos (not music or Shorts), including in the remote-friendly *YouTube for TV* tile. |
+
+What I'd do:
+
+1. **Rotate instead of stacking.** None of these has a contract. Take one service for a month or two, watch what you wanted, cancel, and switch. One subscription at a time costs less than a cable connection.
+2. **Pick by what you watch.** Netflix for international series and films. JioHotstar Premium for Indian TV serials, HBO and Disney shows, and cricket, though sports have ads on every plan.
+3. **Check your broadband plan.** Indian fibre plans (JioFiber, Airtel Xstream and others) often bundle these subscriptions for less.
+4. **Keep Brave for YouTube.** If YouTube's ad-blocker crackdowns get annoying, or you want the remote-friendly TV interface without ads, Premium Lite at ₹89 covers both.
+
+## Remote
+
+Get one with a **2.4 GHz USB receiver**, not a Bluetooth-only one. The receiver works the moment it's plugged in, and it's the only way the microphone works on Windows. Bluetooth voice remotes send voice in an Android TV format that Windows can't use.
+
+| | Remote | Price (Amazon.in, 2 Oct 2026) | Why |
+|---|---|---|---|
+| **Best value** | [G10S air-mouse voice remote, 2.4G](https://www.amazon.in/dp/B0CST4SC2M) ([another seller](https://www.amazon.in/dp/B0F3XCYN7Y)) | ₹440–550 | OK sends a real Enter, its power button puts the PC to sleep, and Windows sees its mic. No backlight. Its single Home/Back button only sends Back, so **hold Back** to go Home. |
+| **One device for everything** | ["MX3" air-mouse voice remote with backlit keyboard, 2.4G](https://www.amazon.in/dp/B0C7RKVPYJ) | ≈ ₹3,060 | Separate Home and Back buttons, plus a lit QWERTY keyboard on the back for passwords and search, so it can replace your mini keyboard. Its power button is infrared-only and can't sleep the PC (use the Sleep tile). Its mic hasn't been confirmed on Windows. |
+| Skip | G20S Pro | ₹5,200+ | Popular, but sold in India at about 8× its factory price. On Windows, its OK button only works when air-mouse mode is on. |
+
+- **Rii MX6**, the classic home-theatre-PC remote, is out of stock in India right now. If it comes back at around ₹2,500, it's a good choice too.
+- **Voice, honestly:** on Windows the mic is just a microphone. It won't open Google Assistant. You can dictate with Windows voice typing (Win+H) in desktop mode, or use a website's own mic button. If voice search is a must-have, that's the one thing a real Android TV / Fire TV stick does better.
+- **Air-mouse mode** turns OK into a mouse click on many of these remotes. CouchTV handles that: after you've used the arrows, a click means OK on the highlighted tile.
+- **Waking the PC with the remote** isn't guaranteed for any model. It needs USB wake enabled in the BIOS (see *Make it start fast*), and the installer re-run with the receiver plugged in.
+- These are generic remotes and quality varies by batch (Indian buyers report some dead mics), so buy from a seller with easy returns.
+
+---
+
+## Troubleshooting and undo
+
+- **Black screen after restarting.** Press **Ctrl+Shift+Esc** to open Task Manager, choose **Run new task**, type `C:\CouchTV\Uninstall-CouchTV.cmd` and press Enter. Typing `explorer` instead brings the desktop back for this session only. For extra safety, keep a second administrator account on the PC: TV mode only applies to the account you installed it for.
+- **The desktop appears for a few seconds before CouchTV.** Windows ignored the shell setting, so CouchTV is starting in its fallback mode on top of the desktop. Everything still works; start-up is just slower.
+- **The *YouTube for TV* tile shows ads.** That's expected: Brave's built-in blocker misses ads on YouTube's TV interface. Use the normal YouTube tile, or YouTube Premium Lite.
+- **The *YouTube for TV* tile shows the normal website.** Google sometimes changes which devices its TV page accepts. Try the other user agent listed above that tile in `couchtv.ini`.
+- **Netflix looks soft.** Check that the tile says *Opens in Edge*, and that your plan includes 1080p. Basic is 720p, and the Mobile plan doesn't work on a PC at all.
+- **A remote button does nothing.** See the `HomeKeys` tip above. `C:\CouchTV\CouchTV.exe --selftest report.txt` writes a report of what CouchTV detects, and the log is at `%LOCALAPPDATA%\CouchTV\couchtv.log`.
+- **Uninstall:** run *Exit TV mode* from the Start menu (in desktop mode) or `C:\CouchTV\Uninstall-CouchTV.cmd`, then restart. It removes everything the installer set, and asks before deleting files and saved logins.
+
+## How it works
+
+- `src/` holds a small WPF app (C#), compiled on the PC by the C# compiler that ships inside Windows. Nothing gets downloaded and there is no runtime to install. It uses about 110 MB of RAM, less than Explorer and the start-up apps it replaces.
+- The installer registers it as the shell for your user only (`HKCU\...\Winlogon\Shell`), plus a sign-in fallback. If CouchTV ever crashes, it starts the normal desktop so you're never stuck.
+- Web tiles open as full-screen browser "app" windows (no tabs or address bar). The paid services share a separate CouchTV profile in Edge, while YouTube and Web use your normal Brave profile. CouchTV deliberately avoids Edge's *kiosk* mode, which browses privately and would log you out of Netflix every time.
+- In TV mode, the Home key closes the open app window, the way a TV leaves an app, then shows the home screen.
+- `scripts/build.ps1` builds it, `scripts/install.ps1 -DryRun` previews every change without making it, and `CouchTV.exe --screenshot out.png` renders the home screen to an image.
