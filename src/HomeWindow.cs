@@ -25,6 +25,7 @@ namespace CouchTV
         public bool Preview;          // offscreen render for screenshots: no window, timers or hotkeys
         public bool Windowed;         // small corner window, for smoke tests
         public int ExitAfterSeconds;  // close by itself, for smoke tests
+        public string StartupMessage; // shown once the home screen is up (e.g. after an update)
     }
 
     /// <summary>One tile on the home screen plus the visuals that change with focus.</summary>
@@ -46,7 +47,7 @@ namespace CouchTV
 
         const double DesignW = 1920, DesignH = 1080, Side = 112;
         const double TileW = 300, TileH = 170, TileGap = 40, RingPad = 8;
-        const double SysW = 168, SysGap = 16, DiscSize = 104;
+        const double SysW = 150, SysGap = 8, DiscSize = 104;
         const int VolumeUpId = 101, VolumeDownId = 102, MuteId = 103;
 
         Config _cfg;
@@ -112,7 +113,16 @@ namespace CouchTV
             MouseMove += OnMouseMove;
             PreviewMouseLeftButtonUp += OnClick;
             PreviewMouseRightButtonUp += OnRightClick;
-            Loaded += (s, e) => { if (!_opt.Windowed) { Activate(); Shell.ForceForeground(_hwnd); } Keyboard.Focus(this); };
+            Loaded += (s, e) =>
+            {
+                if (!_opt.Windowed)
+                {
+                    Activate();
+                    Shell.ForceForeground(_hwnd);
+                }
+                Keyboard.Focus(this);
+                if (_opt.StartupMessage != null) Toast(_opt.StartupMessage);
+            };
             Activated += (s, e) => { UpdateNetwork(); Keyboard.Focus(this); };
             Deactivated += (s, e) => HideLaunch();      // the app is in front now
             SystemEvents.DisplaySettingsChanged += OnDisplayChanged;
@@ -123,6 +133,7 @@ namespace CouchTV
             _timer.Tick += OnTick;
             _timer.Start();
             StartRemote();
+            StartUpdateChecks();
 
             if (_opt.ExitAfterSeconds > 0)
             {
@@ -203,8 +214,12 @@ namespace CouchTV
             pillRow.Children.Add(_netDot);
             pillRow.Children.Add(_net);
             pill.Child = pillRow;
+            pill.Margin = new Thickness(0);
+            var pills = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 18, 0, 0) };
+            pills.Children.Add(_updatePill = BuildUpdatePill());
+            pills.Children.Add(pill);
             right.Children.Add(_date);
-            right.Children.Add(pill);
+            right.Children.Add(pills);
             Canvas.SetRight(right, Side);
             Canvas.SetTop(right, 86);
             _stage.Children.Add(right);
@@ -289,7 +304,7 @@ namespace CouchTV
             _launchText.Margin = new Thickness(0, 36, 0, 0);
             _launchText.HorizontalAlignment = HorizontalAlignment.Center;
             column.Children.Add(_launchText);
-            TextBlock hint = Theme.Text("Press Home on the remote (or hold Back) to come back here", 24, Theme.Muted, FontWeights.Normal);
+            TextBlock hint = _launchHint = Theme.Text(LaunchHintText, 24, Theme.Muted, FontWeights.Normal);
             hint.Margin = new Thickness(0, 14, 0, 0);
             hint.HorizontalAlignment = HorizontalAlignment.Center;
             column.Children.Add(hint);
@@ -355,6 +370,14 @@ namespace CouchTV
                 TileView v = MakeAppTile(t);
                 _apps.Add(v);
                 _appsRow.Children.Add(v.Root);
+            }
+            if (_appUpdate != null)
+            {
+                TileView update = MakeSystemTile(UpdateTile);
+                update.Badge.Fill = Theme.Brush(Theme.Good);
+                update.Badge.Visibility = Visibility.Visible;
+                _sys.Add(update);
+                _sysRow.Children.Add(update.Root);
             }
             foreach (Tile t in _cfg.SystemTiles)
             {
@@ -611,6 +634,11 @@ namespace CouchTV
             Key key = e.Key == Key.System ? e.SystemKey : e.Key;
             if (key == Key.F4 && (Keyboard.Modifiers & ModifierKeys.Alt) != 0) return;   // let Alt+F4 reach OnClosing
             UsingKeys();
+            if (_updating)
+            {
+                e.Handled = true;
+                return;
+            }
 
             if (SetupOpen)
             {
@@ -651,6 +679,7 @@ namespace CouchTV
                     break;
                 case Key.F2: OpenRemoteSetup(); break;
                 case Key.F5: Reload(); break;
+                case Key.F6: CheckForUpdates(true); break;
                 case Key.Escape:
                 case Key.BrowserBack:
                 case Key.Back:
@@ -772,6 +801,9 @@ namespace CouchTV
                     break;
                 case "remote":
                     OpenRemoteSetup();
+                    break;
+                case "update":
+                    AskToUpdate();
                     break;
                 default:
                     Toast("Unknown action '" + t.Action + "' in couchtv.ini");
@@ -943,6 +975,7 @@ namespace CouchTV
         void ShowLaunch(Tile t)
         {
             _launchText.Text = "Opening " + t.Label + "…";
+            _launchHint.Text = LaunchHintText;
             _launch.Visibility = Visibility.Visible;
             _launchUntil = DateTime.Now.AddSeconds(25);
             if (!_opt.Preview)
@@ -951,7 +984,7 @@ namespace CouchTV
 
         void HideLaunch()
         {
-            if (_launch.Visibility != Visibility.Visible) return;
+            if (_updating || _launch.Visibility != Visibility.Visible) return;
             _launch.Visibility = Visibility.Collapsed;
             _spin.BeginAnimation(RotateTransform.AngleProperty, null);
         }
@@ -1071,6 +1104,7 @@ namespace CouchTV
             if (e.Mode != PowerModes.Resume) return;
             Dispatcher.BeginInvoke(new Action(() =>
             {
+                CheckForUpdatesSoon(45);
                 UpdateClock();
                 UpdateNetwork();
             }));
@@ -1317,6 +1351,21 @@ namespace CouchTV
             if (state.Contains("toast")) Toast("Brave isn't installed, so this opened in Edge");
             if (state.Contains("launch") && _apps.Count > 0) ShowLaunch(_apps[0].Tile);
             if (state.Contains("confirm")) RunAction(new Tile { Kind = TileKind.Action, Action = "shutdown" });
+            if (state.Contains("appupdate"))
+            {
+                SetAppUpdate(new AppUpdateInfo { Sha = "9f1c2ab0000000000000000000000000000000000", Message = "Add a sleep timer button to the phone remote", Date = DateTime.Now.AddMinutes(-12), NewCommits = 3 });
+                RefreshFocus(false);
+            }
+            if (state.Contains("updating"))
+            {
+                _updating = true;
+                ShowUpdateProgress("Building the new version");
+            }
+            if (state.Contains("askupdate"))
+            {
+                SetAppUpdate(new AppUpdateInfo { Sha = "9f1c2ab0000000000000000000000000000000000", Message = "Add a sleep timer button to the phone remote", Date = DateTime.Now.AddMinutes(-12), NewCommits = 3 });
+                AskToUpdate();
+            }
             if (state.Contains("setup"))
             {
                 OpenRemoteSetup();

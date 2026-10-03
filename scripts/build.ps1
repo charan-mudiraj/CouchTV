@@ -20,6 +20,9 @@ $references = @(
     (Join-Path $framework 'WPF\PresentationCore.dll'),
     (Join-Path $framework 'WPF\WindowsBase.dll'),
     (Join-Path $framework 'System.Xaml.dll'),
+    (Join-Path $framework 'System.Web.Extensions.dll'),
+    (Join-Path $framework 'System.IO.Compression.dll'),
+    (Join-Path $framework 'System.IO.Compression.FileSystem.dll'),
     'System.dll'
 )
 $cscArgs = @('/nologo', '/target:winexe', '/platform:anycpu', '/optimize+', '/codepage:65001', "/out:$exe",

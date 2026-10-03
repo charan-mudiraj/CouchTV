@@ -129,14 +129,20 @@ namespace CouchTV
             }
         }
 
+        /// <summary>Parses "IR,&lt;code&gt;,&lt;N|R&gt;" from the receiver; null for anything else.</summary>
+        public static IrSignal ParseLine(string line)
+        {
+            if (!line.StartsWith("IR,")) return null;
+            int last = line.LastIndexOf(',');
+            if (last <= 3) return null;
+            var signal = new IrSignal { Code = line.Substring(3, last - 3).Trim(), IsRepeat = line.Substring(last + 1).Trim() == "R" };
+            return signal.Code.Length == 0 ? null : signal;
+        }
+
         void Handle(string line)
         {
-            // IR,<code>,<N|R>
-            if (!line.StartsWith("IR,")) return;
-            int last = line.LastIndexOf(',');
-            if (last <= 3) return;
-            var signal = new IrSignal { Code = line.Substring(3, last - 3).Trim(), IsRepeat = line.Substring(last + 1).Trim() == "R" };
-            if (signal.Code.Length == 0) return;
+            IrSignal signal = ParseLine(line);
+            if (signal == null) return;
             _ui.BeginInvoke(new Action(() =>
             {
                 Action<IrSignal> handler = Signal;

@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">CouchTV Remote</string>
+    <string name="title">CouchTV</string>
+    <string name="ready">Point the top of the phone at the TV</string>
+    <string name="no_ir">This phone has no IR blaster, so it can\'t send to the TV.</string>
+    <string name="no_38khz">This phone\'s IR blaster can\'t send at 38 kHz, so the TV may not hear it.</string>
+
+    <string name="apps">Apps</string>
+    <string name="app_netflix">Netflix</string>
+    <string name="app_youtube">YouTube</string>
+    <string name="app_prime">Prime Video</string>
+    <string name="app_hotstar">JioHotstar</string>
+    <string name="app_web">Web</string>
+
+    <string name="power">Power</string>
+    <string name="back">Back (hold for Home)</string>
+    <string name="home">Home</string>
+    <string name="menu">Menu</string>
+    <string name="volume_down">Volume down</string>
+    <string name="mute">Mute</string>
+    <string name="volume_up">Volume up</string>
+    <string name="play_pause">Play or pause</string>
+    <string name="key_exit">Exit</string>
+    <string name="key_full_screen">Full screen</string>
+    <string name="key_sleep_timer">Sleep timer</string>
+    <string name="key_delete">Delete</string>
+
+    <string name="pointer">Pointer</string>
+    <string name="click">Click</string>
+    <string name="scroll_up">Scroll up</string>
+    <string name="right_click">Right click</string>
+    <string name="scroll_down">Scroll down</string>
+
+    <string name="my_buttons">My buttons</string>
+    <string name="my_buttons_empty">Add buttons that send your own codes, then teach them to the TV.</string>
+    <string name="edit">Edit</string>
+    <string name="done">Done</string>
+    <string name="add_button_label">+ Add a button</string>
+
+    <string name="add_button">Add a button</string>
+    <string name="edit_button">Edit button</string>
+    <string name="button_name">Name</string>
+    <string name="command_hint">Command (hex; 60 to FF are free)</string>
+    <string name="address_hint">Address (hex; CE is CouchTV)</string>
+    <string name="custom_help">After saving, teach the TV what it does: Settings &amp; power &gt; Remote on the TV, or a line in remote.ini.</string>
+    <string name="save">Save</string>
+    <string name="cancel">Cancel</string>
+    <string name="delete">Delete</string>
+    <string name="ok">OK</string>
+    <string name="need_name">Give it a name</string>
+    <string name="need_hex">Two hex digits, 00 to FF</string>
+    <string name="teach_tv_title">Now teach the TV</string>
+    <string name="teach_tv_message">“%1$s” sends %2$s.\n\nOn the TV, open Settings &amp; power &gt; Remote and press this button when you reach the action you want. Or add a line to remote.ini, for example:\n\n%2$s = key:M</string>
+</resources>

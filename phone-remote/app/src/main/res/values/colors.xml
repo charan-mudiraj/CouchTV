@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Matches the CouchTV home screen. -->
+<resources>
+    <color name="background">#0B0E14</color>
+    <color name="surface">#1C222D</color>
+    <color name="surface_raised">#262D3A</color>
+    <color name="surface_pressed">#3A4458</color>
+    <color name="ink">#F4F6FA</color>
+    <color name="muted">#A3ACBC</color>
+    <color name="good">#3DDC84</color>
+    <color name="power">#E5484D</color>
+    <color name="power_pressed">#B8353A</color>
+    <color name="netflix">#E50914</color>
+    <color name="youtube">#FF1A1A</color>
+    <color name="prime">#00A8E1</color>
+    <color name="hotstar">#1C2B7A</color>
+    <color name="web">#FB542B</color>
+</resources>

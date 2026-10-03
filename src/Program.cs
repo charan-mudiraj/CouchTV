@@ -16,6 +16,10 @@ namespace CouchTV
             {
                 string shot = Arg(args, "--screenshot");
                 if (shot != null) return Diagnostics.Screenshot(args, shot);
+                string updateTest = Arg(args, "--updatetest");
+                if (updateTest != null) return Diagnostics.UpdateTest(args, updateTest);
+                string remoteTest = Arg(args, "--remotetest");
+                if (remoteTest != null) return Diagnostics.RemoteTest(remoteTest);
                 string report = Arg(args, "--selftest");
                 if (report != null) return Diagnostics.SelfTest(report);
 
@@ -42,7 +46,11 @@ namespace CouchTV
                     e.Handled = true;
                 };
 
-                var options = new HomeOptions { Windowed = Has(args, "--windowed") };
+                var options = new HomeOptions
+                {
+                    Windowed = Has(args, "--windowed"),
+                    StartupMessage = HomeWindow.StartupMessageFor(Has(args, "--updated"), Has(args, "--update-failed")),
+                };
                 string exitAfter = Arg(args, "--exit-after");
                 if (exitAfter != null) int.TryParse(exitAfter, out options.ExitAfterSeconds);
 

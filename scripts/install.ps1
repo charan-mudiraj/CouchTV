@@ -55,6 +55,26 @@ function Ask([string]$question) {
     return ($answer -eq '' -or $answer -match '^(y|yes)$')
 }
 
+# The commit this folder was checked out at, read straight from .git (git itself may not be installed).
+function Get-SourceCommit {
+    $git = Join-Path $root '.git'
+    $headFile = Join-Path $git 'HEAD'
+    if (-not (Test-Path $headFile)) { return $null }
+    $head = (Get-Content $headFile -TotalCount 1).Trim()
+    if ($head -match '^[0-9a-f]{40}$') { return $head }
+    if ($head -notmatch '^ref: (.+)$') { return $null }
+    $ref = $Matches[1]
+    $refFile = Join-Path $git $ref
+    if (Test-Path $refFile) { return (Get-Content $refFile -TotalCount 1).Trim() }
+    $packed = Join-Path $git 'packed-refs'
+    if (Test-Path $packed) {
+        foreach ($line in Get-Content $packed) {
+            if ($line -match ('^([0-9a-f]{40}) ' + [regex]::Escape($ref) + '$')) { return $Matches[1] }
+        }
+    }
+    return $null
+}
+
 function Find-File([string[]]$candidates) {
     foreach ($candidate in $candidates) { if ($candidate -and (Test-Path $candidate)) { return $candidate } }
     return $null
@@ -97,6 +117,15 @@ Apply 'Copy the uninstaller and README' {
     Copy-Item (Join-Path $PSScriptRoot 'uninstall.ps1') $InstallDir -Force
     Copy-Item (Join-Path $root 'Uninstall-CouchTV.cmd') $InstallDir -Force
     Copy-Item (Join-Path $root 'README.md') $InstallDir -Force
+}
+
+# Updates: version.txt says which commit is installed; CouchTV compares it with GitHub. An unknown version
+# simply means the first check offers the latest one.
+$commit = Get-SourceCommit
+$versionLabel = if ($commit) { $commit.Substring(0, 7) } else { 'unknown' }
+Apply "Record the installed version ($versionLabel)" {
+    $lines = @($(if ($commit) { $commit } else { 'unknown' }), "Installed from $root")
+    Set-Content -Path (Join-Path $InstallDir 'version.txt') -Value $lines -Encoding ASCII
 }
 
 # ------------------------------------------------------------------ browsers

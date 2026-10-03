@@ -58,12 +58,14 @@ Everything is undone by `Uninstall-CouchTV.cmd`.
 | Power button (PC, or remotes whose power key sends Sleep) | Sleep / wake |
 | Air-mouse pointer or touchpad | Point and click works everywhere, including on tiles. A click right after using the arrows counts as OK. |
 | F5 on the home screen | Reload `couchtv.ini` after editing it |
+| F6 on the home screen | Check for a CouchTV update now |
 
 The **Settings & power** row has:
 
 - **Bluetooth**: Windows' *Add a device* wizard, for pairing headphones and speakers.
 - **Sound**: the classic Sound panel, to choose between speakers and headphones.
 - Display and Network.
+- **Remote**: set up an infrared remote (see *Remote* below). F2 also opens it.
 - A **sleep timer** (30/60/90/120 min; press it again to change it).
 - Sleep, Restart, Turn off and *Windows desktop*.
 
@@ -129,21 +131,31 @@ What I'd do:
 3. **Check your broadband plan.** Indian fibre plans (JioFiber, Airtel Xstream and others) often bundle these subscriptions for less.
 4. **Keep Brave for YouTube.** If YouTube's ad-blocker crackdowns get annoying, or you want the remote-friendly TV interface without ads, Premium Lite at ₹89 covers both.
 
-## Remote
+## Remote: your phone, plus any IR remote
 
-Get one with a **2.4 GHz USB receiver**, not a Bluetooth-only one. The receiver works the moment it's plugged in, and it's the only way the microphone works on Windows. Bluetooth voice remotes send voice in an Android TV format that Windows can't use.
+CouchTV works with **any infrared remote** through **CouchIR**, a ₹500 USB receiver you build in about 15 minutes with no soldering. That includes the remote app for your Mi phone's IR blaster, an old TV remote, or one you buy later.
 
-| | Remote | Price (Amazon.in, 2 Oct 2026) | Why |
-|---|---|---|---|
-| **Best value** | [G10S air-mouse voice remote, 2.4G](https://www.amazon.in/dp/B0CST4SC2M) ([another seller](https://www.amazon.in/dp/B0F3XCYN7Y)) | ₹440–550 | OK sends a real Enter, its power button puts the PC to sleep, and Windows sees its mic. No backlight. Its single Home/Back button only sends Back, so **hold Back** to go Home. |
-| **One device for everything** | ["MX3" air-mouse voice remote with backlit keyboard, 2.4G](https://www.amazon.in/dp/B0C7RKVPYJ) | ≈ ₹3,060 | Separate Home and Back buttons, plus a lit QWERTY keyboard on the back for passwords and search, so it can replace your mini keyboard. Its power button is infrared-only and can't sleep the PC (use the Sleep tile). Its mic hasn't been confirmed on Windows. |
-| Skip | G20S Pro | ₹5,200+ | Popular, but sold in India at about 8× its factory price. On Windows, its OK button only works when air-mouse mode is on. |
+- **Shopping list:** everything is from one store, quartzcomponents.com, for about ₹516 including free shipping.
+- **Build guide:** wiring and firmware are in **[ir-receiver/README.md](ir-receiver/README.md)**.
+- **Teaching it a remote:** open **Settings & power → Remote** (or press F2) and press each button when asked. Mappings are saved in `C:\CouchTV\remote.ini`, and several remotes can be set up at once.
+- **The phone remote app** for Mi phones with an IR blaster is in **[phone-remote/](phone-remote/README.md)**: open it in Android Studio and press Run. Its codes are already mapped, so it works with no setup. The signal format is in [ir-receiver/PROTOCOL.md](ir-receiver/PROTOCOL.md).
+- **Waking from sleep:** buttons you map to **Power** are stored on the receiver, so they can wake the PC from sleep.
 
-- **Rii MX6**, the classic home-theatre-PC remote, is out of stock in India right now. If it comes back at around ₹2,500, it's a good choice too.
-- **Voice, honestly:** on Windows the mic is just a microphone. It won't open Google Assistant. You can dictate with Windows voice typing (Win+H) in desktop mode, or use a website's own mic button. If voice search is a must-have, that's the one thing a real Android TV / Fire TV stick does better.
-- **Air-mouse mode** turns OK into a mouse click on many of these remotes. CouchTV handles that: after you've used the arrows, a click means OK on the highlighted tile.
-- **Waking the PC with the remote** isn't guaranteed for any model. It needs USB wake enabled in the BIOS (see *Make it start fast*), and the installer re-run with the receiver plugged in.
-- These are generic remotes and quality varies by batch (Indian buyers report some dead mics), so buy from a seller with easy returns.
+Inside apps, remote buttons act as real keys (arrows, Enter, Back, Space for play/pause), so they work in Netflix and YouTube too. Holding Back goes Home, and there are buttons that jump straight into a tile.
+
+---
+
+## Updates
+
+CouchTV keeps itself up to date from the `main` branch of [github.com/charan-mudiraj/CouchTV](https://github.com/charan-mudiraj/CouchTV).
+
+- **Push to `main`, and the TV notices.** It checks every 10 minutes and shortly after waking from sleep. The header then shows *Update available*, an **Update** tile appears at the front of Settings & power, and a short message names the commit. Press **F6** on the home screen to check straight away.
+- **Select Update and confirm.** CouchTV downloads that commit, builds it on the TV and test-draws the new home screen before anything is replaced. Then it restarts into the new version (the screen goes dark for a few seconds) and tells you what changed.
+- **It's safe to press.** If the download or build fails, nothing changes. If installing the files fails, the previous version is put back automatically. Details are in `%LOCALAPPDATA%\CouchTV\update.log`.
+- **Your settings stay yours.** `couchtv.ini` and `remote.ini` are never overwritten. Each update saves the new defaults next to them as `couchtv.default.ini` and `remote.default.ini`, so you can copy new options across.
+- **Only CouchTV itself updates.** If a change touches the installer (Windows settings, browser policies), run `Install-CouchTV.cmd` again.
+- The installed commit is in `C:\CouchTV\version.txt`. Set `Updates = off` in `couchtv.ini` to stop checking, or use `UpdateRepo` / `UpdateBranch` to follow a fork or another branch.
+- Anyone who can push to `main` can change what runs on the TV, so keep two-factor sign-in on your GitHub account.
 
 ---
 
@@ -154,11 +166,14 @@ Get one with a **2.4 GHz USB receiver**, not a Bluetooth-only one. The receiver 
 - **The *YouTube for TV* tile shows ads.** That's expected: Brave's built-in blocker misses ads on YouTube's TV interface. Use the normal YouTube tile, or YouTube Premium Lite.
 - **The *YouTube for TV* tile shows the normal website.** Google sometimes changes which devices its TV page accepts. Try the other user agent listed above that tile in `couchtv.ini`.
 - **Netflix looks soft.** Check that the tile says *Opens in Edge*, and that your plan includes 1080p. Basic is 720p, and the Mobile plan doesn't work on a PC at all.
-- **A remote button does nothing.** See the `HomeKeys` tip above. `C:\CouchTV\CouchTV.exe --selftest report.txt` writes a report of what CouchTV detects, and the log is at `%LOCALAPPDATA%\CouchTV\couchtv.log`.
+- **An IR remote button does nothing.** Open **Remote** in Settings & power. If the top right says *Receiver not found*, re-plug the receiver and close any Arduino Serial Monitor (only one program can use it). Otherwise run Remote setup again for that button.
+- **A USB remote or keyboard button does nothing.** See the `HomeKeys` tip above. `C:\CouchTV\CouchTV.exe --selftest report.txt` writes a report of what CouchTV detects, and the log is at `%LOCALAPPDATA%\CouchTV\couchtv.log`.
 - **Uninstall:** run *Exit TV mode* from the Start menu (in desktop mode) or `C:\CouchTV\Uninstall-CouchTV.cmd`, then restart. It removes everything the installer set, and asks before deleting files and saved logins.
 
 ## How it works
 
+- `ir-receiver/` has the CouchIR receiver firmware (Arduino), its build guide and the phone remote's signal format. CouchTV talks to the receiver over USB serial: it finds it by itself, reconnects after sleep or unplugging, and turns each button into a key press or action.
+- Updates: `src/AppUpdate.cs` checks GitHub's API for the newest commit (only offering commits newer than the installed one), then downloads, builds and start-checks it; `scripts/apply-update.ps1` swaps the files after CouchTV exits and rolls back on failure. `CouchTV.exe --updatetest report.txt [--prepare]` exercises all of that without installing.
 - `src/` holds a small WPF app (C#), compiled on the PC by the C# compiler that ships inside Windows. Nothing gets downloaded and there is no runtime to install. It uses about 110 MB of RAM, less than Explorer and the start-up apps it replaces.
 - The installer registers it as the shell for your user only (`HKCU\...\Winlogon\Shell`), plus a sign-in fallback. If CouchTV ever crashes, it starts the normal desktop so you're never stuck.
 - Web tiles open as full-screen browser "app" windows (no tabs or address bar). The paid services share a separate CouchTV profile in Edge, while YouTube and Web use your normal Brave profile. CouchTV deliberately avoids Edge's *kiosk* mode, which browses privately and would log you out of Netflix every time.

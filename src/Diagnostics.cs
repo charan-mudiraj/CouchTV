@@ -46,6 +46,87 @@ namespace CouchTV
             return 0;
         }
 
+        /// <summary>
+        /// CouchTV.exe --updatetest report.txt [--installed sha] [--prepare]: checks GitHub as if the given commit were
+        /// installed, and with --prepare also downloads, builds and start-checks the update (without installing it).
+        /// </summary>
+        public static int UpdateTest(string[] args, string path)
+        {
+            var report = new StringBuilder();
+            Config cfg = Config.Load();
+            string installed = Program.Arg(args, "--installed");
+            int code = 0;
+            try
+            {
+                report.AppendLine("Repo: " + cfg.UpdateRepo + " (" + cfg.UpdateBranch + "), installed: " + (installed ?? "unknown"));
+                AppUpdateInfo update = AppUpdate.Check(cfg.UpdateRepo, cfg.UpdateBranch, installed);
+                if (update == null) report.AppendLine("Result: up to date");
+                else report.AppendLine("Result: update " + update.Sha + " (" + update.NewCommits + " new) “" + update.Title + "” " + update.Date.ToString("u"));
+                AppUpdateInfo again = AppUpdate.Check(cfg.UpdateRepo, cfg.UpdateBranch, installed);   // exercises the not-modified path
+                report.AppendLine("Second check agrees: " + ((again == null) == (update == null)));
+                if (Program.Has(args, "--prepare") && update != null)
+                {
+                    PreparedUpdate prepared = AppUpdate.Prepare(cfg.UpdateRepo, update, step => report.AppendLine("  step: " + step));
+                    report.AppendLine("Prepared: source " + prepared.Source + ", build " + prepared.Build);
+                }
+            }
+            catch (Exception ex)
+            {
+                report.AppendLine("FAILED: " + ex.Message);
+                code = 1;
+            }
+            File.WriteAllText(path, report.ToString());
+            return code;
+        }
+
+        /// <summary>CouchTV.exe --remotetest report.txt: checks the remote-button logic without a receiver.</summary>
+        public static int RemoteTest(string path)
+        {
+            var report = new StringBuilder();
+            int failures = 0;
+            Action<string, bool> check = (name, ok) =>
+            {
+                report.AppendLine((ok ? "PASS  " : "FAIL  ") + name);
+                if (!ok) failures++;
+            };
+
+            IrSignal press = IrLink.ParseLine("IR,NEC 00CE 0001,N");
+            IrSignal held = IrLink.ParseLine("IR,Samsung 0707 0002,R");
+            check("parse a press", press != null && press.Code == "NEC 00CE 0001" && !press.IsRepeat);
+            check("parse a repeat", held != null && held.Code == "Samsung 0707 0002" && held.IsRepeat);
+            check("parse a universal-decoder code", IrLink.ParseLine("IR,PulseDistance 1A2B3C4D/48,N").Code == "PulseDistance 1A2B3C4D/48");
+            check("ignore other lines", IrLink.ParseLine("COUCHIR 1 0") == null && IrLink.ParseLine("OK") == null);
+
+            RemoteMap map = RemoteMap.FromText(Config.DefaultRemoteText());
+            check("phone remote: up", map.ActionFor("NEC 00CE 0001") == "up");
+            check("hand-typed code with extra spaces and lower case", map.ActionFor("nec  00ce   0001") == "up");
+            check("open a tile", map.ActionFor("NEC 00CE 0040") == "open:Netflix");
+            check("unknown button", map.ActionFor("Sony 0001 0015") == null);
+            check("one power button", map.CodesFor("power").Count == 1);
+            // Must match hashCode() in the receiver firmware (FNV-1a of the upper-cased code text).
+            report.AppendLine("      wake hash of 'NEC 00CE 0020' = " + IrLink.Hash("NEC 00CE 0020").ToString("X8"));
+
+            string file = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "couchtv-remote-test.ini");
+            File.WriteAllText(file, "; my comment\r\n[Buttons]\r\nNEC 00CE 0001 = up\r\nNEC 00CE 0002 = down\r\n");
+            RemoteMap saved = RemoteMap.LoadFile(file);
+            saved.Save(new List<KeyValuePair<string, string>>
+            {
+                new KeyValuePair<string, string>("Samsung 0707 0060", "up"),
+                new KeyValuePair<string, string>("NEC 00CE 0002", "volup"),
+            });
+            RemoteMap reread = RemoteMap.LoadFile(file);
+            string text = File.ReadAllText(file);
+            check("save: new remote added", reread.ActionFor("Samsung 0707 0060") == "up");
+            check("save: other buttons kept", reread.ActionFor("NEC 00CE 0001") == "up");
+            check("save: reassigned button replaced, not duplicated", reread.ActionFor("NEC 00CE 0002") == "volup" && text.IndexOf("= down") < 0);
+            check("save: comments kept", text.Contains("; my comment"));
+            File.Delete(file);
+
+            report.AppendLine(failures == 0 ? "All passed" : failures + " failed");
+            File.WriteAllText(path, report.ToString());
+            return failures == 0 ? 0 : 1;
+        }
+
         /// <summary>CouchTV.exe --selftest report.txt: what the launcher sees on this PC, without changing anything.</summary>
         public static int SelfTest(string path)
         {
@@ -79,6 +160,14 @@ namespace CouchTV
             foreach (Tile t in tiles)
                 report.AppendLine(string.Format("[{0}] {1,-16} {2,-8} {3}", t.IsSystem ? "system" : "apps  ", t.Label, t.Kind, Launcher.Describe(cfg, t)));
 
+            report.AppendLine("Installed: " + (AppUpdate.IsInstalled ? AppUpdate.InstalledLabel : "not installed (no version.txt), so no update checks") +
+                              "; updates from " + cfg.UpdateRepo + " (" + cfg.UpdateBranch + ")" + (cfg.Updates ? "" : ", turned off"));
+            try
+            {
+                AppUpdateInfo update = AppUpdate.Check(cfg.UpdateRepo, cfg.UpdateBranch, AppUpdate.InstalledSha);
+                report.AppendLine("Update: " + (update == null ? "none, up to date" : update.ShortSha + " “" + update.Title + "”"));
+            }
+            catch (Exception ex) { report.AppendLine("Update check failed: " + ex.Message); }
             string receiver = IrLink.Probe(cfg.RemotePort);
             report.AppendLine("IR receiver: " + (receiver ?? "not found (unplugged, or CouchTV is running and using it)"));
             RemoteMap remote = RemoteMap.Load();

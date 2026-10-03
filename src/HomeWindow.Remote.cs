@@ -68,6 +68,7 @@ namespace CouchTV
 
         void OnIrSignal(IrSignal signal)
         {
+            if (_updating) return;
             if (SetupOpen)
             {
                 SetupCapture(signal);

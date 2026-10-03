@@ -37,6 +37,8 @@ namespace CouchTV
         public readonly List<string> Warnings = new List<string>();
         public string Wallpaper;
         public string RemotePort;   // optional, e.g. COM5; normally the receiver is found by itself
+        public bool Updates = true;
+        public string UpdateRepo = "charan-mudiraj/CouchTV", UpdateBranch = "main";
         public string Source;
 
         public static string AppDir { get { return AppDomain.CurrentDomain.BaseDirectory; } }
@@ -75,6 +77,8 @@ namespace CouchTV
             using (var reader = new StreamReader(stream))
                 return reader.ReadToEnd();
         }
+
+        public static string DefaultRemoteText() { return RemoteMap.DefaultText(); }
 
         public static Config Parse(string text, string source)
         {
@@ -133,6 +137,9 @@ namespace CouchTV
             }
             Wallpaper = ResolvePath(Get(v, "Wallpaper", null));
             RemotePort = Get(v, "RemotePort", null);
+            Updates = GetBool(v, "Updates", true);
+            UpdateRepo = Get(v, "UpdateRepo", UpdateRepo);
+            UpdateBranch = Get(v, "UpdateBranch", UpdateBranch);
             foreach (string browser in new[] { "Brave", "Edge", "Chrome" })
             {
                 string path = Get(v, browser + "Path", null);

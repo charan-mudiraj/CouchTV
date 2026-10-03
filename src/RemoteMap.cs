@@ -36,6 +36,13 @@ namespace CouchTV
             return map;
         }
 
+        public static RemoteMap LoadFile(string path)
+        {
+            var map = new RemoteMap { _path = path };
+            map.Parse(File.ReadAllLines(path));
+            return map;
+        }
+
         public static RemoteMap FromText(string text)
         {
             var map = new RemoteMap();
@@ -43,7 +50,7 @@ namespace CouchTV
             return map;
         }
 
-        static string DefaultText()
+        internal static string DefaultText()
         {
             using (Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(ResourceName))
             using (var reader = new StreamReader(stream))

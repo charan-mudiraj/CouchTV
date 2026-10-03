@@ -1,0 +1,62 @@
+# Builds the CouchTV Remote Android app and publishes the APK, so no Android Studio is needed.
+# Download: https://github.com/charan-mudiraj/CouchTV/releases/download/phone-remote/CouchTV-Remote.apk
+name: Phone remote APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'phone-remote/**'
+      - '.github/workflows/phone-remote.yml'
+  workflow_dispatch:          # "Run workflow" button on the Actions tab
+
+permissions:
+  contents: write             # to update the download release
+
+concurrency:
+  group: phone-remote
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      # Reuse one signing key between builds, so a new APK installs over the old one.
+      # (GitHub drops caches unused for 7 days; after that, uninstall once before installing.)
+      - uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: couchtv-remote-debug-keystore
+
+      - name: Build
+        working-directory: phone-remote
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Name the APK
+        run: cp phone-remote/app/build/outputs/apk/debug/app-debug.apk CouchTV-Remote.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CouchTV-Remote
+          path: CouchTV-Remote.apk
+
+      - name: Publish to the download link
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete phone-remote --yes --cleanup-tag || true
+          gh release create phone-remote CouchTV-Remote.apk \
+            --target "$GITHUB_SHA" \
+            --title "CouchTV Remote (latest build)" \
+            --notes "Built from ${GITHUB_SHA::7}. On the phone, open this page, tap CouchTV-Remote.apk and install it."

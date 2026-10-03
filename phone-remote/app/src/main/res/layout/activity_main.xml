@@ -1,0 +1,322 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/background"
+    android:fillViewport="true"
+    android:fitsSystemWindows="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="20dp"
+        android:paddingTop="16dp"
+        android:paddingEnd="20dp"
+        android:paddingBottom="28dp">
+
+        <!-- Title, status and power -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="sans-serif-medium"
+                    android:text="@string/title"
+                    android:textColor="@color/ink"
+                    android:textSize="26sp" />
+
+                <TextView
+                    android:id="@+id/status"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:textColor="@color/muted"
+                    android:textSize="14sp" />
+            </LinearLayout>
+
+            <ImageButton
+                android:id="@+id/power"
+                android:layout_width="60dp"
+                android:layout_height="60dp"
+                android:background="@drawable/power_bg"
+                android:contentDescription="@string/power"
+                android:src="@drawable/ic_power"
+                android:stateListAnimator="@null" />
+        </LinearLayout>
+
+        <!-- App shortcuts -->
+        <TextView
+            style="@style/Section"
+            android:text="@string/apps" />
+
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/app_netflix"
+                    style="@style/AppChip"
+                    android:backgroundTint="@color/netflix"
+                    android:text="@string/app_netflix" />
+
+                <Button
+                    android:id="@+id/app_youtube"
+                    style="@style/AppChip"
+                    android:backgroundTint="@color/youtube"
+                    android:text="@string/app_youtube" />
+
+                <Button
+                    android:id="@+id/app_prime"
+                    style="@style/AppChip"
+                    android:backgroundTint="@color/prime"
+                    android:text="@string/app_prime" />
+
+                <Button
+                    android:id="@+id/app_hotstar"
+                    style="@style/AppChip"
+                    android:backgroundTint="@color/hotstar"
+                    android:text="@string/app_hotstar" />
+
+                <Button
+                    android:id="@+id/app_web"
+                    style="@style/AppChip"
+                    android:backgroundTint="@color/web"
+                    android:text="@string/app_web" />
+            </LinearLayout>
+        </HorizontalScrollView>
+
+        <!-- D-pad -->
+        <com.couchtv.remote.DpadView
+            android:id="@+id/dpad"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="28dp" />
+
+        <!-- Back, Home, Menu -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="-5dp"
+            android:layout_marginTop="24dp"
+            android:layout_marginEnd="-5dp"
+            android:orientation="horizontal">
+
+            <ImageButton
+                android:id="@+id/back"
+                style="@style/RemoteKey"
+                android:contentDescription="@string/back"
+                android:src="@drawable/ic_back" />
+
+            <ImageButton
+                android:id="@+id/home"
+                style="@style/RemoteKey"
+                android:contentDescription="@string/home"
+                android:src="@drawable/ic_home" />
+
+            <ImageButton
+                android:id="@+id/menu"
+                style="@style/RemoteKey"
+                android:contentDescription="@string/menu"
+                android:src="@drawable/ic_menu" />
+        </LinearLayout>
+
+        <!-- Volume and play/pause -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="-5dp"
+            android:layout_marginTop="10dp"
+            android:layout_marginEnd="-5dp"
+            android:orientation="horizontal">
+
+            <ImageButton
+                android:id="@+id/volume_down"
+                style="@style/RemoteKey"
+                android:contentDescription="@string/volume_down"
+                android:src="@drawable/ic_volume_down" />
+
+            <ImageButton
+                android:id="@+id/mute"
+                style="@style/RemoteKey"
+                android:contentDescription="@string/mute"
+                android:src="@drawable/ic_volume_off" />
+
+            <ImageButton
+                android:id="@+id/volume_up"
+                style="@style/RemoteKey"
+                android:contentDescription="@string/volume_up"
+                android:src="@drawable/ic_volume_up" />
+
+            <ImageButton
+                android:id="@+id/play_pause"
+                style="@style/RemoteKey"
+                android:contentDescription="@string/play_pause"
+                android:src="@drawable/ic_play_pause" />
+        </LinearLayout>
+
+        <!-- Exit, full screen, sleep timer, delete -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="-5dp"
+            android:layout_marginTop="10dp"
+            android:layout_marginEnd="-5dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/exit"
+                style="@style/RemoteKey.Text"
+                android:layout_width="0dp"
+                android:layout_height="56dp"
+                android:layout_marginStart="5dp"
+                android:layout_marginEnd="5dp"
+                android:layout_weight="1"
+                android:text="@string/key_exit" />
+
+            <Button
+                android:id="@+id/full_screen"
+                style="@style/RemoteKey.Text"
+                android:layout_width="0dp"
+                android:layout_height="56dp"
+                android:layout_marginStart="5dp"
+                android:layout_marginEnd="5dp"
+                android:layout_weight="1"
+                android:text="@string/key_full_screen" />
+
+            <Button
+                android:id="@+id/sleep_timer"
+                style="@style/RemoteKey.Text"
+                android:layout_width="0dp"
+                android:layout_height="56dp"
+                android:layout_marginStart="5dp"
+                android:layout_marginEnd="5dp"
+                android:layout_weight="1"
+                android:text="@string/key_sleep_timer" />
+
+            <Button
+                android:id="@+id/delete"
+                style="@style/RemoteKey.Text"
+                android:layout_width="0dp"
+                android:layout_height="56dp"
+                android:layout_marginStart="5dp"
+                android:layout_marginEnd="5dp"
+                android:layout_weight="1"
+                android:text="@string/key_delete" />
+        </LinearLayout>
+
+        <!-- Pointer: hold a direction to move, the middle clicks -->
+        <TextView
+            style="@style/Section"
+            android:text="@string/pointer" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <com.couchtv.remote.DpadView
+                android:id="@+id/pointer"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1.3" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="14dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <Button
+                    android:id="@+id/scroll_up"
+                    style="@style/RemoteKey.Text"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:text="@string/scroll_up" />
+
+                <Button
+                    android:id="@+id/right_click"
+                    style="@style/RemoteKey.Text"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="10dp"
+                    android:text="@string/right_click" />
+
+                <Button
+                    android:id="@+id/scroll_down"
+                    style="@style/RemoteKey.Text"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="10dp"
+                    android:text="@string/scroll_down" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Your own buttons -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                style="@style/Section"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:text="@string/my_buttons" />
+
+            <TextView
+                android:id="@+id/edit_buttons"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="18dp"
+                android:fontFamily="sans-serif-medium"
+                android:padding="10dp"
+                android:text="@string/edit"
+                android:textColor="@color/good"
+                android:textSize="15sp" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/my_buttons_empty"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:text="@string/my_buttons_empty"
+            android:textColor="@color/muted"
+            android:textSize="14sp" />
+
+        <LinearLayout
+            android:id="@+id/my_buttons"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+
+        <Button
+            android:id="@+id/add_button"
+            style="@style/RemoteKey.Text"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginTop="8dp"
+            android:text="@string/add_button_label"
+            android:textColor="@color/good" />
+    </LinearLayout>
+</ScrollView>
