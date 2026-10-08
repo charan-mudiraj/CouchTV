@@ -179,9 +179,90 @@ namespace CouchTV
             check("Search = <address> sets it", Launcher.SearchUrl(new Tile { Kind = TileKind.Web, Url = "https://x.example", Search = "https://x.example/find?w={q}" }, "a b") == "https://x.example/find?w=a%20b");
             check("apps without search are left out", Launcher.SearchTemplate(new Tile { Kind = TileKind.App, Exe = "vlc.exe" }) == null);
 
+            // ----- AI search, without the network: canned answers from Gemini and TMDB
+            string gemini = "{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"thinking...\",\"thought\":true},{\"text\":" +
+                "\"{\\\"intent\\\":\\\"watch\\\",\\\"title\\\":\\\"Panchayat\\\",\\\"kind\\\":\\\"tv\\\",\\\"year\\\":2020,\\\"season\\\":3," +
+                "\\\"search_text\\\":\\\"Panchayat\\\",\\\"apps\\\":[\\\"Prime Video\\\"],\\\"action\\\":\\\"none\\\",\\\"value\\\":0}\"}]},\"finishReason\":\"STOP\"}]}";
+            SearchIntent understood = SmartSearch.ParseIntent(SmartSearch.AnswerText(gemini));
+            check("AI answer: thought parts skipped, fields read", understood.Intent == "watch" && understood.Title == "Panchayat" && understood.Kind == "tv"
+                && understood.Year == 2020 && understood.Season == 3 && understood.Apps.Count == 1 && understood.Apps[0] == "Prime Video");
+
+            string tmdbSearch = "{\"results\":[{\"media_type\":\"movie\",\"id\":1,\"title\":\"Panchayat\",\"release_date\":\"2015-05-01\"}," +
+                "{\"media_type\":\"person\",\"id\":2,\"name\":\"Panchayat\"},{\"media_type\":\"tv\",\"id\":3,\"name\":\"Panchayat\",\"first_air_date\":\"2020-04-03\"}]}";
+            Dictionary<string, object> match = SmartSearch.BestMatch(tmdbSearch, understood);
+            check("TMDB: the 2020 series wins over a 2015 film of the same name", match != null && Convert.ToInt32(match["id"]) == 3);
+
+            string providers = "{\"results\":{\"US\":{\"flatrate\":[{\"provider_name\":\"Netflix\"}]},\"IN\":{" +
+                "\"flatrate\":[{\"provider_name\":\"Amazon Prime Video\"}],\"ads\":[{\"provider_name\":\"JioHotstar\"}],\"rent\":[{\"provider_name\":\"YouTube\"}]}}}";
+            List<KeyValuePair<Tile, string>> where = SmartSearch.ProvidersToApps(providers, defaults.AppTiles);
+            check("TMDB: India's providers map to tiles, streaming first, rentals left out",
+                where.Count == 2 && where[0].Key.Name == "Prime Video" && where[0].Value == "Streams here" && where[1].Key.Name == "JioHotstar");
+            check("TMDB: rent or buy only when nothing streams",
+                SmartSearch.ProvidersToApps("{\"results\":{\"IN\":{\"rent\":[{\"provider_name\":\"YouTube\"}]}}}", defaults.AppTiles).Count == 1);
+
+            var noKeys = new ApiKeys();
+            check("\"open netflix\" opens it", SmartSearch.OpenCommand("open netflix", defaults.AppTiles) == netflix);
+            check("\"youtube kholo\" opens it", SmartSearch.OpenCommand("youtube kholo", defaults.AppTiles) == youtube);
+            check("\"open season\" isn't an app", SmartSearch.OpenCommand("open season", defaults.AppTiles) == null);
+            SearchPlan direct = SmartSearch.Plan("Netflix", defaults, noKeys);
+            check("one app named: one option, no AI needed", direct.Options.Count == 1 && direct.Options[0].Kind == SearchKind.OpenApp);
+            SearchPlan offline = SmartSearch.Plan("arijit singh songs", defaults, noKeys);
+            check("no key: songs still go to YouTube", offline.Options.Count == 1 && offline.Options[0].Tile == youtube && offline.Note != null);
+            SearchPlan onApp = SmartSearch.Plan("kota factory on netflix", defaults, noKeys);
+            check("no key: \"<title> on netflix\" searches Netflix for the title", onApp.Options.Count == 1 && onApp.Options[0].Tile == netflix && onApp.Options[0].Query == "kota factory");
+            check("no key: anything else falls back to the app row", SmartSearch.Plan("panchayat", defaults, noKeys).Options.Count == 0);
+
+            var plan = new SearchPlan();
+            var sleepIntent = new SearchIntent { Intent = "action", Action = "sleep_timer", Value = 30 };
+            SmartSearch.Build(plan, sleepIntent, "aadhe ghante baad band", defaults, noKeys);
+            check("action: sleep timer 30 minutes", plan.Options.Count == 1 && plan.Options[0].Action == "sleeptimer" && plan.Options[0].Value == 30);
+            var guess = new SearchIntent { Intent = "watch", Title = "Panchayat", SearchText = "Panchayat" };
+            guess.Apps.Add("Prime Video");
+            guess.Apps.Add("Netflix");
+            plan = new SearchPlan();
+            SmartSearch.Build(plan, guess, "panchayat", defaults, noKeys);
+            check("no TMDB key: the AI's guesses become the options", plan.Options.Count == 2 && plan.Options[0].Tile.Name == "Prime Video" && plan.Options[0].Query == "Panchayat");
+            Config subscribed = Config.Parse(System.Text.RegularExpressions.Regex.Replace(Config.DefaultText(), @"(?m)^Subscriptions =.*$", "Subscriptions = Netflix"), "test");
+            plan = new SearchPlan();
+            SmartSearch.Build(plan, guess, "panchayat", subscribed, noKeys);
+            check("Subscriptions = Netflix drops apps you don't pay for", plan.Options.Count == 1 && plan.Options[0].Tile.Name == "Netflix");
+
+            // Made-up keys, built here so GitHub's secret scanning doesn't mistake the source for a real one.
+            string oldStyle = "AI" + "za" + new string('x', 35), newStyle = "AQ" + "." + new string('x', 25) + "_" + new string('y', 24);
+            check("a pasted Gemini key is recognised, old and new formats", ApiKeys.LooksLikeGemini(oldStyle) && ApiKeys.LooksLikeGemini(newStyle)
+                && !ApiKeys.LooksLikeGemini("aiza panchayat") && !ApiKeys.LooksLikeGemini("AQ. panchayat season 3"));
+            check("a pasted TMDB key is recognised", ApiKeys.LooksLikeTmdb(new string('a', 16) + new string('0', 16)) && !ApiKeys.LooksLikeTmdb("panchayat season 3"));
+
             report.AppendLine(failures == 0 ? "All passed" : failures + " failed");
             File.WriteAllText(path, report.ToString());
             return failures == 0 ? 0 : 1;
+        }
+
+        /// <summary>
+        /// CouchTV.exe --searchtest report.txt "query" ["query" ...]: asks the real AI search (with this PC's keys.ini)
+        /// and reports what it understood and what it would offer.
+        /// </summary>
+        public static int SearchTest(string[] args, string path)
+        {
+            var report = new StringBuilder();
+            Config cfg = Config.Load();
+            ApiKeys keys = ApiKeys.Load();
+            report.AppendLine("Gemini key: " + (string.IsNullOrEmpty(keys.Gemini) ? "missing" : "set") + ", TMDB key: " + (string.IsNullOrEmpty(keys.Tmdb) ? "missing" : "set") +
+                              ", model: " + cfg.AiModel + ", subscriptions: " + (cfg.Subscriptions.Count == 0 ? "none" : string.Join(", ", cfg.Subscriptions)));
+            int start = Array.IndexOf(args, "--searchtest") + 2;
+            for (int i = start; i < args.Length; i++)
+            {
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+                SearchPlan plan = SmartSearch.Plan(args[i], cfg, keys);
+                report.AppendLine();
+                report.AppendLine("\"" + args[i] + "\"  (" + watch.ElapsedMilliseconds + " ms, " + plan.Source + (plan.UsedTmdb ? " + TMDB" : "") + ")");
+                if (plan.Raw != null) report.AppendLine("  AI:      " + plan.Raw.Replace("\n", " "));
+                report.AppendLine("  Summary: " + plan.Summary);
+                report.AppendLine("  Options: " + SmartSearch.Describe(plan) + (plan.Options.Count == 1 ? "  -> opens by itself" : plan.Options.Count > 1 ? "  -> you choose" : ""));
+                if (plan.Note != null) report.AppendLine("  Note:    " + plan.Note);
+            }
+            File.WriteAllText(path, report.ToString(), Encoding.UTF8);
+            return 0;
         }
 
         /// <summary>
@@ -262,6 +343,9 @@ namespace CouchTV
             report.AppendLine("IR receiver: " + (receiver ?? "not found (unplugged, or CouchTV is running and using it)"));
             RemoteMap remote = RemoteMap.Load();
             report.AppendLine("Remote buttons in remote.ini: " + remote.Count + ", of which wake the PC: " + remote.CodesFor("power").Count);
+            ApiKeys keys = ApiKeys.Load();
+            report.AppendLine("AI search: " + (cfg.SmartSearch ? "on" : "off") + ", Gemini key " + (string.IsNullOrEmpty(keys.Gemini) ? "missing" : "set") +
+                              ", TMDB key " + (string.IsNullOrEmpty(keys.Tmdb) ? "missing" : "set") + " (" + ApiKeys.FilePath + "), model " + cfg.AiModel);
 
             var owners = new List<string>();
             Shell.FindAppWindows(IntPtr.Zero, owners);

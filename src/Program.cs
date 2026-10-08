@@ -20,6 +20,8 @@ namespace CouchTV
                 if (updateTest != null) return Diagnostics.UpdateTest(args, updateTest);
                 string remoteTest = Arg(args, "--remotetest");
                 if (remoteTest != null) return Diagnostics.RemoteTest(remoteTest);
+                string searchTest = Arg(args, "--searchtest");
+                if (searchTest != null) return Diagnostics.SearchTest(args, searchTest);
                 string report = Arg(args, "--selftest");
                 if (report != null) return Diagnostics.SelfTest(report);
 

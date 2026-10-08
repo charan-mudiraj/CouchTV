@@ -48,6 +48,9 @@ namespace CouchTV
         public string RemotePort;   // optional, e.g. COM5; normally the receiver is found by itself
         public bool Updates = true;
         public string UpdateRepo = "charan-mudiraj/CouchTV", UpdateBranch = "main";
+        public bool SmartSearch = true;                       // AI search, when a Gemini key is set
+        public string AiModel = "gemini-flash-lite-latest";
+        public readonly List<string> Subscriptions = new List<string>();   // tile names you pay for; empty = don't filter
         public string Source;
 
         public static string AppDir { get { return AppDomain.CurrentDomain.BaseDirectory; } }
@@ -149,6 +152,14 @@ namespace CouchTV
             Updates = GetBool(v, "Updates", true);
             UpdateRepo = Get(v, "UpdateRepo", UpdateRepo);
             UpdateBranch = Get(v, "UpdateBranch", UpdateBranch);
+            SmartSearch = GetBool(v, "SmartSearch", true);
+            AiModel = Get(v, "AiModel", AiModel);
+            string subscriptions = Get(v, "Subscriptions", null);
+            if (subscriptions != null)
+            {
+                foreach (string s in subscriptions.Split(','))
+                    if (s.Trim().Length > 0 && !s.Trim().Equals("none", StringComparison.OrdinalIgnoreCase)) Subscriptions.Add(s.Trim());
+            }
             foreach (string browser in new[] { "Brave", "Edge", "Chrome" })
             {
                 string path = Get(v, browser + "Path", null);

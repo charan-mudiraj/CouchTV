@@ -719,7 +719,7 @@ namespace CouchTV
             e.Handled = true;
             if (SearchOpen)
             {
-                OpenTarget();
+                SearchKey(Key.Enter);
                 return;
             }
             if (Modal)
@@ -885,6 +885,8 @@ namespace CouchTV
         void Reload()
         {
             _cfg = Config.Load();
+            _keys = null;            // keys.ini may have been edited too
+            _planCache.Clear();
             if (_ir != null)
             {
                 _remote = RemoteMap.Load();
@@ -1393,6 +1395,27 @@ namespace CouchTV
                 SetupCapture(new IrSignal { Code = "Samsung 0707 0060" });
             }
             if (state.Contains("listening")) OpenSearch(true);
+            else if (state.Contains("searchplan") || state.Contains("searchauto") || state.Contains("searchaction"))
+            {
+                var plan = new SearchPlan { Source = "Gemini", SearchText = "Panchayat" };
+                Tile prime = FindTile("Prime Video"), youtube = FindTile("YouTube");
+                string words = "panchayat ka season 3 lagao";
+                if (state.Contains("searchaction"))
+                {
+                    words = "aadhe ghante baad TV band kar do";
+                    plan.Summary = "Sleep in 30 minutes";
+                    plan.Options.Add(SmartSearch.ActionOption("sleep_timer", 30));
+                }
+                else
+                {
+                    plan.Summary = "Panchayat · TV show · 2020 · season 3";
+                    plan.UsedTmdb = true;
+                    if (prime != null) plan.Options.Add(new SearchOption { Kind = SearchKind.AppSearch, Tile = prime, Query = "Panchayat", Caption = "Streams here" });
+                    if (state.Contains("searchplan") && youtube != null)
+                        plan.Options.Add(new SearchOption { Kind = SearchKind.AppSearch, Tile = youtube, Query = "Panchayat", Caption = "Free with ads" });
+                }
+                PreviewPlan(words, plan);
+            }
             else if (state.Contains("search"))
             {
                 OpenSearch(false);

@@ -82,7 +82,27 @@ Display and Network open Windows' Settings app, which only runs while the deskto
 2. **The words appear on the TV** about a second later. Keep the phone pointed at the TV while they're sent.
 3. **Pick where to search** (Netflix, YouTube, Prime Video, JioHotstar or Web) and press OK. That app opens on its own search results.
 
-To type instead, tap the search bar on the phone, or press F3 on a keyboard and type. Back closes search and returns to whatever was playing. The phone does the speech recognition (Google's, the same as Android's voice typing), and the receiver needs no change. How the words travel over infrared is in [ir-receiver/PROTOCOL.md](ir-receiver/PROTOCOL.md#text-voice-search).
+To type instead, tap the search bar on the phone, or press F3 on a keyboard and type. Back closes search and returns to whatever was playing.
+
+**AI search** works out what you mean instead of always offering the same row:
+
+| You say | What happens |
+|---|---|
+| *"panchayat ka season 3 lagao"* | Finds the series, checks where it streams in India (Prime Video) and **opens it by itself** after a 2-second countdown. Press Back during the countdown to choose something else. |
+| a title that's on two apps | Puts both first, marked *Streams here* or *Free with ads*. You choose. |
+| *"arijit singh ke gaane"* | YouTube, searching *Arijit Singh songs* |
+| *"netflix kholo"* | Opens Netflix |
+| *"aadhe ghante baad TV band kar do"* | Sets the sleep timer to 30 minutes |
+
+One clear answer opens by itself; two or more wait for you. Your other apps always stay at the end of the row.
+
+It needs two free keys, which stay on the TV PC (in `%LOCALAPPDATA%\CouchTV\keys.ini`), never in this repo:
+
+1. **Gemini** (understands the words): at [aistudio.google.com/apikey](https://aistudio.google.com/apikey), sign in with Google and choose **Create API key**. The free tier allows about 1,000 searches a day. Google may use free-tier requests to improve its models; here those are only your search words.
+2. **TMDB** (says which app has a show or film): make an account at [themoviedb.org](https://www.themoviedb.org/signup), then **Settings → API → Create**, choose *Developer*, and copy the **API Key** (32 letters and digits).
+3. **Give them to the TV:** on the phone remote, tap the search bar, paste a key and tap Search. The TV recognises it and asks *Save this key?*. Do the same for the other one.
+
+Without keys, search still works: songs and videos go to YouTube, *"… on netflix"* searches Netflix, and everything else shows the plain app row. If you subscribe to some apps, list them in `couchtv.ini` (`Subscriptions = Netflix`) and search leaves out the paid apps you don't have. Where-to-watch data comes from JustWatch, via TMDB. The phone does the speech recognition (Google's, the same as Android's voice typing), and the receiver needs no change. How the words travel over infrared is in [ir-receiver/PROTOCOL.md](ir-receiver/PROTOCOL.md#text-voice-search).
 
 ## Make it start fast
 
