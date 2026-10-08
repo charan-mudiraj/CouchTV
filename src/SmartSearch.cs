@@ -8,9 +8,9 @@ using System.Web.Script.Serialization;
 
 namespace CouchTV
 {
-    internal enum SearchKind { AppSearch, OpenApp, Action }
+    internal enum SearchKind { AppSearch, Play, OpenApp, Action }
 
-    /// <summary>One thing a search can lead to: search inside an app, open an app, or a TV action.</summary>
+    /// <summary>One thing a search can lead to: search inside an app, play something, open an app, or a TV action.</summary>
     internal sealed class SearchOption
     {
         public SearchKind Kind;
@@ -21,6 +21,9 @@ namespace CouchTV
         public string Label;       // Action: what the card says
         public char Glyph;         // Action: its icon
         public string Caption;     // under the card, e.g. "Streams here"
+        public string Url;         // Play: the page that plays it, e.g. a YouTube video
+        public string Title;       // Play: what will play, e.g. the video's title
+        public string Thumbnail;   // Play: its picture
     }
 
     /// <summary>What the search made of the words: a summary and the options, best first.</summary>
@@ -40,7 +43,8 @@ namespace CouchTV
     {
         public string Intent = "unknown";   // watch | music | video | live | open_app | action | web | unknown
         public string Title = "", Kind = "unknown", SearchText = "", Action = "none";
-        public int Year, Season, Value;
+        public int Year, Season, Episode, Value;
+        public bool Play, Newest;           // start playing straight away; prefer the newest video
         public readonly List<string> Apps = new List<string>();
     }
 
@@ -108,6 +112,7 @@ namespace CouchTV
             {
                 parts.Add(o.Kind == SearchKind.Action ? o.Action + (o.Value != 0 ? " " + o.Value : "")
                     : o.Kind == SearchKind.OpenApp ? "open " + o.Tile.Name
+                    : o.Kind == SearchKind.Play ? "play on " + o.Tile.Name + " “" + o.Title + "” " + o.Url
                     : o.Tile.Name + " \"" + o.Query + "\"" + (string.IsNullOrEmpty(o.Caption) ? "" : " (" + o.Caption + ")"));
             }
             return parts.Count == 0 ? "(no suggestion)" : string.Join(", ", parts);
@@ -172,7 +177,10 @@ namespace CouchTV
                     foreach (string name in intent.Apps)
                     {
                         Tile t = FindApp(name, cfg.AppTiles);
-                        if (t != null) AddSearch(plan, t, text, Caption(intent.Intent));
+                        if (t == null) continue;
+                        // "Play some music": find the video on YouTube and play it, instead of showing results.
+                        if (intent.Play && intent.Intent != "web" && IsHost(t, "youtube.com") && !Has(plan, t) && AddYouTubePlay(plan, t, text, intent)) continue;
+                        AddSearch(plan, t, text, Caption(intent.Intent));
                     }
                     if (plan.Options.Count == 0)
                     {
@@ -183,6 +191,30 @@ namespace CouchTV
                     plan.Summary = text;
                     return;
             }
+        }
+
+        /// <summary>
+        /// Plays the first YouTube video for the words: songs as an endless mix of similar songs, other videos on
+        /// their own. False (so the caller shows search results instead) if YouTube couldn't be read.
+        /// </summary>
+        static bool AddYouTubePlay(SearchPlan plan, Tile t, string query, SearchIntent intent)
+        {
+            YouTubeVideo video;
+            try { video = FirstYouTubeVideo(query, intent.Newest); }
+            catch (Exception ex)
+            {
+                Log.Info("YouTube search: " + ex.Message);
+                return false;
+            }
+            if (video == null) return false;
+            bool music = intent.Intent == "music";
+            plan.Options.Add(new SearchOption
+            {
+                Kind = SearchKind.Play, Tile = t, Query = query, Title = video.Title, Thumbnail = video.Thumbnail,
+                Url = "https://www.youtube.com/watch?v=" + video.Id + (music ? "&list=RD" + video.Id : ""),   // RD: YouTube's mix
+                Caption = music ? "Plays a mix" : "Plays now",
+            });
+            return true;
         }
 
         static string Caption(string intent)
@@ -250,13 +282,19 @@ intent:
 - web: facts, weather, scores, anything to look up.
 - unknown: you can't tell.
 
-search_text: what to type into the app's search box. For watch, only the title (no season, no 'watch'). For music and video, a short clean query, e.g. 'Arijit Singh songs'. Fix obvious speech-recognition mistakes in titles and names.
+search_text: what to type into the app's search box. For watch, only the title (no season, no 'watch'). For music and video, a short clean query, e.g. 'Arijit Singh songs'. For vague music requests ('play some music', 'gaane lagao') pick a popular query an Indian viewer would like, e.g. 'latest Hindi songs'. Fix obvious speech-recognition mistakes in titles and names.
+play: true when they want something to start playing now ('play', 'chalao', 'lagao', 'sunao', or naming a song, a singer or one particular video). False when they want to look through results ('search', 'dikhao', 'show me', 'videos about').
+newest: true when they want the latest or newest video (e.g. a YouTuber's latest upload).
+episode: the episode number if they asked for one, else 0.
 apps: names from the given app list only, best first: where this is most likely available in India today. Use YouTube for music and video, Web for web. Leave it empty if nothing fits.
 Use empty strings, 0, 'unknown' or 'none' for fields that don't apply.
 
 Examples:
-'panchayat ka season 3 lagao' -> watch, title 'Panchayat', kind tv, year 2020, season 3, search_text 'Panchayat', apps ['Prime Video']
-'arijit singh ke gaane' -> music, search_text 'Arijit Singh songs', apps ['YouTube']
+'panchayat ka season 3 lagao' -> watch, title 'Panchayat', kind tv, year 2020, season 3, search_text 'Panchayat', apps ['Prime Video'], play true
+'arijit singh ke gaane' -> music, search_text 'Arijit Singh songs', apps ['YouTube'], play true
+'play some music' -> music, search_text 'latest Hindi songs', apps ['YouTube'], play true
+'mr beast ka latest video' -> video, search_text 'MrBeast', apps ['YouTube'], play true, newest true
+'cooking videos dikhao' -> video, search_text 'cooking recipes', apps ['YouTube'], play false
 'netflix kholo' -> open_app, apps ['Netflix']
 'aadhe ghante baad TV band kar do' -> action sleep_timer, value 30
 'kal mausam kaisa rahega' -> web, search_text 'weather tomorrow', apps ['Web']";
@@ -271,14 +309,17 @@ Examples:
                     { "kind", SchemaEnum("movie", "tv", "unknown") },
                     { "year", SchemaType("INTEGER") },
                     { "season", SchemaType("INTEGER") },
+                    { "episode", SchemaType("INTEGER") },
                     { "search_text", SchemaType("STRING") },
                     { "apps", new Dictionary<string, object> { { "type", "ARRAY" }, { "items", SchemaType("STRING") } } },
                     { "action", SchemaEnum("none", "sleep", "sleep_timer", "volume", "mute", "home") },
                     { "value", SchemaType("INTEGER") },
+                    { "play", SchemaType("BOOLEAN") },
+                    { "newest", SchemaType("BOOLEAN") },
                 }
             },
-            { "required", new[] { "intent", "title", "kind", "year", "season", "search_text", "apps", "action", "value" } },
-            { "propertyOrdering", new[] { "intent", "title", "kind", "year", "season", "search_text", "apps", "action", "value" } },
+            { "required", new[] { "intent", "title", "kind", "year", "season", "episode", "search_text", "apps", "action", "value", "play", "newest" } },
+            { "propertyOrdering", new[] { "intent", "title", "kind", "year", "season", "episode", "search_text", "apps", "action", "value", "play", "newest" } },
         };
 
         static Dictionary<string, object> SchemaType(string type) { return new Dictionary<string, object> { { "type", type } }; }
@@ -339,6 +380,9 @@ Examples:
                 Action = Str(d, "action", "none").ToLowerInvariant(),
                 Year = Int(d, "year"),
                 Season = Int(d, "season"),
+                Episode = Int(d, "episode"),
+                Play = Bool(d, "play"),
+                Newest = Bool(d, "newest"),
                 Value = Int(d, "value"),
             };
             object[] apps = Arr(Get(d, "apps"));
@@ -439,11 +483,53 @@ Examples:
             }
         }
 
+        // ================================================================ YouTube: the first video for some words
+
+        internal sealed class YouTubeVideo
+        {
+            public string Id, Title, Thumbnail;
+        }
+
+        // In the search page's data, each ordinary result is a "videoRenderer" (ads, Shorts and channels are not).
+        static readonly Regex VideoResult = new Regex(
+            "\"videoRenderer\":\\{\"videoId\":\"([A-Za-z0-9_-]{11})\".{0,4000}?\"title\":\\{\"runs\":\\[\\{\"text\":\"((?:[^\"\\\\]|\\\\.)*)\"",
+            RegexOptions.Singleline);
+
+        /// <summary>Reads YouTube's own search page, as a browser would, and takes the first video.</summary>
+        static YouTubeVideo FirstYouTubeVideo(string query, bool newest)
+        {
+            // sp: videos only (no channels or playlists); CAISAhAB also sorts by upload date.
+            string url = "https://www.youtube.com/results?search_query=" + Uri.EscapeDataString(query) + "&sp=" + (newest ? "CAISAhAB" : "EgIQAQ%3D%3D");
+            var request = (HttpWebRequest)WebRequest.Create(url);
+            request.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
+            request.Headers["Accept-Language"] = "en-IN,en;q=0.9";
+            request.AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate;
+            request.Timeout = 6000;
+            request.ReadWriteTimeout = 6000;
+            string page;
+            using (var response = (HttpWebResponse)request.GetResponse())
+            using (var reader = new StreamReader(response.GetResponseStream(), Encoding.UTF8))
+                page = reader.ReadToEnd();
+            return ParseYouTube(page);
+        }
+
+        internal static YouTubeVideo ParseYouTube(string page)
+        {
+            Match m = VideoResult.Match(page);
+            if (!m.Success) return null;
+            string title;
+            try { title = Json.Deserialize<string>("\"" + m.Groups[2].Value + "\""); }
+            catch (Exception) { title = m.Groups[2].Value; }
+            string id = m.Groups[1].Value;
+            return new YouTubeVideo { Id = id, Title = title, Thumbnail = "https://i.ytimg.com/vi/" + id + "/mqdefault.jpg" };
+        }
+
         // ================================================================ rules, for when the AI isn't available
 
         static readonly Regex OpenWords = new Regex(@"^(?:open|launch|start|go to|kholo|chalao)\s+(.+)$|^(.+?)\s+(?:kholo|khol do|chalao|chala do|open karo|open|start karo|lagao)$", RegexOptions.IgnoreCase);
         static readonly Regex MusicWords = new Regex(@"\b(songs?|gaan[ae]|music|bhajans?|lyrics|album|playlist|jukebox)\b", RegexOptions.IgnoreCase);
         static readonly Regex VideoWords = new Regex(@"\b(trailer|teaser|news|recipe|how to|tutorial|review|vlog|comedy|podcast|highlights)\b", RegexOptions.IgnoreCase);
+        static readonly Regex PlayWords = new Regex(@"\b(play|chalao|chala do|lagao|laga do|sunao|bajao)\b", RegexOptions.IgnoreCase);
         static readonly Regex Filler = new Regex(@"\b(watch|dekhna|dekhni|dekhao|lagao|chalao|play|karo|kar do|please|on|pe|par|me|mein)\b", RegexOptions.IgnoreCase);
 
         /// <summary>"Netflix", "open Netflix", "Netflix kholo" → that tile.</summary>
@@ -481,6 +567,7 @@ Examples:
                 intent.Title = intent.SearchText = Clean(words);
             }
             if (intent.Intent == "music" || intent.Intent == "video") intent.Apps.Add("YouTube");
+            intent.Play = intent.Intent == "music" || PlayWords.IsMatch(words);
             return intent;
         }
 
@@ -552,6 +639,12 @@ Examples:
         {
             string value = Get(d, key) as string;
             return string.IsNullOrEmpty(value) ? fallback : value.Trim();
+        }
+
+        static bool Bool(Dictionary<string, object> d, string key)
+        {
+            object value = Get(d, key);
+            return value is bool && (bool)value;
         }
 
         static int Int(Dictionary<string, object> d, string key)

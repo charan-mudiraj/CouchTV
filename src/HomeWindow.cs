@@ -1395,12 +1395,26 @@ namespace CouchTV
                 SetupCapture(new IrSignal { Code = "Samsung 0707 0060" });
             }
             if (state.Contains("listening")) OpenSearch(true);
-            else if (state.Contains("searchplan") || state.Contains("searchauto") || state.Contains("searchaction"))
+            else if (state.Contains("searchplan") || state.Contains("searchauto") || state.Contains("searchaction") || state.Contains("searchplay"))
             {
                 var plan = new SearchPlan { Source = "Gemini", SearchText = "Panchayat" };
                 Tile prime = FindTile("Prime Video"), youtube = FindTile("YouTube");
                 string words = "panchayat ka season 3 lagao";
-                if (state.Contains("searchaction"))
+                if (state.Contains("searchplay"))
+                {
+                    words = "play some music";
+                    plan.Summary = "latest Hindi songs";
+                    plan.SearchText = "latest Hindi songs";
+                    plan.UsedTmdb = false;
+                    if (youtube != null)
+                        plan.Options.Add(new SearchOption
+                        {
+                            Kind = SearchKind.Play, Tile = youtube, Query = "latest Hindi songs", Caption = "Plays a mix",
+                            Title = "Gehra Hua | Dhurandhar | Ranveer Singh, Sara Arjun", Url = "https://www.youtube.com/watch?v=GX9x62kFsVU&list=RDGX9x62kFsVU",
+                            Thumbnail = "https://i.ytimg.com/vi/GX9x62kFsVU/mqdefault.jpg",
+                        });
+                }
+                else if (state.Contains("searchaction"))
                 {
                     words = "aadhe ghante baad TV band kar do";
                     plan.Summary = "Sleep in 30 minutes";

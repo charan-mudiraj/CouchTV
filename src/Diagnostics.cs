@@ -227,6 +227,17 @@ namespace CouchTV
             SmartSearch.Build(plan, guess, "panchayat", subscribed, noKeys);
             check("Subscriptions = Netflix drops apps you don't pay for", plan.Options.Count == 1 && plan.Options[0].Tile.Name == "Netflix");
 
+            SearchIntent play = SmartSearch.ParseIntent("{\"intent\":\"video\",\"title\":\"\",\"kind\":\"unknown\",\"year\":0,\"season\":0,\"episode\":0," +
+                "\"search_text\":\"MrBeast\",\"apps\":[\"YouTube\"],\"action\":\"none\",\"value\":0,\"play\":true,\"newest\":true}");
+            check("AI answer: play and newest read", play.Play && play.Newest && play.SearchText == "MrBeast");
+            check("rules: \"gaane chalao\" plays", SmartSearch.Rules("arijit ke gaane chalao", defaults.AppTiles, false).Play
+                && !SmartSearch.Rules("cooking recipe videos", defaults.AppTiles, false).Play);
+            string page = "<script>var ytInitialData = {\"contents\":[{\"adSlotRenderer\":{}},{\"videoRenderer\":{\"videoId\":\"Ab3_dEfGh-1\"," +
+                "\"thumbnail\":{\"thumbnails\":[{\"url\":\"x\"}]},\"title\":{\"runs\":[{\"text\":\"Kesariya \\u0026 Gerua \\\"Live\\\"\"}]}}}]};</script>";
+            SmartSearch.YouTubeVideo first = SmartSearch.ParseYouTube(page);
+            check("YouTube: the first ordinary result's id and title", first != null && first.Id == "Ab3_dEfGh-1" && first.Title == "Kesariya & Gerua \"Live\"");
+            check("YouTube: a page without results gives nothing", SmartSearch.ParseYouTube("<html>consent</html>") == null);
+
             // Made-up keys, built here so GitHub's secret scanning doesn't mistake the source for a real one.
             string oldStyle = "AI" + "za" + new string('x', 35), newStyle = "AQ" + "." + new string('x', 25) + "_" + new string('y', 24);
             check("a pasted Gemini key is recognised, old and new formats", ApiKeys.LooksLikeGemini(oldStyle) && ApiKeys.LooksLikeGemini(newStyle)

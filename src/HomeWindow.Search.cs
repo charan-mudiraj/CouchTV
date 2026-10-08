@@ -9,6 +9,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 
 namespace CouchTV
@@ -131,7 +132,7 @@ namespace CouchTV
             return overlay;
         }
 
-        SearchTarget MakeTarget(SearchOption option, bool suggested)
+        SearchTarget MakeTarget(SearchOption option, bool suggested, string note = null)
         {
             var target = new SearchTarget { Option = option };
             Tile look = option.Kind == SearchKind.Action
@@ -153,6 +154,34 @@ namespace CouchTV
                 words.Margin = new Thickness(0, 10, 0, 0);
                 stack.Children.Add(words);
                 face.Children.Add(stack);
+            }
+            else if (option.Kind == SearchKind.Play && option.Thumbnail != null)
+            {
+                // What will play: the video's picture, its title over a dark fade, and the app's name.
+                var picture = new Border { CornerRadius = new CornerRadius(16), ClipToBounds = true };
+                var image = new Image { Stretch = Stretch.UniformToFill };
+                try { image.Source = new BitmapImage(new Uri(option.Thumbnail)); }
+                catch (Exception ex) { Log.Info("Thumbnail: " + ex.Message); }
+                picture.Child = image;
+                face.Children.Add(picture);
+                face.Children.Add(new Border
+                {
+                    CornerRadius = new CornerRadius(16), IsHitTestVisible = false,
+                    Background = new LinearGradientBrush(Color.FromArgb(0, 0, 0, 0), Color.FromArgb(0xE0, 0, 0, 0), 90),
+                });
+                TextBlock title = Theme.Text(option.Title ?? "", 19, Theme.Ink, FontWeights.SemiBold);
+                title.TextWrapping = TextWrapping.Wrap;
+                title.TextTrimming = TextTrimming.CharacterEllipsis;
+                title.MaxHeight = 52;
+                title.VerticalAlignment = VerticalAlignment.Bottom;
+                title.Margin = new Thickness(14, 0, 14, 10);
+                face.Children.Add(title);
+                face.Children.Add(new Border
+                {
+                    CornerRadius = new CornerRadius(8), Background = Theme.Brush(option.Tile.Background), Padding = new Thickness(10, 3, 10, 5),
+                    HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(10),
+                    Child = Theme.Text("▶ " + option.Tile.Label, 16, option.Tile.Foreground, FontWeights.Bold),
+                });
             }
             else if (look.ImagePath != null && File.Exists(look.ImagePath))
                 face.Children.Add(new Image { Source = LoadBitmap(look.ImagePath, 520), Stretch = Stretch.Uniform, Margin = new Thickness(22) });
@@ -179,7 +208,7 @@ namespace CouchTV
             target.Scale = new ScaleTransform(1, 1);
             host.RenderTransform = target.Scale;
 
-            TextBlock caption = Theme.Text(suggested ? option.Caption ?? "" : "", 22, Theme.Good, FontWeights.SemiBold);
+            TextBlock caption = Theme.Text(suggested ? option.Caption ?? "" : note ?? "", 22, suggested ? Theme.Good : Theme.Muted, FontWeights.SemiBold);
             caption.HorizontalAlignment = HorizontalAlignment.Center;
             caption.Margin = new Thickness(0, 10, 0, 0);
             var item = new StackPanel { Margin = new Thickness(0, 0, TargetGap - 2 * RingPad, 0), Background = Brushes.Transparent, Cursor = Cursors.Hand };
@@ -213,19 +242,20 @@ namespace CouchTV
             _targets.Clear();
             _targetRow.Children.Clear();
             var used = new List<Tile>();
+            var playing = new List<Tile>();   // an app that plays something can still show its results instead
             if (plan != null)
             {
                 foreach (SearchOption option in plan.Options)
                 {
                     AddTarget(MakeTarget(option, true));
-                    if (option.Tile != null) used.Add(option.Tile);
+                    if (option.Tile != null) (option.Kind == SearchKind.Play ? playing : used).Add(option.Tile);
                 }
             }
-            bool isSearch = plan == null || plan.Options.Count == 0 || plan.Options.Exists(o => o.Kind == SearchKind.AppSearch);
+            bool isSearch = plan == null || plan.Options.Count == 0 || plan.Options.Exists(o => o.Kind == SearchKind.AppSearch || o.Kind == SearchKind.Play);
             foreach (Tile t in _cfg.AppTiles)
             {
                 if (!isSearch || used.Contains(t) || Launcher.SearchTemplate(t) == null) continue;
-                AddTarget(MakeTarget(new SearchOption { Kind = SearchKind.AppSearch, Tile = t }, false));
+                AddTarget(MakeTarget(new SearchOption { Kind = SearchKind.AppSearch, Tile = t }, false, playing.Contains(t) ? "All results" : null));
             }
             _targetIndex = plan != null ? 0 : Math.Max(0, Math.Min(_targetIndex, _targets.Count - 1));
             _targetScroll = 0;
@@ -282,13 +312,14 @@ namespace CouchTV
             else if (_thinking) status = "Working out what you mean…";
             else if (CountingDown)
             {
-                status = Lead() + (_targets[0].Option.Kind == SearchKind.Action
-                    ? "Doing that in " + _countdownLeft + "…  Press Back to cancel."
+                SearchOption first = _targets[0].Option;
+                status = Lead() + (first.Kind == SearchKind.Action ? "Doing that in " + _countdownLeft + "…  Press Back to cancel."
+                    : first.Kind == SearchKind.Play ? "Playing on " + first.Tile.Label + " in " + _countdownLeft + "…  Press Back to choose something else."
                     : "Opening " + TargetName(_targets[0]) + " in " + _countdownLeft + "…  Press Back to choose something else.");
                 color = Theme.Good;
             }
             else if (suggestions >= 2) status = Lead() + (_plan.Options[0].Kind == SearchKind.AppSearch && _plan.Options[0].Caption == "Streams here" ? "Choose where to watch, then press OK." : "Choose one, then press OK.");
-            else if (suggestions == 1) status = Lead() + "Press OK to open " + TargetName(_targets[0]) + ".";
+            else if (suggestions == 1) status = Lead() + (_targets[0].Option.Kind == SearchKind.Play ? "Press OK to play it." : "Press OK to open " + TargetName(_targets[0]) + ".");
             else if (_targets.Count == 0) status = "None of your apps can search. Add Search = … to an app in couchtv.ini.";
             else if (empty) status = "Tap the mic on the phone remote and say what you want, or type it.";
             else status = "Choose where to search, then press OK.";
@@ -309,7 +340,7 @@ namespace CouchTV
         /// <summary>"Panchayat · TV show · 2020.  " before the plan's status, when the AI found something.</summary>
         string Lead()
         {
-            return _plan == null || string.IsNullOrEmpty(_plan.Summary) || _plan.Summary == _query ? "" : _plan.Summary + ".  ";
+            return _plan == null || string.IsNullOrEmpty(_plan.Summary) || _plan.Summary == _query ? "" : Cap(_plan.Summary) + ".  ";
         }
 
         static string TargetName(SearchTarget target)
@@ -377,6 +408,16 @@ namespace CouchTV
                 OpenFromAnywhere(o.Tile);
                 return;
             }
+            if (o.Kind == SearchKind.Play)
+            {
+                Log.Info("Play on " + o.Tile.Name + ": " + o.Title + " " + o.Url);
+                Tile play = o.Tile.WithUrl(o.Url);
+                play.Args = ((play.Args ?? "") + " --autoplay-policy=no-user-gesture-required").Trim();
+                CloseSearch(false);
+                OpenFromAnywhere(play);
+                FullScreenWhenPlaying(play);
+                return;
+            }
             string words = o.Query ?? (_plan != null && _planFor == _query ? _plan.SearchText : null) ?? _query;
             if (words.Trim().Length == 0)
             {
@@ -389,6 +430,51 @@ namespace CouchTV
             Log.Info("Search in " + o.Tile.Name + ": " + words);
             CloseSearch(false);
             OpenFromAnywhere(o.Tile.WithUrl(url));
+        }
+
+        /// <summary>
+        /// YouTube opens a video inside its page; F makes it fill the screen. Once the browser has been in front for
+        /// a few seconds (so the player is ready), press F once. If the player isn't ready, F does nothing, and the
+        /// phone's Full screen button still works.
+        /// </summary>
+        void FullScreenWhenPlaying(Tile t)
+        {
+            string process = Launcher.ProcessNameFor(_cfg, t);
+            if (process == null || _opt.Preview) return;
+            DateTime started = DateTime.Now, inFront = DateTime.MinValue;
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+            timer.Tick += (s, e) =>
+            {
+                DateTime now = DateTime.Now;
+                if ((now - started).TotalSeconds > 30)
+                {
+                    timer.Stop();
+                    return;
+                }
+                if (!ProcessInFront(process))
+                {
+                    inFront = DateTime.MinValue;
+                    return;
+                }
+                if (inFront == DateTime.MinValue) inFront = now;
+                if ((now - inFront).TotalSeconds < 5) return;
+                timer.Stop();
+                Input.Key(0x46);   // F
+            };
+            timer.Start();
+        }
+
+        static bool ProcessInFront(string process)
+        {
+            try
+            {
+                uint pid;
+                Native.GetWindowThreadProcessId(Native.GetForegroundWindow(), out pid);
+                if (pid == 0) return false;
+                using (var p = System.Diagnostics.Process.GetProcessById((int)pid))
+                    return p.ProcessName.Equals(process, StringComparison.OrdinalIgnoreCase);
+            }
+            catch (Exception) { return false; }
         }
 
         void RunSearchAction(SearchOption o)
@@ -454,7 +540,7 @@ namespace CouchTV
         void ApplyPlan(SearchPlan plan, int seq, string words)
         {
             if (seq != _planSeq || !SearchOpen || _query.Trim() != words) return;   // the words changed meanwhile
-            if (plan.Source == "Gemini")
+            if (plan.Source == "Gemini" && !plan.Options.Exists(o => o.Kind == SearchKind.Play))   // "latest video" changes
             {
                 if (_planCache.Count > 50) _planCache.Clear();
                 _planCache[words.ToLowerInvariant()] = plan;

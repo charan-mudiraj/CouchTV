@@ -90,11 +90,13 @@ To type instead, tap the search bar on the phone, or press F3 on a keyboard and 
 |---|---|
 | *"panchayat ka season 3 lagao"* | Finds the series, checks where it streams in India (Prime Video) and **opens it by itself** after a 2-second countdown. Press Back during the countdown to choose something else. |
 | a title that's on two apps | Puts both first, marked *Streams here* or *Free with ads*. You choose. |
-| *"arijit singh ke gaane"* | YouTube, searching *Arijit Singh songs* |
+| *"play some music"*, *"arijit singh ke gaane"* | **Plays** on YouTube straight away: it picks the top song and keeps going with a mix of similar songs |
+| *"mr beast ka latest video"* | Plays his newest upload |
+| *"cooking videos dikhao"* | Shows YouTube's results, since you asked to look through them |
 | *"netflix kholo"* | Opens Netflix |
 | *"aadhe ghante baad TV band kar do"* | Sets the sleep timer to 30 minutes |
 
-One clear answer opens by itself; two or more wait for you. Your other apps always stay at the end of the row.
+One clear answer opens by itself; two or more wait for you. Your other apps always stay at the end of the row, and for something that plays, *All results* shows YouTube's search instead. A YouTube video goes full screen a few seconds after it opens; if it doesn't, press Full screen on the phone.
 
 It needs two free keys, which stay on the TV PC (in `%LOCALAPPDATA%\CouchTV\keys.ini`), never in this repo:
 
