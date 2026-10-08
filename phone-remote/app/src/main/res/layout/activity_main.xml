@@ -55,6 +55,49 @@
                 android:stateListAnimator="@null" />
         </LinearLayout>
 
+        <!-- Search: the mic for voice search, or tap the bar to type -->
+        <LinearLayout
+            android:id="@+id/search_bar"
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:layout_marginTop="18dp"
+            android:background="@drawable/search_bar_bg"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="20dp"
+            android:paddingEnd="6dp">
+
+            <ImageView
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:importantForAccessibility="no"
+                android:src="@drawable/ic_search" />
+
+            <TextView
+                android:id="@+id/search_hint"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="14dp"
+                android:layout_marginEnd="8dp"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="2"
+                android:text="@string/search_hint"
+                android:textColor="@color/muted"
+                android:textSize="15sp" />
+
+            <ImageButton
+                android:id="@+id/voice_search"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:background="@drawable/mic_bg"
+                android:contentDescription="@string/voice_search"
+                android:padding="13dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_mic"
+                android:stateListAnimator="@null" />
+        </LinearLayout>
+
         <!-- Shown when a newer build is on GitHub -->
         <LinearLayout
             android:id="@+id/update_banner"

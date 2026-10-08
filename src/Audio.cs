@@ -62,6 +62,14 @@ namespace CouchTV
             }
         }
 
+        /// <summary>Sets the volume to a level (0..1), without showing anything. Returns false when there is no audio device.</summary>
+        public static bool SetLevel(float target)
+        {
+            float level;
+            bool muted;
+            return Change(0, false, out level, out muted) && Change(target - level, false, out level, out muted);
+        }
+
         static void Release(object com)
         {
             if (com != null && Marshal.IsComObject(com)) Marshal.ReleaseComObject(com);

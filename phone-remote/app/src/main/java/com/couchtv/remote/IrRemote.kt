@@ -40,6 +40,19 @@ class IrRemote(context: Context) {
         if (heldPress == id) heldPress = 0
     }
 
+    /**
+     * Sends [text] to CouchTV for voice search: the TEXT button, then the text frames, 108 ms apart (about a
+     * second for 18 letters). [done] runs on the IR thread afterwards.
+     */
+    fun sendText(text: String, done: () -> Unit) {
+        heldPress = 0
+        worker.execute {
+            send(Nec.frame(Codes.ADDRESS, Codes.TEXT))
+            for (frame in Nec.textFrames(text)) send(frame)
+            done()
+        }
+    }
+
     /** Sends a pattern and waits out the rest of the 108 ms frame, which is also the gap between frames. */
     private fun send(pattern: IntArray) {
         val started = SystemClock.uptimeMillis()

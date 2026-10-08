@@ -4,6 +4,7 @@ A remote control app for phones with an **IR blaster** (most Xiaomi / Redmi / PO
 
 **What's on it**
 
+- **Voice search.** Tap the blue mic and say what to watch. The phone turns your words into text and sends them to the TV, which lets you pick the app to search in. Tap the search bar to type instead.
 - **D-pad and OK.** Hold a direction to keep moving.
 - **Back, Home, Menu.** Holding Back also goes Home.
 - **Volume down / Mute / Volume up, and Play-Pause.**
@@ -64,14 +65,24 @@ The project has no third-party libraries, only the Android framework, so there's
    - Or add a line to `C:\CouchTV\remote.ini`. For example `NEC 00CE 0060 = key:M` makes it press M (mute in Netflix and YouTube), and `NEC 00CE 0061 = open:Kodi` opens a tile. All actions are listed at the top of `remote.ini`. Press F5 on the TV afterwards.
 3. Tap **Edit** to rename, re-code or delete buttons.
 
+## Voice search
+
+- **The first time,** Android asks to let CouchTV Remote use the microphone. If you say no, the app uses Google's own voice screen instead, which has its own permission.
+- **Speech recognition is Google's,** the same as Android's voice typing, so it needs the internet. The listening screen has a language button: **English** (Indian English, which also copes with Hinglish) or **हिंदी**. The app remembers your choice.
+- **While it listens,** the TV shows *Listening…* and turns its sound down. Tap the mic to finish early, **Type** to type instead, or **Cancel**.
+- **Then the words go to the TV** over infrared, about a second for a short search. Keep pointing at the TV until the search bar says they've arrived. If some got lost, the TV says so; just try again.
+
+If the in-app listening screen fails on your phone (some phones have no speech service built in), the app switches to Google's voice screen by itself. If the phone has neither, it offers typing.
+
 ## How it sends
 
 Each button sends an NEC frame (38 kHz, address `0xCE`), then a "still held" frame every 108 ms while your finger stays down, exactly like a real remote. The details are in [`../ir-receiver/PROTOCOL.md`](../ir-receiver/PROTOCOL.md), and the code is in `app/src/main/java/com/couchtv/remote/`:
 
 | File | What it does |
 |---|---|
-| `Nec.kt` | Builds the infrared timing patterns |
+| `Nec.kt` | Builds the infrared timing patterns, including text for voice search |
 | `IrRemote.kt` | Sends them through the IR blaster on a background thread, with hold-to-repeat |
+| `VoiceSearch.kt` | Listens, turns speech into text, and sends it; typing too |
 | `Codes.kt` | The button codes |
 | `DpadView.kt` | The round D-pad |
 | `MainActivity.kt` | The screen, and your own buttons |

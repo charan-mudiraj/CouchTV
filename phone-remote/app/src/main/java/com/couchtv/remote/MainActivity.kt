@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
@@ -22,6 +23,7 @@ import java.util.concurrent.Executors
 /** The remote: D-pad, TV buttons, app shortcuts, a pointer pad, and buttons you add yourself. */
 class MainActivity : Activity() {
     private lateinit var remote: IrRemote
+    private lateinit var voice: VoiceSearch
     private lateinit var store: CustomButtons
     private lateinit var myButtons: MutableList<CustomButton>
     private var editing = false
@@ -42,6 +44,11 @@ class MainActivity : Activity() {
         myButtons = store.load()
 
         showStatus()
+
+        voice = VoiceSearch(this, remote)
+        voice.onStatus = { findViewById<TextView>(R.id.search_hint).text = it }
+        findViewById<View>(R.id.voice_search).setOnClickListener { voice.start() }
+        findViewById<View>(R.id.search_bar).setOnClickListener { voice.type() }
 
         findViewById<DpadView>(R.id.dpad).listener = dpadListener(
             Codes.UP, Codes.DOWN, Codes.LEFT, Codes.RIGHT, Codes.OK)
@@ -98,7 +105,23 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         InstallReceiver.onFailure = null
+        voice.release()
         super.onDestroy()
+    }
+
+    override fun onPause() {
+        voice.stop()
+        super.onPause()
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == VoiceSearch.REQUEST_MIC) voice.onPermissionResult(grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED)
+    }
+
+    /** Google's voice screen (the fallback for voice search) answers here. */
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (!voice.onActivityResult(requestCode, resultCode, data)) super.onActivityResult(requestCode, resultCode, data)
     }
 
     override fun onResume() {

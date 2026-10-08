@@ -63,6 +63,37 @@ namespace CouchTV
             }
         }
 
+        /// <summary>
+        /// Where a tile searches, with {q} for the words, or null if it can't. couchtv.ini can set Search = ... (or
+        /// off) per tile; the well-known sites work without it.
+        /// </summary>
+        public static string SearchTemplate(Tile t)
+        {
+            if (t.Search != null)
+            {
+                string value = t.Search.Trim();
+                return value.Equals("off", StringComparison.OrdinalIgnoreCase) || value.IndexOf("{q}", StringComparison.OrdinalIgnoreCase) < 0 ? null : value;
+            }
+            if (t.Kind == TileKind.Browser) return "https://www.google.com/search?q={q}";
+            Uri uri;
+            if (t.Kind != TileKind.Web || !Uri.TryCreate(t.Url, UriKind.Absolute, out uri)) return null;
+            string host = uri.Host.ToLowerInvariant();
+            if (host.EndsWith("netflix.com")) return "https://www.netflix.com/search?q={q}";
+            if (host.EndsWith("youtube.com")) return uri.AbsolutePath.StartsWith("/tv") ? null : "https://www.youtube.com/results?search_query={q}";
+            if (host.EndsWith("primevideo.com")) return "https://www.primevideo.com/search/ref=atv_nb_sug?ie=UTF8&phrase={q}";
+            if (host.EndsWith("hotstar.com")) return "https://www.hotstar.com/in/explore?search_query={q}";
+            if (host.EndsWith("spotify.com")) return "https://open.spotify.com/search/{q}";
+            return null;
+        }
+
+        public static string SearchUrl(Tile t, string query)
+        {
+            string template = SearchTemplate(t);
+            if (template == null) return null;
+            int at = template.IndexOf("{q}", StringComparison.OrdinalIgnoreCase);
+            return template.Substring(0, at) + Uri.EscapeDataString(query.Trim()) + template.Substring(at + 3);
+        }
+
         /// <summary>The process name a tile runs as (e.g. "msedge"), or null if it isn't a program.</summary>
         public static string ProcessNameFor(Config cfg, Tile t)
         {

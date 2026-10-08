@@ -56,14 +56,45 @@ val NEC_REPEAT = intArrayOf(9000, 2250, 560, 108_000 - 11_810)
 | `0x36` `0x37` | Scroll up, down | `mouse:scrollup` `mouse:scrolldown` |
 | `0x40`–`0x44` | Netflix, YouTube, Prime Video, JioHotstar, Web | `open:Netflix` ... |
 | `0x50` | Full screen | `key:F` |
+| `0x51` | Voice search started: the TV opens search, shows *Listening…* and turns the sound down | `voicesearch` (built in) |
+| `0x52` | Text follows (see *Text* below) | handled by CouchTV |
+| `0x53` | Voice search cancelled: the TV closes search if nothing arrived | `voicecancel` (built in) |
 
-`0x60`–`0xFF` are free for your own buttons. Give a new button an unused command, then either:
+`0x51` and `0x53` work even with a `remote.ini` from before voice search existed, and a `remote.ini` line can still remap them. `0x60`–`0xFF` are free for your own buttons. Give a new button an unused command, then either:
 
 - add a line to `remote.ini`, e.g. `NEC 00CE 0060 = key:M` (press M, which mutes YouTube and Netflix), then press F5 on the home screen; or
 - run **Remote setup** on the TV and press the new button when it's asked for.
 
 Any CouchTV action works. The full list is at the top of `remote.ini`.
 
-## Typing text (later)
+## Text (voice search)
 
-To search with the phone's keyboard, map characters onto spare commands (for example `0x80` + letter index) and add matching `key:A` ... `key:Z` lines. Or use a second address (e.g. `0xCF`) just for letters, so they don't use up the main remote's command space.
+The phone turns speech into text itself (Google's speech recognition), then sends the text. Audio never travels over infrared, which is far too slow for it. Text uses ordinary 32-bit NEC frames, so **the receiver's firmware needs no change**: it reports each frame like a button, and CouchTV puts the text back together (`src/IrText.cs`).
+
+1. Send the button `0x52` (text follows).
+2. Take the text as **UTF-8**, at most 120 bytes. Hindi and emoji are fine; trim at a whole character.
+3. For each **two bytes** `a, b` (use `b = FF` when the last pair has only `a`), send one frame with the bytes
+   `CE, pack(b), a, ~a`. The receiver reports it as `NEC2 xxCE 00aa`, where `xx` is `pack(b)`.
+4. Send two **check frames** the same way, with `b = FE` and `a` = the CRC's high byte, then its low byte. The CRC is
+   **CRC-16/CCITT-FALSE** (polynomial `1021`, start `FFFF`) of the UTF-8 bytes. `"123456789"` gives `29B1`.
+
+`pack(b)` is `b XOR C0`, except that `F1` becomes `01`. It makes sure byte 1 is never `00` or `31`. With `31` (the inverse of `CE`) the receiver would report `NEC 00CE ...`, a phone button. `C0` and `C1` never appear in UTF-8, and neither do the markers `FE` and `FF`.
+
+Send the frames **108 ms apart** (start to start), like everything else. A 20-letter search takes about 1.3 s. CouchTV rejects a message whose CRC doesn't match, or that stops arriving for 0.7 s, and asks you to try again. It only treats `xxCE` frames as text after a `0x52`, so another remote that happens to use such an address still works as a remote.
+
+```kotlin
+fun textFrames(text: String): List<IntArray> {             // send necFrame(0x52) first
+    val data = text.toByteArray(Charsets.UTF_8)
+    fun pack(b: Int) = if (b == 0xF1) 0x01 else b xor 0xC0
+    fun frame(a: Int, b: Int) = rawFrame(0xCE, pack(b), a, a.inv() and 0xFF)   // like necFrame, any 4 bytes
+    val frames = (data.indices step 2).map { i ->
+        frame(data[i].toInt() and 0xFF, if (i + 1 < data.size) data[i + 1].toInt() and 0xFF else 0xFF)
+    }.toMutableList()
+    val crc = crc16(data)                                    // CRC-16/CCITT-FALSE
+    frames += frame(crc shr 8, 0xFE)
+    frames += frame(crc and 0xFF, 0xFE)
+    return frames
+}
+```
+
+The app's version is `phone-remote/app/src/main/java/com/couchtv/remote/Nec.kt`. CouchTV's self-test (`CouchTV.exe --remotetest report.txt`) mirrors how the receiver reports each frame and checks Hindi, emoji, the digit 1 (byte `31`), garbled frames and missing frames.

@@ -6,6 +6,25 @@
     <string name="no_ir">This phone has no IR blaster, so it can\'t send to the TV.</string>
     <string name="no_38khz">This phone\'s IR blaster can\'t send at 38 kHz, so the TV may not hear it.</string>
 
+    <string name="search_hint">Search Netflix, YouTube and more</string>
+    <string name="voice_search">Voice search</string>
+    <string name="voice_mic">Microphone. Tap to finish, or to try again.</string>
+    <string name="voice_starting">Starting the microphone…</string>
+    <string name="voice_listening">Listening… say what to watch</string>
+    <string name="voice_thinking">Got it…</string>
+    <string name="voice_no_match">Didn\'t catch that. Tap the mic to try again.</string>
+    <string name="voice_no_internet">Voice search needs the internet. Tap the mic to try again.</string>
+    <string name="voice_unavailable">Voice input isn\'t available on this phone, so type instead.</string>
+    <string name="voice_prompt">Say what to watch</string>
+    <string name="voice_type">Type</string>
+    <string name="language_english">English</string>
+    <string name="language_hindi">हिंदी</string>
+    <string name="type_title">Search on the TV</string>
+    <string name="type_hint">A movie, show or actor</string>
+    <string name="search">Search</string>
+    <string name="search_sending">Sending “%1$s” to the TV… keep pointing at it</string>
+    <string name="search_sent">“%1$s” is on the TV. Pick an app there.</string>
+
     <string name="apps">Apps</string>
     <string name="app_netflix">Netflix</string>
     <string name="app_youtube">YouTube</string>

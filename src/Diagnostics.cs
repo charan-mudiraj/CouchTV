@@ -122,9 +122,99 @@ namespace CouchTV
             check("save: comments kept", text.Contains("; my comment"));
             File.Delete(file);
 
+            check("phone voice search button works with an old remote.ini", RemoteMap.FromText("[Buttons]\nNEC 00CE 0001 = up\n").ActionFor("NEC 00CE 0051") == "voicesearch");
+            check("remote.ini can remap the voice search button", RemoteMap.FromText("[Buttons]\nNEC 00CE 0051 = home\n").ActionFor("NEC 00CE 0051") == "home");
+
+            // ----- text over infrared (voice search), as the receiver reports it
+            check("CRC-16/CCITT-FALSE of \"123456789\" is 29B1", IrText.Crc16(Encoding.ASCII.GetBytes("123456789")) == 0x29B1);
+            bool packOk = true;
+            for (int b = 0; b < 256; b++)
+            {
+                if (b == 0xC0 || b == 0xC1) continue;   // never in UTF-8, and not used as markers
+                byte packed = IrText.Pack((byte)b);
+                if (packed == 0x00 || packed == 0x31 || IrText.Unpack(packed) != b) packOk = false;
+            }
+            check("packed byte is never 00 or 31, and unpacks back", packOk);
+
+            string[] samples =
+            {
+                "panchayat season 3", "1", "11", "Mirzapur 2", "पंचायत", "Ωμέγα", "🎬 movies", "a",
+                "the family man season 2 hindi dubbed full episodes watch online free 1080p", "  spaces  ",
+                "aΩ", "a" + char.ConvertFromUtf32(0x40000),   // CE and F1 as the second byte of a frame
+            };
+            foreach (string sample in samples)
+            {
+                List<string> codes = TextAsReceived(sample);
+                List<string> frames = codes.GetRange(1, codes.Count - 1);   // after the start button
+                bool looksLikeButton = frames.Exists(c => c.Contains(" 00CE ")) || frames.Exists(c => !c.StartsWith("NEC"));
+                check("text \"" + sample + "\" never looks like a phone button", !looksLikeButton);
+                check("text \"" + sample + "\" arrives intact (" + (codes.Count - 1) + " frames)", Decode(codes) == sample.Trim());
+            }
+
+            List<string> broken = TextAsReceived("panchayat");
+            broken[3] = broken[3].Substring(0, broken[3].Length - 2) + "77";   // one garbled byte
+            check("a garbled frame is caught", Decode(broken) == "FAILED");
+            List<string> missing = TextAsReceived("panchayat");
+            missing.RemoveAt(2);
+            check("a missing frame is caught", Decode(missing) == "FAILED");
+            var idle = new IrText();
+            check("xxCE codes from other remotes are buttons when no text is coming", idle.Handle("NEC 12CE 0005", DateTime.Now) == IrTextResult.NotText);
+            check("the phone's buttons are never text", idle.Handle("NEC 00CE 0001", DateTime.Now) == IrTextResult.NotText);
+            var stalled = new IrText();
+            DateTime t0 = DateTime.Now;
+            stalled.Handle("NEC 00CE 0052", t0);
+            stalled.Handle(TextAsReceived("abc")[1], t0);
+            check("text that stops arriving times out", !stalled.TimedOut(t0.AddMilliseconds(300)) && stalled.TimedOut(t0.AddMilliseconds(900)));
+
+            // ----- where each app searches
+            Config defaults = Config.Parse(Config.DefaultText(), "built-in defaults");
+            Tile netflix = defaults.AppTiles.Find(x => x.Name == "Netflix");
+            Tile youtube = defaults.AppTiles.Find(x => x.Name == "YouTube");
+            Tile web = defaults.AppTiles.Find(x => x.Name == "Web");
+            check("Netflix search address", Launcher.SearchUrl(netflix, " panchayat season 3 ") == "https://www.netflix.com/search?q=panchayat%20season%203");
+            check("YouTube search address", Launcher.SearchUrl(youtube, "पंचायत").StartsWith("https://www.youtube.com/results?search_query=%E0%A4%AA"));
+            check("Web searches Google", Launcher.SearchUrl(web, "a&b") == "https://www.google.com/search?q=a%26b");
+            check("Prime Video and JioHotstar can search", defaults.AppTiles.FindAll(x => Launcher.SearchTemplate(x) != null).Count >= 5);
+            check("Search = off hides an app", Launcher.SearchTemplate(new Tile { Kind = TileKind.Web, Url = "https://www.netflix.com", Search = "off" }) == null);
+            check("Search = <address> sets it", Launcher.SearchUrl(new Tile { Kind = TileKind.Web, Url = "https://x.example", Search = "https://x.example/find?w={q}" }, "a b") == "https://x.example/find?w=a%20b");
+            check("apps without search are left out", Launcher.SearchTemplate(new Tile { Kind = TileKind.App, Exe = "vlc.exe" }) == null);
+
             report.AppendLine(failures == 0 ? "All passed" : failures + " failed");
             File.WriteAllText(path, report.ToString());
             return failures == 0 ? 0 : 1;
+        }
+
+        /// <summary>
+        /// The receiver's report for each frame the phone sends for a text: the start button, then the frames sent
+        /// 108 ms apart. Mirrors decodeNEC() in IRremote 4.x and describe() in CouchIR.ino: an 8-bit address when
+        /// byte 1 is ~byte 0, an 8-bit command when byte 3 is ~byte 2 (else Onkyo), and NEC2 for a frame that
+        /// follows the previous one within 70 ms.
+        /// </summary>
+        static List<string> TextAsReceived(string text)
+        {
+            var codes = new List<string> { IrText.StartCode };
+            foreach (byte[] f in IrText.Encode(text))
+            {
+                int address = f[0] == (byte)~f[1] ? f[0] : f[0] | (f[1] << 8);
+                bool nec = f[2] == (byte)~f[3];
+                int command = nec ? f[2] : f[2] | (f[3] << 8);
+                string protocol = nec ? "NEC2" : "Onkyo";   // every frame after the start button comes quickly
+                codes.Add(string.Format("{0} {1:X4} {2:X4}", protocol, address, command));
+            }
+            return codes;
+        }
+
+        static string Decode(List<string> codes)
+        {
+            var text = new IrText();
+            DateTime now = DateTime.Now;
+            foreach (string code in codes)
+            {
+                IrTextResult result = text.Handle(code, now);
+                if (result == IrTextResult.Done) return text.Text;
+                if (result == IrTextResult.Failed || result == IrTextResult.NotText) return "FAILED";
+            }
+            return "FAILED";
         }
 
         /// <summary>CouchTV.exe --selftest report.txt: what the launcher sees on this PC, without changing anything.</summary>

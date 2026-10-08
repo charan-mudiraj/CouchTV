@@ -80,8 +80,16 @@ namespace CouchTV
         public string ActionFor(string code)
         {
             string action;
-            return _actions.TryGetValue(Normalize(code), out action) ? action : null;
+            if (_actions.TryGetValue(Normalize(code), out action)) return action;
+            // Phone remote buttons added after remote.ini was written (the installer keeps the user's copy).
+            return BuiltIn.TryGetValue(Normalize(code), out action) ? action : null;
         }
+
+        static readonly Dictionary<string, string> BuiltIn = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            { IrText.VoiceCode, "voicesearch" },
+            { IrText.CancelCode, "voicecancel" },
+        };
 
         public List<string> CodesFor(string action)
         {

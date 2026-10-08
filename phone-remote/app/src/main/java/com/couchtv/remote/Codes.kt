@@ -43,6 +43,11 @@ object Codes {
 
     const val FULL_SCREEN = 0x50
 
+    // Voice search (see "Text" in ir-receiver/PROTOCOL.md)
+    const val SEARCH = 0x51          // the phone is listening: the TV opens search and turns the sound down
+    const val TEXT = 0x52            // text frames follow
+    const val SEARCH_CANCEL = 0x53   // stopped listening without any words
+
     /** Commands for your own buttons. */
     val FREE = 0x60..0xFF
 }

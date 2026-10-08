@@ -57,6 +57,7 @@ Everything is undone by `Uninstall-CouchTV.cmd`.
 | Volume / Mute | Change volume, with an on-screen bar |
 | Power button (PC, or remotes whose power key sends Sleep) | Sleep / wake |
 | Air-mouse pointer or touchpad | Point and click works everywhere, including on tiles. A click right after using the arrows counts as OK. |
+| 🎤 on the phone remote, or F3 / a Search key | Search (see *Search* below) |
 | F5 on the home screen | Reload `couchtv.ini` after editing it |
 | F6 on the home screen | Check for a CouchTV update now |
 
@@ -74,6 +75,14 @@ When Windows has installed an update, the Restart button shows an orange dot and
 Display and Network open Windows' Settings app, which only runs while the desktop is running. In TV mode, CouchTV starts the desktop in the background first, which takes a few extra seconds. Restart to go back to TV-only mode.
 
 *Windows desktop* opens the normal desktop for maintenance (installing things, file management). Press Home to come back to CouchTV, and restart to return to pure TV mode.
+
+### Search
+
+1. **Tap the blue mic** at the top of the phone remote and say what you want to watch, for example *"Panchayat season 3"*. While the phone listens, the TV shows *Listening…* and turns its sound down, even over a playing show. Hindi works too: tap the language button on the phone's listening screen.
+2. **The words appear on the TV** about a second later. Keep the phone pointed at the TV while they're sent.
+3. **Pick where to search** (Netflix, YouTube, Prime Video, JioHotstar or Web) and press OK. That app opens on its own search results.
+
+To type instead, tap the search bar on the phone, or press F3 on a keyboard and type. Back closes search and returns to whatever was playing. The phone does the speech recognition (Google's, the same as Android's voice typing), and the receiver needs no change. How the words travel over infrared is in [ir-receiver/PROTOCOL.md](ir-receiver/PROTOCOL.md#text-voice-search).
 
 ## Make it start fast
 
@@ -103,6 +112,7 @@ Foreground = #FFFFFF
 - **YouTube made for the remote:** set `Enabled = true` on the *YouTube for TV* tile. It's YouTube's TV interface, where you use the arrows and OK instead of pointing. Brave's built-in blocker misses its ads, though, so it's best paired with YouTube Premium Lite.
 - **Use your own tile art:** put a PNG in `C:\CouchTV\icons\` and add `Image = icons\name.png`.
 - **Bigger text on a website** (helpful from the sofa): `Scale = 1.25`.
+- **Search in another app:** add its search address to the tile, with `{q}` where the words go, for example `Search = https://example.com/search?q={q}`. `Search = off` leaves a tile out of search.
 - **Remote's Home button does nothing?** Add the key it sends to `HomeKeys` in the `[CouchTV]` section, for example `HomeKeys = BrowserHome, Win, Hold:BrowserBack, F12`.
 - **Wallpaper:** `Wallpaper = C:\Users\Public\Pictures\beach.jpg`.
 - Kodi and VLC tiles appear by themselves if those programs are installed.

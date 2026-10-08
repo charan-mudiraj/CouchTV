@@ -17,11 +17,20 @@ namespace CouchTV
         public bool IsSystem;
         public TileKind Kind = TileKind.Web;
         public string Url, Browser, Profile, UserAgent, Args, Exe, Action, Scale;
+        public string Search;          // search address with {q}, or "off"; null = work it out from Url
         public string Text, ImagePath;
         public char Glyph;
         public FontWeight Weight = FontWeights.Bold;
         public Color Background = Theme.Chip, Background2, Foreground = Theme.Ink;
         public bool HasBackground2;
+
+        /// <summary>The same tile, opening a different address (e.g. its search results).</summary>
+        public Tile WithUrl(string url)
+        {
+            var copy = (Tile)MemberwiseClone();
+            copy.Url = url;
+            return copy;
+        }
     }
 
     /// <summary>Settings and tiles, read from couchtv.ini next to the exe.</summary>
@@ -173,6 +182,7 @@ namespace CouchTV
             t.UserAgent = Get(v, "UserAgent", null);
             t.Args = Get(v, "Args", null);
             t.Scale = Get(v, "Scale", null);
+            t.Search = Get(v, "Search", null);
             t.Action = Get(v, "Action", "").ToLowerInvariant();
             t.Text = Get(v, "Text", null);
             t.ImagePath = ResolvePath(Get(v, "Image", null));

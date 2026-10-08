@@ -110,6 +110,7 @@ namespace CouchTV
             FitToScreen();
             if (_opt.Windowed) ShowActivated = false;
             PreviewKeyDown += OnKey;
+            PreviewTextInput += OnSearchText;
             MouseMove += OnMouseMove;
             PreviewMouseLeftButtonUp += OnClick;
             PreviewMouseRightButtonUp += OnRightClick;
@@ -169,6 +170,7 @@ namespace CouchTV
             _layers.Children.Add(_launch = BuildLaunchOverlay());
             _layers.Children.Add(_confirm = BuildConfirm());
             _layers.Children.Add(_setup = BuildSetup());
+            _layers.Children.Add(_search = BuildSearch());
             root.Children.Add(new Viewbox { Stretch = Stretch.Uniform, Child = _layers });
 
             BuildHeader();
@@ -511,7 +513,7 @@ namespace CouchTV
             };
         }
 
-        bool Modal { get { return _confirm.Visibility == Visibility.Visible || SetupOpen; } }
+        bool Modal { get { return _confirm.Visibility == Visibility.Visible || SetupOpen || SearchOpen; } }
 
         List<TileView> Row(int r) { return r == 0 ? _apps : _sys; }
 
@@ -646,6 +648,11 @@ namespace CouchTV
                 e.Handled = true;
                 return;
             }
+            if (SearchOpen)
+            {
+                if (SearchKey(key)) e.Handled = true;
+                return;
+            }
             if (Modal)
             {
                 switch (key)
@@ -678,6 +685,10 @@ namespace CouchTV
                     RefreshFocus(true);
                     break;
                 case Key.F2: OpenRemoteSetup(); break;
+                case Key.F3:
+                case Key.BrowserSearch:
+                    OpenSearch(false);
+                    break;
                 case Key.F5: Reload(); break;
                 case Key.F6: CheckForUpdates(true); break;
                 case Key.Escape:
@@ -706,6 +717,11 @@ namespace CouchTV
         {
             if (_pointer || SetupOpen) return;
             e.Handled = true;
+            if (SearchOpen)
+            {
+                OpenTarget();
+                return;
+            }
             if (Modal)
             {
                 ChooseConfirm(_confirmIndex);
@@ -720,7 +736,8 @@ namespace CouchTV
         {
             e.Handled = true;
             if (SetupOpen) return;
-            if (Modal) ChooseConfirm(1);
+            if (SearchOpen) CloseSearch(true);
+            else if (Modal) ChooseConfirm(1);
             else HideLaunch();
         }
 
@@ -802,6 +819,9 @@ namespace CouchTV
                 case "remote":
                     OpenRemoteSetup();
                     break;
+                case "search":
+                    OpenSearch(false);
+                    break;
                 case "update":
                     AskToUpdate();
                     break;
@@ -831,6 +851,7 @@ namespace CouchTV
             HideLaunch();
             _confirm.Visibility = Visibility.Collapsed;
             if (SetupOpen) FinishSetup(false);
+            if (SearchOpen) CloseSearch(false);
             if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
             Show();
             Activate();
@@ -1370,6 +1391,15 @@ namespace CouchTV
             {
                 OpenRemoteSetup();
                 SetupCapture(new IrSignal { Code = "Samsung 0707 0060" });
+            }
+            if (state.Contains("listening")) OpenSearch(true);
+            else if (state.Contains("search"))
+            {
+                OpenSearch(false);
+                _query = state.Contains("searchtyping") ? "panch" : "panchayat season 3";
+                _targetIndex = state.Contains("searchtyping") ? 0 : 2;
+                RefreshTargets(false);
+                UpdateSearch();
             }
             if (state.Contains("osd"))
             {

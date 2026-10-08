@@ -10,6 +10,8 @@
     <color name="good">#3DDC84</color>
     <color name="power">#E5484D</color>
     <color name="power_pressed">#B8353A</color>
+    <color name="voice">#3D7BFF</color>
+    <color name="voice_pressed">#2F5FC7</color>
     <color name="netflix">#E50914</color>
     <color name="youtube">#FF1A1A</color>
     <color name="prime">#00A8E1</color>

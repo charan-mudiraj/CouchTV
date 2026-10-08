@@ -69,12 +69,18 @@ namespace CouchTV
         void OnIrSignal(IrSignal signal)
         {
             if (_updating) return;
+            DateTime now = DateTime.Now;
+            IrTextResult text = _irText.Handle(signal.Code, now);   // words from the phone's voice search
+            if (text != IrTextResult.NotText)
+            {
+                OnIrText(text);
+                return;
+            }
             if (SetupOpen)
             {
                 SetupCapture(signal);
                 return;
             }
-            DateTime now = DateTime.Now;
             double sinceLast = (now - _irLast).TotalMilliseconds;
             bool sameButton = signal.Code == _irCode && (sinceLast < 250 || (signal.IsRepeat && sinceLast < 600));
             if (sameButton)
@@ -154,6 +160,9 @@ namespace CouchTV
                     if (Native.GetForegroundWindow() != _hwnd) Input.Key(0x20);
                     return;
                 case "home": GoHome(); return;
+                case "search": OpenSearch(false); return;
+                case "voicesearch": OpenSearch(true); return;   // the phone remote started listening
+                case "voicecancel": CancelVoiceSearch(); return;
                 case "volup": ChangeVolume(0.02f, false); return;
                 case "voldown": ChangeVolume(-0.02f, false); return;
                 case "mute": ChangeVolume(0, true); return;
