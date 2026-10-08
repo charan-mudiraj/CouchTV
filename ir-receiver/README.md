@@ -46,6 +46,8 @@ Hold the sensor with its **dome facing you** and the legs pointing down. On both
 
 Push the jumpers' **female** ends onto the sensor's legs and the **male** ends into the board's `2`, `GND` and `5V` sockets.
 
+![Where the three wires go on a Leonardo: 5V and GND on the top POWER header, the sensor's OUT on pin 2, the third socket from the left on the bottom header](wiring-leonardo.png)
+
 > Getting VCC and GND the wrong way round can kill the sensor. That's why the list says buy two. Some other parts (for example the TSOP1738) have a different pin order, so check the product picture if you buy elsewhere.
 
 **Optional power filter** (Vishay's recommended circuit, which helps if the PC's USB power is noisy): put the 100 Ω resistor between `5V` and the sensor's VCC leg, and the 4.7 µF capacitor between the sensor's VCC leg and GND. The capacitor's stripe (−) goes to GND.
