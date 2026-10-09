@@ -15,7 +15,7 @@ import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.SocketTimeoutException
-import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.LinkedBlockingDeque
 import java.util.concurrent.TimeUnit
 
 /**
@@ -24,11 +24,13 @@ import java.util.concurrent.TimeUnit
  * chunk before it, so a packet lost on the Wi-Fi is repaired from the next one.
  *
  * Two threads: one receives packets into a queue, the other writes them to the speaker or headphones and waits
- * whenever the phone's own audio system is full, so the phone sets the pace. The cushion (how much sound is ready
- * in the audio system) covers Wi-Fi hiccups: 60 ms for the speaker and wired earphones, 160 ms for Bluetooth, which
- * takes sound in big irregular gulps and shares the phone's radio with the Wi-Fi. If sound still runs out, the
- * cushion grows (up to 300 ms). The TV's and the phone's clocks differ very slightly, so if packets slowly pile up
- * in the queue, one is dropped now and then. Bluetooth headphones add their own delay, which no app can remove.
+ * whenever the phone's audio system is full, so the phone sets the pace. The reserve (cushion) that rides out Wi-Fi
+ * hiccups is kept in that queue, where it can be counted exactly: the audio system's own position reports are
+ * unreliable on Bluetooth, which takes sound in big irregular gulps. Playing starts once the queue holds the
+ * cushion: 60 ms for the speaker and wired earphones, 160 ms for Bluetooth. If the queue ever runs empty, the
+ * cushion is rebuilt 20 ms bigger (up to 300 ms), and after each minute without that, it shrinks by 20 ms. The
+ * TV's and the phone's clocks differ very slightly, so when the queue drifts above or below the cushion, packets
+ * are played 0.5% faster or slower until it's back: inaudible. Bluetooth headphones add their own delay on top.
  */
 class AudioListener(context: Context, private val tvHost: String) {
     companion object {
@@ -43,7 +45,7 @@ class AudioListener(context: Context, private val tvHost: String) {
     private class Chunk(val rate: Int, val samples: ByteArray)
 
     private val connectivity = context.applicationContext.getSystemService(ConnectivityManager::class.java)
-    private val queue = LinkedBlockingQueue<Chunk>()
+    private val queue = LinkedBlockingDeque<Chunk>()
     @Volatile private var running = false
     @Volatile private var socket: DatagramSocket? = null
 
@@ -145,94 +147,83 @@ class AudioListener(context: Context, private val tvHost: String) {
         var track: AudioTrack? = null
         try {
             var rate = 0
-            var lastCheck = 0L
-            var lastGap = 0L
-            var underruns = 0
+            var chunkMs = 3.75
+            var filling = true      // building the reserve in the queue before playing on
+            var depth = 0.0         // packets waiting in the queue, smoothed over about two seconds
             var bluetooth = false
-            var backlog = 0.0   // packets waiting here, smoothed over about a second
-            var fill = 0.0      // ms of sound ready in the audio system, smoothed likewise
-            var written = 0L    // frames handed to the audio system
+            var lastCheck = 0L
+            var lastGap = SystemClock.elapsedRealtime()
             while (running) {
-                val chunk = queue.poll(200, TimeUnit.MILLISECONDS) ?: continue
-                val now = SystemClock.elapsedRealtime()
-                if (track == null || chunk.rate != rate) {
+                // A new stream (or the sound device changed on the TV): an audio track for its sample rate.
+                if (track == null || queue.peekFirst()?.let { it.rate != rate } == true) {
+                    val first = queue.pollFirst(200, TimeUnit.MILLISECONDS) ?: continue
+                    queue.offerFirst(first)
                     track?.release()
-                    rate = chunk.rate
+                    rate = first.rate
+                    chunkMs = first.samples.size / 4 * 1000.0 / rate
                     val created = makeTrack(rate)
-                    bluetooth = isBluetooth(created)
-                    setCushion(created, if (bluetooth) BLUETOOTH_MS else SPEAKER_MS, rate)
-                    written = fillCushion(created, rate, 0)   // the reserve goes in before it starts playing
                     created.play()
                     track = created
-                    underruns = created.underrunCount
-                    backlog = 0.0
-                    fill = cushionMs.toDouble()
-                    lastGap = now
+                    bluetooth = isBluetooth(created)
+                    cushionMs = if (bluetooth) BLUETOOTH_MS else SPEAKER_MS
+                    filling = true
                 }
                 val t = track ?: continue
-                // Ran dry (a longer hiccup than the cushion covers): keep 20 ms more ready from now on, and fill the
-                // cushion again straight away. Sound arrives exactly as fast as it plays, so nothing else would.
-                if (t.underrunCount > underruns) {
-                    gaps += t.underrunCount - underruns
-                    underruns = t.underrunCount
-                    setCushion(t, cushionMs + 20, rate)
-                    written += fillCushion(t, rate, written)
+                val target = cushionMs / chunkMs   // the reserve, in packets
+                if (filling) {
+                    if (queue.size < target) {
+                        SystemClock.sleep(5)
+                        continue
+                    }
+                    filling = false
+                    depth = queue.size.toDouble()
+                }
+                val chunk = queue.poll(60, TimeUnit.MILLISECONDS)
+                val now = SystemClock.elapsedRealtime()
+                if (chunk == null) {
+                    // The reserve ran out: a Wi-Fi hiccup longer than it covers. Build it again, 20 ms bigger.
+                    gaps++
+                    cushionMs = minOf(cushionMs + 20, MOST_MS)
                     lastGap = now
+                    filling = true
+                    continue
                 }
                 if (now - lastCheck >= 1000) {
                     lastCheck = now
-                    // Headphones connected or disconnected meanwhile: start again from that kind's cushion.
                     val bt = isBluetooth(t)
                     val base = if (bt) BLUETOOTH_MS else SPEAKER_MS
                     if (bt != bluetooth) {
-                        bluetooth = bt
-                        setCushion(t, base, rate)
-                        written += fillCushion(t, rate, written)
+                        bluetooth = bt   // headphones connected or disconnected: that kind's cushion
+                        cushionMs = maxOf(cushionMs, base).let { if (bt) it else base }
                         lastGap = now
                     } else if (cushionMs > base && now - lastGap > 60_000) {
-                        setCushion(t, cushionMs - 20, rate)   // a minute without a gap: give back some delay
+                        cushionMs -= 20   // a minute without running out: give back some delay
                         lastGap = now
                     }
                 }
-                // The TV's and the phone's clocks never tick at exactly the same speed. Rather than dropping or
-                // padding 5 ms at once (a break you can hear), play this packet 0.4% faster or slower: inaudible.
-                backlog = backlog * 0.995 + queue.size * 0.005
-                val head = t.playbackHeadPosition.toLong() and 0xFFFFFFFFL
-                fill = fill * 0.995 + (written - head) * 1000.0 / rate * 0.005
+                // The two clocks differ slightly: when the queue drifts above or below the reserve, play this
+                // packet 0.5% faster or slower (by interpolation, inaudible) until it's back.
+                depth = depth * 0.998 + queue.size * 0.002
+                val margin = if (bluetooth) 8 else 4   // Bluetooth's gulps make the queue swing more
                 val frames = chunk.samples.size / 4
                 val samples = when {
-                    backlog > (if (bluetooth) 6 else 3) -> {            // piling up: the TV runs a hair fast
+                    depth > target + margin -> {
                         adjusted++
                         stretch(chunk.samples, frames - 1)
                     }
-                    queue.isEmpty() && fill < cushionMs * 0.4 -> {   // running low: the TV runs a hair slow
+                    depth < target - margin -> {
                         adjusted++
                         stretch(chunk.samples, frames + 1)
                     }
                     else -> chunk.samples
                 }
-                val n = t.write(samples, 0, samples.size)   // waits while the phone's audio system is full
-                if (n > 0) written += n / 4
+                t.write(samples, 0, samples.size)   // waits while the phone's audio system is full
             }
         } catch (e: Exception) {
             if (running) Log.w(TAG, "TV sound (playing)", e)
         } finally {
             track?.release()
         }
-    }
-
-    /**
-     * Tops the audio system up to the cushion with silence, so there's sound in reserve to ride out Wi-Fi hiccups.
-     * Returns the frames written.
-     */
-    private fun fillCushion(track: AudioTrack, rate: Int, written: Long): Long {
-        val head = track.playbackHeadPosition.toLong() and 0xFFFFFFFFL
-        val ready = (written - head).coerceAtLeast(0L)
-        val wanted = cushionMs * rate / 1000 - ready
-        if (wanted <= 0) return 0
-        val silence = ByteArray((wanted * 4).toInt())
-        val n = track.write(silence, 0, silence.size, AudioTrack.WRITE_NON_BLOCKING)
-        return if (n > 0) n / 4L else 0L
     }
 
     /** 16-bit stereo resampled to [outFrames] frames by straight-line interpolation; its first and last samples stay put. */
@@ -261,11 +252,6 @@ class AudioListener(context: Context, private val tvHost: String) {
     /** For the notification: cushion, packets lost on the Wi-Fi, times the sound ran out, smooth clock corrections. */
     fun stats(): IntArray = intArrayOf(cushionMs, lost, repaired, gaps, adjusted)
 
-    private fun setCushion(track: AudioTrack, ms: Int, rate: Int) {
-        cushionMs = ms.coerceIn(SPEAKER_MS, MOST_MS)
-        track.setBufferSizeInFrames(cushionMs * rate / 1000)
-    }
-
     /** Bluetooth headphones and speakers (classic, LE Audio and hearing aids). */
     private fun isBluetooth(track: AudioTrack): Boolean {
         val type = track.routedDevice?.type ?: return false
@@ -284,12 +270,12 @@ class AudioListener(context: Context, private val tvHost: String) {
             .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
             .build()
         val min = AudioTrack.getMinBufferSize(rate, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
+        // A small buffer here (the reserve lives in the queue), in the normal mode that Bluetooth uses anyway.
         return AudioTrack.Builder()
             .setAudioAttributes(attributes)
             .setAudioFormat(format)
             .setTransferMode(AudioTrack.MODE_STREAM)
-            .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
-            .setBufferSizeInBytes(maxOf(min, MOST_MS * rate / 1000 * 4))   // room for the largest cushion
+            .setBufferSizeInBytes(maxOf(min * 2, rate / 25 * 4))   // at least 40 ms
             .build()
     }
 
