@@ -114,3 +114,13 @@ The same remote also works over the home network, with no pointing, and on phone
 | `TEXT <base64 of UTF-8>` | | words for search, all at once (no frames or CRC needed) |
 
 Windows Firewall has to allow CouchTV in: the installer adds the rule *CouchTV phone remote* (CouchTV.exe, local network only). On a PC installed before Wi-Fi mode, CouchTV asks once and Windows shows its permission prompt; press F7 on the home screen to ask again. The code is `src/RemoteServer.cs` and `phone-remote/.../WifiLink.kt`.
+
+## Sound on phones
+
+*Listen on this phone* in the app plays the TV's sound in that phone's headphones, so several people can listen at once, each with their own. CouchTV captures whatever Windows plays (WASAPI loopback, so every app works) and sends it over Wi-Fi.
+
+- The phone sends `LISTEN` to UDP port **47702** every second while it wants sound, and `STOP` when done. CouchTV drops a phone that's been quiet for 3 seconds, and only captures while someone listens.
+- Each packet is 5 ms of uncompressed 16-bit stereo (976 bytes at 48 kHz): `CTA1`, a sequence number (uint32), the sample rate (uint32), the channel count (1 byte, 2), 3 zero bytes, then the samples, little-endian. 5.1 and 7.1 are folded into stereo, keeping the centre (dialogue).
+- The phone keeps about 40 ms ready (up to 150 ms after Wi-Fi hiccups), skips ahead when it falls behind, and holds the Wi-Fi in low-latency mode. Bluetooth headphones add their own 100–250 ms; wired earphones don't.
+
+`CouchTV.exe --audiotest report.txt` plays a quiet tone and checks it arrives intact over this PC's loopback. The code is `src/AudioShare.cs` and `phone-remote/.../AudioListener.kt`.

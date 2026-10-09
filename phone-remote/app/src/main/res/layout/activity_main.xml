@@ -98,6 +98,20 @@
                 android:stateListAnimator="@null" />
         </LinearLayout>
 
+        <!-- The TV's sound in this phone's headphones, over Wi-Fi -->
+        <Button
+            android:id="@+id/listen"
+            style="@style/RemoteKey.Text"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginTop="10dp"
+            android:drawableStart="@drawable/ic_headphones"
+            android:drawablePadding="10dp"
+            android:gravity="center_vertical|start"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:text="@string/listen_start" />
+
         <!-- Shown when a newer build is on GitHub -->
         <LinearLayout
             android:id="@+id/update_banner"

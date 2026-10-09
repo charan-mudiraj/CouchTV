@@ -68,6 +68,10 @@ The project has no third-party libraries, only the Android framework, so there's
    - Or add a line to `C:\CouchTV\remote.ini`. For example `NEC 00CE 0060 = key:M` makes it press M (mute in Netflix and YouTube), and `NEC 00CE 0061 = open:Kodi` opens a tile. All actions are listed at the top of `remote.ini`. Press F5 on the TV afterwards.
 3. Tap **Edit** to rename, re-code or delete buttons.
 
+## Listen on this phone
+
+Tap **Listen on this phone** (under the search bar) to hear the TV's sound in this phone's headphones, over Wi-Fi. Several phones can listen at once, each with its own headphones and volume (the phone's volume buttons). It keeps playing with the screen off; tap the button again, or **Stop** in the notification, to end. Wired earphones give the best lip sync (about 0.1 s); Bluetooth headphones add 0.1–0.25 s.
+
 ## Voice search
 
 - **The first time,** Android asks to let CouchTV Remote use the microphone. If you say no, the app uses Google's own voice screen instead, which has its own permission.
@@ -87,6 +91,7 @@ Each button sends an NEC frame (38 kHz, address `0xCE`), then a "still held" fra
 | `IrRemote.kt` | Sends them through the IR blaster on a background thread, with hold-to-repeat |
 | `WifiLink.kt` | Finds the TV on the Wi-Fi and keeps a connection to it |
 | `Remote.kt` | Sends each press over Wi-Fi when connected, otherwise by infrared |
+| `AudioListener.kt`, `ListenService.kt` | *Listen on this phone*: plays the TV's sound here, with the screen off too |
 | `VoiceSearch.kt` | Listens, turns speech into text, and sends it; typing too |
 | `Codes.kt` | The button codes |
 | `DpadView.kt` | The round D-pad |

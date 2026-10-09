@@ -329,6 +329,84 @@ namespace CouchTV
 
         static KeyValuePair<Tile, string> Pair(Tile t, string caption) { return new KeyValuePair<Tile, string>(t, caption); }
 
+        /// <summary>
+        /// CouchTV.exe --audiotest report.txt: plays a quiet tone for 2 seconds and listens like a phone would, over
+        /// this PC's loopback, to check the sound arrives: packet format, timing and that it isn't silence.
+        /// </summary>
+        public static int AudioTest(string path)
+        {
+            var report = new StringBuilder();
+            var share = new AudioShare(47792, System.Net.IPAddress.Loopback);
+            share.Start();
+            var packets = new List<byte[]>();
+            var times = new List<long>();
+            try
+            {
+                using (var phone = new System.Net.Sockets.UdpClient(new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 0)))
+                using (var tone = new System.Media.SoundPlayer(Tone(440, 2.5, 0.03)))
+                {
+                    phone.Client.ReceiveTimeout = 1000;
+                    byte[] listen = Encoding.ASCII.GetBytes("LISTEN");
+                    var server = new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 47792);
+                    phone.Send(listen, listen.Length, server);
+                    System.Threading.Thread.Sleep(300);
+                    tone.Play();
+                    var clock = System.Diagnostics.Stopwatch.StartNew();
+                    while (clock.ElapsedMilliseconds < 2200)
+                    {
+                        if (clock.ElapsedMilliseconds % 1000 < 20) phone.Send(listen, listen.Length, server);   // keep listening
+                        var from = new System.Net.IPEndPoint(System.Net.IPAddress.Any, 0);
+                        try { packets.Add(phone.Receive(ref from)); times.Add(clock.ElapsedMilliseconds); }
+                        catch (System.Net.Sockets.SocketException) { }
+                    }
+                    byte[] stop = Encoding.ASCII.GetBytes("STOP");
+                    phone.Send(stop, stop.Length, server);
+                    tone.Stop();
+                }
+            }
+            catch (Exception ex) { report.AppendLine("FAILED: " + ex.Message); }
+            finally { share.Stop(); }
+
+            int loud = 0, peak = 0, rate = 0, gaps = 0;
+            uint last = 0;
+            foreach (byte[] p in packets)
+            {
+                if (p.Length < 16 || Encoding.ASCII.GetString(p, 0, 4) != "CTA1") continue;
+                uint seq = BitConverter.ToUInt32(p, 4);
+                if (last != 0 && seq != last + 1) gaps++;
+                last = seq;
+                rate = (int)BitConverter.ToUInt32(p, 8);
+                int max = 0;
+                for (int i = 16; i + 1 < p.Length; i += 2) max = Math.Max(max, Math.Abs((int)BitConverter.ToInt16(p, i)));
+                peak = Math.Max(peak, max);
+                if (max > 100) loud++;
+            }
+            double ms = packets.Count > 1 ? (times[times.Count - 1] - times[0]) / (double)(packets.Count - 1) : 0;
+            report.AppendLine("Packets: " + packets.Count + ", " + (packets.Count > 0 ? packets[0].Length : 0) + " bytes each, every " + ms.ToString("0.0") + " ms on average");
+            report.AppendLine("Sample rate: " + rate + " Hz, gaps in the sequence: " + gaps);
+            report.AppendLine("With the tone: " + loud + " packets, peak " + peak + " of 32767");
+            bool ok = packets.Count > 200 && loud > 100 && gaps == 0;
+            report.AppendLine(ok ? "PASS" : "FAIL");
+            File.WriteAllText(path, report.ToString());
+            return ok ? 0 : 1;
+        }
+
+        /// <summary>A sine tone as an in-memory WAV file.</summary>
+        static MemoryStream Tone(int hz, double seconds, double volume)
+        {
+            const int rate = 44100;
+            int samples = (int)(rate * seconds);
+            var wav = new MemoryStream();
+            var w = new BinaryWriter(wav);
+            w.Write(Encoding.ASCII.GetBytes("RIFF")); w.Write(36 + samples * 2); w.Write(Encoding.ASCII.GetBytes("WAVEfmt "));
+            w.Write(16); w.Write((short)1); w.Write((short)1); w.Write(rate); w.Write(rate * 2); w.Write((short)2); w.Write((short)16);
+            w.Write(Encoding.ASCII.GetBytes("data")); w.Write(samples * 2);
+            for (int i = 0; i < samples; i++) w.Write((short)(Math.Sin(2 * Math.PI * hz * i / rate) * volume * 32767));
+            w.Flush();
+            wav.Position = 0;
+            return wav;
+        }
+
         /// <summary>The Wi-Fi remote end to end on this PC, as the phone does it: discover, connect, press, send words.</summary>
         static void WifiRemoteTest(Action<string, bool> check)
         {

@@ -1,11 +1,13 @@
 package com.couchtv.remote
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.provider.Settings
@@ -50,6 +52,12 @@ class MainActivity : Activity() {
         voice.onStatus = { findViewById<TextView>(R.id.search_hint).text = it }
         findViewById<View>(R.id.voice_search).setOnClickListener { voice.start() }
         findViewById<View>(R.id.search_bar).setOnClickListener { voice.type() }
+
+        findViewById<Button>(R.id.listen).setOnClickListener {
+            if (ListenService.running) stopService(Intent(this, ListenService::class.java)) else startListening()
+        }
+        ListenService.onChange = { showListen() }
+        showListen()
 
         findViewById<DpadView>(R.id.dpad).listener = dpadListener(
             Codes.UP, Codes.DOWN, Codes.LEFT, Codes.RIGHT, Codes.OK)
@@ -104,7 +112,27 @@ class MainActivity : Activity() {
         }
     }
 
+    /** The TV's sound in this phone's headphones, sent over Wi-Fi; it keeps playing with the screen off. */
+    private fun startListening() {
+        val tv = remote.wifi.tvAddress?.hostAddress ?: remote.wifi.manualAddress
+        if (tv == null) {
+            toast(getString(R.string.listen_no_tv))
+            return
+        }
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 43)   // for its Stop button; it plays either way
+        }
+        startForegroundService(Intent(this, ListenService::class.java).putExtra(ListenService.EXTRA_TV, tv))
+    }
+
+    private fun showListen() {
+        val button = findViewById<Button>(R.id.listen)
+        button.setText(if (ListenService.running) R.string.listen_stop else R.string.listen_start)
+        button.setTextColor(getColor(if (ListenService.running) R.color.good else R.color.ink))
+    }
+
     override fun onDestroy() {
+        ListenService.onChange = null
         InstallReceiver.onFailure = null
         voice.release()
         super.onDestroy()

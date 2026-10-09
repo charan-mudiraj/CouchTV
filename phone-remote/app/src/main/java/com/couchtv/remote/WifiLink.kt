@@ -39,6 +39,10 @@ class WifiLink(context: Context) {
     private class Tv(val address: InetAddress, val port: Int, val name: String)
 
     /** The TV's name while connected, else null. */
+    /** The TV's address while connected, e.g. for sending its sound to this phone. */
+    @Volatile var tvAddress: InetAddress? = null
+        private set
+
     @Volatile var tvName: String? = null
         private set
 
@@ -210,6 +214,7 @@ class WifiLink(context: Context) {
             if (line.startsWith("WELCOME")) {
                 welcomed = true
                 prefs.edit().putString("last_ip", tv.address.hostAddress).apply()
+                tvAddress = tv.address
                 setTv(line.removePrefix("WELCOME").trim().ifEmpty { tv.name })
             }
         }
@@ -235,6 +240,7 @@ class WifiLink(context: Context) {
     }
 
     private fun setTv(name: String?) {
+        if (name == null) tvAddress = null
         if (tvName == name) return
         tvName = name
         main.post { onChange?.invoke() }

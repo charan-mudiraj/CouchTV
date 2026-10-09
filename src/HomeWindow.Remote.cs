@@ -23,6 +23,7 @@ namespace CouchTV
 
         IrLink _ir;
         RemoteServer _wifi;
+        AudioShare _sound;
         RemoteMap _remote;
 
         // The button currently being pressed. Remotes repeat their signal while a button is held.
@@ -57,6 +58,17 @@ namespace CouchTV
             _wifi.Text += ReceiveSearchText;
             _wifi.Connected += who => { if (IsActive && !SearchOpen) Toast("Phone remote connected over Wi-Fi"); };
             _wifi.Start();
+
+            // The TV's sound on phones too, each into its own headphones ("Listen on this phone" in the remote app).
+            _sound = new AudioShare();
+            _sound.ListenersChanged += count => Dispatcher.BeginInvoke(new Action(() =>
+            {
+                string message = count == 0 ? "No phones are playing the TV's sound now" : "The TV's sound is also playing on " + count + (count == 1 ? " phone" : " phones");
+                if (IsActive) Toast(message);
+                else Osd.ShowMessage('', message, 3);
+            }));
+            _sound.Start();
+
             var later = new DispatcherTimer { Interval = TimeSpan.FromSeconds(8) };
             later.Tick += (s, e) =>
             {

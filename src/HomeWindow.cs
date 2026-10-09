@@ -1354,6 +1354,7 @@ namespace CouchTV
             if (_osd != null) _osd.Close();
             if (_ir != null) _ir.Stop();
             if (_wifi != null) _wifi.Stop();
+            if (_sound != null) _sound.Stop();
             Mouse.OverrideCursor = null;
             base.OnClosed(e);
         }
