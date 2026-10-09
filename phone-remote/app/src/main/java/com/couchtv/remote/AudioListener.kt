@@ -145,8 +145,8 @@ class AudioListener(context: Context, private val tvHost: String) {
         var track: AudioTrack? = null
         try {
             var rate = 0
-            var started = 0L
             var lastCheck = 0L
+            var lastGap = 0L
             var underruns = 0
             var bluetooth = false
             var backlog = 0.0   // packets waiting here, smoothed over about a second
@@ -154,36 +154,45 @@ class AudioListener(context: Context, private val tvHost: String) {
             var written = 0L    // frames handed to the audio system
             while (running) {
                 val chunk = queue.poll(200, TimeUnit.MILLISECONDS) ?: continue
+                val now = SystemClock.elapsedRealtime()
                 if (track == null || chunk.rate != rate) {
                     track?.release()
                     rate = chunk.rate
                     val created = makeTrack(rate)
                     bluetooth = isBluetooth(created)
                     setCushion(created, if (bluetooth) BLUETOOTH_MS else SPEAKER_MS, rate)
+                    written = fillCushion(created, rate, 0)   // the reserve goes in before it starts playing
                     created.play()
                     track = created
-                    started = SystemClock.elapsedRealtime()
-                    underruns = 0
+                    underruns = created.underrunCount
                     backlog = 0.0
                     fill = cushionMs.toDouble()
-                    written = 0
+                    lastGap = now
                 }
                 val t = track ?: continue
-                val now = SystemClock.elapsedRealtime()
+                // Ran dry (a longer hiccup than the cushion covers): keep 20 ms more ready from now on, and fill the
+                // cushion again straight away. Sound arrives exactly as fast as it plays, so nothing else would.
+                if (t.underrunCount > underruns) {
+                    gaps += t.underrunCount - underruns
+                    underruns = t.underrunCount
+                    setCushion(t, cushionMs + 20, rate)
+                    written += fillCushion(t, rate, written)
+                    lastGap = now
+                }
                 if (now - lastCheck >= 1000) {
                     lastCheck = now
                     // Headphones connected or disconnected meanwhile: start again from that kind's cushion.
                     val bt = isBluetooth(t)
+                    val base = if (bt) BLUETOOTH_MS else SPEAKER_MS
                     if (bt != bluetooth) {
                         bluetooth = bt
-                        setCushion(t, if (bt) BLUETOOTH_MS else SPEAKER_MS, rate)
+                        setCushion(t, base, rate)
+                        written += fillCushion(t, rate, written)
+                        lastGap = now
+                    } else if (cushionMs > base && now - lastGap > 60_000) {
+                        setCushion(t, cushionMs - 20, rate)   // a minute without a gap: give back some delay
+                        lastGap = now
                     }
-                    // Ran dry since the last check (not counting the first moments): keep 20 ms more ready.
-                    if (now - started > 2000 && t.underrunCount > underruns) {
-                        gaps += t.underrunCount - underruns
-                        setCushion(t, cushionMs + 20, rate)
-                    }
-                    underruns = t.underrunCount
                 }
                 // The TV's and the phone's clocks never tick at exactly the same speed. Rather than dropping or
                 // padding 5 ms at once (a break you can hear), play this packet 0.4% faster or slower: inaudible.
@@ -196,7 +205,7 @@ class AudioListener(context: Context, private val tvHost: String) {
                         adjusted++
                         stretch(chunk.samples, frames - 1)
                     }
-                    now - started > 3000 && queue.isEmpty() && fill < cushionMs * 0.4 -> {   // running low: a hair slow
+                    queue.isEmpty() && fill < cushionMs * 0.4 -> {   // running low: the TV runs a hair slow
                         adjusted++
                         stretch(chunk.samples, frames + 1)
                     }
@@ -210,6 +219,20 @@ class AudioListener(context: Context, private val tvHost: String) {
         } finally {
             track?.release()
         }
+    }
+
+    /**
+     * Tops the audio system up to the cushion with silence, so there's sound in reserve to ride out Wi-Fi hiccups.
+     * Returns the frames written.
+     */
+    private fun fillCushion(track: AudioTrack, rate: Int, written: Long): Long {
+        val head = track.playbackHeadPosition.toLong() and 0xFFFFFFFFL
+        val ready = (written - head).coerceAtLeast(0L)
+        val wanted = cushionMs * rate / 1000 - ready
+        if (wanted <= 0) return 0
+        val silence = ByteArray((wanted * 4).toInt())
+        val n = track.write(silence, 0, silence.size, AudioTrack.WRITE_NON_BLOCKING)
+        return if (n > 0) n / 4L else 0L
     }
 
     /** 16-bit stereo resampled to [outFrames] frames by straight-line interpolation; its first and last samples stay put. */
