@@ -11,6 +11,8 @@ import android.content.pm.ServiceInfo
 import android.graphics.drawable.Icon
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.IBinder
 
 /**
@@ -33,6 +35,17 @@ class ListenService : Service() {
 
     private var listener: AudioListener? = null
     private val locks = ArrayList<WifiManager.WifiLock>()
+    private val main = Handler(Looper.getMainLooper())
+
+    // Every 3 seconds the notification shows how the sound is doing, to help find the cause of any breaks.
+    private val refresh = object : Runnable {
+        override fun run() {
+            val stats = listener?.stats() ?: return
+            getSystemService(NotificationManager::class.java)
+                .notify(NOTIFICATION_ID, notification(getString(R.string.listen_stats, stats[0], stats[1], stats[2], stats[3])))
+            main.postDelayed(this, 3000)
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -50,6 +63,7 @@ class ListenService : Service() {
         if (listener == null) {
             holdWifi()
             listener = AudioListener(this, tv).also { it.start() }
+            main.postDelayed(refresh, 3000)
             running = true
             onChange?.invoke()
         }
@@ -57,6 +71,7 @@ class ListenService : Service() {
     }
 
     override fun onDestroy() {
+        main.removeCallbacks(refresh)
         listener?.stop()
         listener = null
         for (lock in locks) if (lock.isHeld) lock.release()
@@ -83,19 +98,24 @@ class ListenService : Service() {
     }
 
     private fun showNotification() {
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(NotificationChannel(CHANNEL, getString(R.string.listen_channel), NotificationManager.IMPORTANCE_LOW))
-        val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
-        val stop = PendingIntent.getService(this, 1, Intent(this, ListenService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE)
-        val notification = Notification.Builder(this, CHANNEL)
-            .setSmallIcon(R.drawable.ic_headphones)
-            .setContentTitle(getString(R.string.listen_notification_title))
-            .setContentText(getString(R.string.listen_notification_text))
-            .setContentIntent(open)
-            .setOngoing(true)
-            .addAction(Notification.Action.Builder(Icon.createWithResource(this, R.drawable.ic_headphones), getString(R.string.stop), stop).build())
-            .build()
+        getSystemService(NotificationManager::class.java)
+            .createNotificationChannel(NotificationChannel(CHANNEL, getString(R.string.listen_channel), NotificationManager.IMPORTANCE_LOW))
+        val notification = notification(getString(R.string.listen_notification_text))
         if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
         else startForeground(NOTIFICATION_ID, notification)
+    }
+
+    private fun notification(text: String): Notification {
+        val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        val stop = PendingIntent.getService(this, 1, Intent(this, ListenService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE)
+        return Notification.Builder(this, CHANNEL)
+            .setSmallIcon(R.drawable.ic_headphones)
+            .setContentTitle(getString(R.string.listen_notification_title))
+            .setContentText(text)
+            .setContentIntent(open)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .addAction(Notification.Action.Builder(Icon.createWithResource(this, R.drawable.ic_headphones), getString(R.string.stop), stop).build())
+            .build()
     }
 }

@@ -14,6 +14,7 @@
     <string name="listen_notification_title">Playing the TV\'s sound</string>
     <string name="listen_notification_text">In this phone\'s headphones. Tap Stop to end.</string>
     <string name="stop">Stop</string>
+    <string name="listen_stats">Cushion %1$d ms · lost %2$d · gaps %3$d · smoothed %4$d</string>
     <string name="tv_address_title">TV address</string>
     <string name="tv_address_hint">e.g. 192.168.0.13</string>
     <string name="tv_address_help">The TV PC\'s IP address on your Wi-Fi. The TV shows it under Settings &amp; power &gt; Remote. If it doesn\'t answer, the app searches the network instead.</string>

@@ -343,7 +343,7 @@ namespace CouchTV
             try
             {
                 using (var phone = new System.Net.Sockets.UdpClient(new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 0)))
-                using (var tone = new System.Media.SoundPlayer(Tone(440, 2.5, 0.03)))
+                using (var tone = new System.Media.SoundPlayer(Tone(440, 1.0, 0.03)))
                 {
                     phone.Client.ReceiveTimeout = 1000;
                     byte[] listen = Encoding.ASCII.GetBytes("LISTEN");
@@ -352,7 +352,7 @@ namespace CouchTV
                     System.Threading.Thread.Sleep(300);
                     tone.Play();
                     var clock = System.Diagnostics.Stopwatch.StartNew();
-                    while (clock.ElapsedMilliseconds < 2200)
+                    while (clock.ElapsedMilliseconds < 3000)
                     {
                         if (clock.ElapsedMilliseconds % 1000 < 20) phone.Send(listen, listen.Length, server);   // keep listening
                         var from = new System.Net.IPEndPoint(System.Net.IPAddress.Any, 0);
@@ -382,10 +382,13 @@ namespace CouchTV
                 if (max > 100) loud++;
             }
             double ms = packets.Count > 1 ? (times[times.Count - 1] - times[0]) / (double)(packets.Count - 1) : 0;
+            long longest = 0;
+            for (int i = 1; i < times.Count; i++) longest = Math.Max(longest, times[i] - times[i - 1]);
             report.AppendLine("Packets: " + packets.Count + ", " + (packets.Count > 0 ? packets[0].Length : 0) + " bytes each, every " + ms.ToString("0.0") + " ms on average");
             report.AppendLine("Sample rate: " + rate + " Hz, gaps in the sequence: " + gaps);
-            report.AppendLine("With the tone: " + loud + " packets, peak " + peak + " of 32767");
-            bool ok = packets.Count > 200 && loud > 100 && gaps == 0;
+            report.AppendLine("With the tone: " + loud + " packets, peak " + peak + " of 32767; silent: " + (packets.Count - loud));
+            report.AppendLine("Longest wait between packets: " + longest + " ms (silence keeps coming after the tone ends)");
+            bool ok = packets.Count > 350 && loud > 100 && packets.Count - loud > 100 && gaps == 0 && longest < 60;
             report.AppendLine(ok ? "PASS" : "FAIL");
             File.WriteAllText(path, report.ToString());
             return ok ? 0 : 1;

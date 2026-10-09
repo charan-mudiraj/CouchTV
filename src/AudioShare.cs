@@ -142,16 +142,28 @@ namespace CouchTV
 
         // ---------------------------------------------------------------- capturing and sending
 
-        /// <summary>Runs while anyone listens; starts again after the sound device changes (e.g. HDMI to speakers).</summary>
+        /// <summary>
+        /// Runs while anyone listens; starts again after the sound device changes (e.g. HDMI to speakers). Windows'
+        /// timer normally wakes a sleeping thread only every 15.6 ms, which would send packets in bursts of three;
+        /// asking for 1 ms meanwhile sends them evenly, so phones need less cushion.
+        /// </summary>
         void Capture()
         {
-            while (!_stop && Listeners > 0)
+            timeBeginPeriod(1);
+            try
             {
-                try { CaptureUntilDeviceChanges(); }
-                catch (Exception ex) { Log.Info("Phone audio capture: " + ex.Message); }
-                if (!_stop && Listeners > 0) Thread.Sleep(500);
+                while (!_stop && Listeners > 0)
+                {
+                    try { CaptureUntilDeviceChanges(); }
+                    catch (Exception ex) { Log.Info("Phone audio capture: " + ex.Message); }
+                    if (!_stop && Listeners > 0) Thread.Sleep(500);
+                }
             }
+            finally { timeEndPeriod(1); }
         }
+
+        [DllImport("winmm.dll")] static extern uint timeBeginPeriod(uint milliseconds);
+        [DllImport("winmm.dll")] static extern uint timeEndPeriod(uint milliseconds);
 
         void CaptureUntilDeviceChanges()
         {
@@ -166,14 +178,35 @@ namespace CouchTV
                 packet[12] = 2;
                 uint sequence = 0;
                 var sender = new UdpClient(new IPEndPoint(_bind, 0));
+                // When nothing plays (a paused video), Windows produces no sound data at all. Phones would run dry
+                // and keep more in reserve each time, so after 20 ms without data, send silence at the real pace.
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                long quietSince = -1, silence = 0;
                 try
                 {
                     while (!_stop && Listeners > 0)
                     {
-                        if (!loopback.Read(pcm))   // nothing new yet
+                        if (loopback.Read(pcm)) quietSince = -1;
+                        else
                         {
-                            Thread.Sleep(2);
-                            continue;
+                            long now = clock.ElapsedMilliseconds;
+                            if (quietSince < 0)
+                            {
+                                quietSince = now;
+                                silence = 0;
+                            }
+                            long due = now - quietSince > 20 ? (now - quietSince - 20) * loopback.SampleRate / 1000 - silence : 0;
+                            if (due < perPacket)
+                            {
+                                Thread.Sleep(2);
+                                continue;
+                            }
+                            for (long i = 0; i < due; i++)
+                            {
+                                pcm.Add(0);
+                                pcm.Add(0);
+                            }
+                            silence += due;
                         }
                         int offset = 0;
                         while (pcm.Count - offset >= perPacket * 2)
