@@ -1,6 +1,9 @@
 # CouchTV Remote (Android)
 
-A remote control app for phones with an **IR blaster** (most Xiaomi / Redmi / POCO phones). It sends infrared signals that CouchTV's [CouchIR receiver](../ir-receiver/README.md) picks up. No Wi-Fi or pairing needed: point the phone at the TV and press.
+A remote control app for CouchTV. It works two ways, and picks by itself:
+
+- **Over Wi-Fi**, when the phone is on the same Wi-Fi as the TV: it finds the TV and connects as soon as you open it, with no list to choose from. No pointing needed, and it works on **any** Android phone. The top line says *Connected to … over Wi-Fi*.
+- **By infrared**, on phones with an **IR blaster** (most Xiaomi / Redmi / POCO phones), when the TV isn't on Wi-Fi, for example while the PC is asleep. Point the phone at the TV; CouchTV's [CouchIR receiver](../ir-receiver/README.md) picks it up. This is also what wakes the PC.
 
 **What's on it**
 
@@ -82,6 +85,8 @@ Each button sends an NEC frame (38 kHz, address `0xCE`), then a "still held" fra
 |---|---|
 | `Nec.kt` | Builds the infrared timing patterns, including text for voice search |
 | `IrRemote.kt` | Sends them through the IR blaster on a background thread, with hold-to-repeat |
+| `WifiLink.kt` | Finds the TV on the Wi-Fi and keeps a connection to it |
+| `Remote.kt` | Sends each press over Wi-Fi when connected, otherwise by infrared |
 | `VoiceSearch.kt` | Listens, turns speech into text, and sends it; typing too |
 | `Codes.kt` | The button codes |
 | `DpadView.kt` | The round D-pad |

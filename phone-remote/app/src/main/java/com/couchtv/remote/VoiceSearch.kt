@@ -27,7 +27,7 @@ import android.widget.Toast
  * Hindi), then sends the text to CouchTV over infrared. While the phone listens, the TV shows "Listening…" and
  * turns its sound down. If this phone's recognizer doesn't work, Google's own voice screen is used instead.
  */
-class VoiceSearch(private val activity: Activity, private val remote: IrRemote) {
+class VoiceSearch(private val activity: Activity, private val remote: Remote) {
     companion object {
         const val REQUEST_MIC = 41
         const val REQUEST_POPUP = 42
@@ -317,7 +317,7 @@ class VoiceSearch(private val activity: Activity, private val remote: IrRemote) 
         val words = Nec.fitText(text)
         if (words.isEmpty()) return
         lastText = words
-        onStatus?.invoke(activity.getString(R.string.search_sending, words))
+        if (!remote.viaWifi) onStatus?.invoke(activity.getString(R.string.search_sending, words))   // infrared takes a second
         remote.sendText(words) {
             activity.runOnUiThread { onStatus?.invoke(activity.getString(R.string.search_sent, words)) }
         }

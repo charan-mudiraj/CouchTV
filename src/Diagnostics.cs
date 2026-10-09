@@ -267,6 +267,8 @@ namespace CouchTV
             check("YouTube: the first ordinary result's id and title", first != null && first.Id == "Ab3_dEfGh-1" && first.Title == "Kesariya & Gerua \"Live\"");
             check("YouTube: a page without results gives nothing", SmartSearch.ParseYouTube("<html>consent</html>") == null);
 
+            WifiRemoteTest(check);
+
             // Made-up keys, built here so GitHub's secret scanning doesn't mistake the source for a real one.
             string oldStyle = "AI" + "za" + new string('x', 35), newStyle = "AQ" + "." + new string('x', 25) + "_" + new string('y', 24);
             check("a pasted Gemini key is recognised, old and new formats", ApiKeys.LooksLikeGemini(oldStyle) && ApiKeys.LooksLikeGemini(newStyle)
@@ -326,6 +328,55 @@ namespace CouchTV
         }
 
         static KeyValuePair<Tile, string> Pair(Tile t, string caption) { return new KeyValuePair<Tile, string>(t, caption); }
+
+        /// <summary>The Wi-Fi remote end to end on this PC, as the phone does it: discover, connect, press, send words.</summary>
+        static void WifiRemoteTest(Action<string, bool> check)
+        {
+            var buttons = new List<string>();
+            var words = new List<string>();
+            var server = new RemoteServer(null, 47790, 47791, System.Net.IPAddress.Loopback);
+            server.Button += s => { lock (buttons) buttons.Add(s.Code + (s.IsRepeat ? " R" : " N")); };
+            server.Text += t => { lock (words) words.Add(t); };
+            server.Start();
+            try
+            {
+                System.Threading.Thread.Sleep(300);
+                string answer = null;
+                using (var udp = new System.Net.Sockets.UdpClient())
+                {
+                    udp.Client.ReceiveTimeout = 2000;
+                    byte[] ask = Encoding.ASCII.GetBytes("COUCHTV?");
+                    udp.Send(ask, ask.Length, new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 47790));
+                    var from = new System.Net.IPEndPoint(System.Net.IPAddress.Any, 0);
+                    try { answer = Encoding.UTF8.GetString(udp.Receive(ref from)); } catch (Exception) { }
+                }
+                check("Wi-Fi: the TV answers \"COUCHTV?\" with its port and name", answer == "COUCHTV 1 47791 " + RemoteServer.TvName);
+
+                using (var tcp = new System.Net.Sockets.TcpClient())
+                {
+                    tcp.Connect(System.Net.IPAddress.Loopback, 47791);
+                    tcp.ReceiveTimeout = 2000;
+                    var stream = tcp.GetStream();
+                    var reader = new StreamReader(stream, new UTF8Encoding(false));
+                    var writer = new StreamWriter(stream, new UTF8Encoding(false)) { NewLine = "\n", AutoFlush = true };
+                    writer.WriteLine("HELLO test 1");
+                    string welcome = reader.ReadLine();
+                    writer.WriteLine("PING");
+                    string pong = reader.ReadLine();
+                    check("Wi-Fi: HELLO gets WELCOME, PING gets PONG", welcome == "WELCOME " + RemoteServer.TvName && pong == "PONG");
+                    writer.WriteLine("BTN CE 05 N");
+                    writer.WriteLine("BTN CE 06 R");
+                    writer.WriteLine("BTN ZZ 06 N");   // ignored
+                    writer.WriteLine("TEXT " + Convert.ToBase64String(Encoding.UTF8.GetBytes("पंचायत season 3")));
+                    writer.WriteLine("PING");
+                    reader.ReadLine();                 // everything before it has been handled
+                }
+                lock (buttons) check("Wi-Fi: buttons arrive as the IR receiver's codes", string.Join(", ", buttons) == "NEC 00CE 0005 N, NEC 00CE 0006 R");
+                lock (words) check("Wi-Fi: words arrive whole, Hindi included", words.Count == 1 && words[0] == "पंचायत season 3");
+            }
+            catch (Exception ex) { check("Wi-Fi: " + ex.Message, false); }
+            finally { server.Stop(); }
+        }
 
         static string Decode(List<string> codes)
         {

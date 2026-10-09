@@ -175,6 +175,7 @@ CouchTV works with **any infrared remote** through **CouchIR**, a ₹500 USB rec
 - **Teaching it a remote:** open **Settings & power → Remote** (or press F2) and press each button when asked. Mappings are saved in `C:\CouchTV\remote.ini`, and several remotes can be set up at once.
 - **The phone remote app** for Mi phones with an IR blaster is in **[phone-remote/](phone-remote/README.md)**: open it in Android Studio and press Run. Its codes are already mapped, so it works with no setup. The signal format is in [ir-receiver/PROTOCOL.md](ir-receiver/PROTOCOL.md).
 - **Waking from sleep:** buttons you map to **Power** are stored on the receiver, so they can wake the PC from sleep.
+- **Over Wi-Fi:** when the phone is on the same Wi-Fi as the TV, the remote app finds the TV by itself and connects as soon as it opens (no list to pick from). Then there's no need to point, voice search arrives instantly, and phones **without** an IR blaster work too. The app's top line says *Connected to … over Wi-Fi*. While the PC is asleep it isn't on the network, so the app falls back to infrared, which is what wakes it. The first time, the TV asks to let phones in through Windows Firewall (home network only); press F7 to ask again.
 
 Inside apps, remote buttons act as real keys (arrows, Enter, Back, Space for play/pause), so they work in Netflix and YouTube too. Holding Back goes Home, and there are buttons that jump straight into a tile.
 

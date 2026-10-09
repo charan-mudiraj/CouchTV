@@ -8,7 +8,10 @@
     <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
     <!-- Voice search: the phone turns speech into text, then sends the text to the TV. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-feature android:name="android.hardware.consumerir" android:required="true" />
+    <!-- Wi-Fi mode: find the TV on the phone's Wi-Fi and connect to it. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Not required: phones without an IR blaster use Wi-Fi. -->
+    <uses-feature android:name="android.hardware.consumerir" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
     <!-- Android 11+ only lets the app see the speech recognizer and Google's voice screen when it asks for them. -->

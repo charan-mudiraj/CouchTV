@@ -696,17 +696,24 @@ namespace CouchTV
                         _ignoreText = false;
                         return;
                     }
-                    if (!SearchOpen) OpenSearch(false);
-                    StopListening();
-                    _query = _irText.Text;
-                    _searchError = null;
-                    StartPlanning();
-                    if (SearchOpen) UpdateSearch();
+                    ReceiveSearchText(_irText.Text);
                     break;
                 case IrTextResult.Failed:
                     TextFailed();
                     break;
             }
+        }
+
+        /// <summary>Words from the phone (voice search or typing), by infrared or Wi-Fi: search for them.</summary>
+        void ReceiveSearchText(string words)
+        {
+            _receiving = false;
+            if (!SearchOpen) OpenSearch(false);
+            StopListening();
+            _query = words;
+            _searchError = null;
+            StartPlanning();
+            if (SearchOpen) UpdateSearch();
         }
 
         void TextFailed()

@@ -6,6 +6,8 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using System.Windows.Threading;
+using System.Threading;
+using Microsoft.Win32;
 
 namespace CouchTV
 {
@@ -20,6 +22,7 @@ namespace CouchTV
         }
 
         IrLink _ir;
+        RemoteServer _wifi;
         RemoteMap _remote;
 
         // The button currently being pressed. Remotes repeat their signal while a button is held.
@@ -47,6 +50,57 @@ namespace CouchTV
             _ir.Signal += OnIrSignal;
             _ir.StatusChanged += OnIrStatus;
             _ir.Start();
+
+            // The same phone remote over Wi-Fi: its buttons use the same mapping, and its words go straight to search.
+            _wifi = new RemoteServer(Dispatcher);
+            _wifi.Button += OnIrSignal;
+            _wifi.Text += ReceiveSearchText;
+            _wifi.Connected += who => { if (IsActive && !SearchOpen) Toast("Phone remote connected over Wi-Fi"); };
+            _wifi.Start();
+            var later = new DispatcherTimer { Interval = TimeSpan.FromSeconds(8) };
+            later.Tick += (s, e) =>
+            {
+                later.Stop();
+                OfferWifiRemote(false);
+            };
+            later.Start();
+        }
+
+        /// <summary>
+        /// Windows Firewall blocks phones from reaching CouchTV until a rule allows it. Ask once (or again with F7):
+        /// Windows then shows its permission prompt. The rule only allows the local network.
+        /// </summary>
+        void OfferWifiRemote(bool again)
+        {
+            const string key = @"Software\CouchTV";
+            if (!again)
+            {
+                using (RegistryKey k = Registry.CurrentUser.OpenSubKey(key))
+                    if (k != null && k.GetValue("WifiRemoteAsked") != null) return;
+            }
+            ThreadPool.QueueUserWorkItem(state =>
+            {
+                if (RemoteServer.FirewallRuleExists())
+                {
+                    if (again) Dispatcher.BeginInvoke(new Action(() => Toast("The phone remote can already connect over Wi-Fi.")));
+                    return;
+                }
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (Modal) return;   // busy: ask next time
+                    using (RegistryKey k = Registry.CurrentUser.CreateSubKey(key)) k.SetValue("WifiRemoteAsked", 1, RegistryValueKind.DWord);
+                    Confirm("Use the phone remote over Wi-Fi?",
+                        "Phones on your Wi-Fi can then control the TV without pointing, including phones without an IR blaster. " +
+                        "Windows will ask for permission once. Only your home network is allowed.",
+                        "Allow", () => ThreadPool.QueueUserWorkItem(s2 =>
+                        {
+                            bool ok = RemoteServer.AddFirewallRule();
+                            Dispatcher.BeginInvoke(new Action(() => Toast(ok
+                                ? "Done. Open the remote app on a phone on the same Wi-Fi: it connects by itself."
+                                : "Not allowed. Press F7 on the home screen to try again.")));
+                        }));
+                }));
+            });
         }
 
         void OnIrStatus()

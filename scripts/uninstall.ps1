@@ -39,6 +39,7 @@ $shell = (Get-ItemProperty $winlogon -ErrorAction SilentlyContinue).Shell
 if ($shell -and $shell -match 'CouchTV') { Remove-RegValue $winlogon 'Shell' }
 Remove-RegValue 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' 'CouchTV'
 if (Test-Path 'HKCU:\Software\CouchTV') { Apply 'Remove HKCU:\Software\CouchTV' { Remove-Item 'HKCU:\Software\CouchTV' -Recurse } }
+Apply 'Remove the firewall rule for the Wi-Fi phone remote' { & netsh.exe advfirewall firewall delete rule name="CouchTV phone remote" | Out-Null }
 
 Section 'Undo the Windows settings'
 foreach ($arguments in @(

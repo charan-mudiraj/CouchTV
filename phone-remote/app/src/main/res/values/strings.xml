@@ -2,7 +2,9 @@
 <resources>
     <string name="app_name">CouchTV Remote</string>
     <string name="title">CouchTV</string>
-    <string name="ready">Point the top of the phone at the TV</string>
+    <string name="ready">Point the top of the phone at the TV, or join the TV\'s Wi-Fi to skip pointing</string>
+    <string name="wifi_connected">Connected to %1$s over Wi-Fi · no need to point</string>
+    <string name="wifi_looking_no_ir">Looking for the TV on Wi-Fi… Connect this phone to the same Wi-Fi as the TV.</string>
     <string name="no_ir">This phone has no IR blaster, so it can\'t send to the TV.</string>
     <string name="no_38khz">This phone\'s IR blaster can\'t send at 38 kHz, so the TV may not hear it.</string>
 

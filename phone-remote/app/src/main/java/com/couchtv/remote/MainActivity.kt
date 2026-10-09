@@ -22,7 +22,7 @@ import java.util.concurrent.Executors
 
 /** The remote: D-pad, TV buttons, app shortcuts, a pointer pad, and buttons you add yourself. */
 class MainActivity : Activity() {
-    private lateinit var remote: IrRemote
+    private lateinit var remote: Remote
     private lateinit var voice: VoiceSearch
     private lateinit var store: CustomButtons
     private lateinit var myButtons: MutableList<CustomButton>
@@ -39,7 +39,8 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        remote = IrRemote(this)
+        remote = Remote(this)
+        remote.wifi.onChange = { showStatus() }
         store = CustomButtons(this)
         myButtons = store.load()
 
@@ -112,6 +113,17 @@ class MainActivity : Activity() {
     override fun onPause() {
         voice.stop()
         super.onPause()
+    }
+
+    // Over Wi-Fi the app finds the TV by itself each time it's opened, and lets go when it's put away.
+    override fun onStart() {
+        super.onStart()
+        remote.wifi.start()
+    }
+
+    override fun onStop() {
+        remote.wifi.stop()
+        super.onStop()
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
@@ -212,13 +224,14 @@ class MainActivity : Activity() {
 
     private fun showStatus() {
         val status = findViewById<TextView>(R.id.status)
-        status.setText(
-            when {
-                !remote.available -> R.string.no_ir
-                !remote.supports38kHz -> R.string.no_38khz
-                else -> R.string.ready
-            }
-        )
+        val tv = remote.wifi.tvName
+        status.setTextColor(getColor(if (tv != null) R.color.good else R.color.muted))
+        status.text = when {
+            tv != null -> getString(R.string.wifi_connected, tv)
+            !remote.ir.available -> getString(R.string.wifi_looking_no_ir)
+            !remote.ir.supports38kHz -> getString(R.string.no_38khz)
+            else -> getString(R.string.ready)
+        }
     }
 
     private fun dpadListener(up: Int, down: Int, left: Int, right: Int, center: Int) = object : DpadView.Listener {

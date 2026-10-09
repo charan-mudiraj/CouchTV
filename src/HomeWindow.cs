@@ -691,6 +691,7 @@ namespace CouchTV
                     break;
                 case Key.F5: Reload(); break;
                 case Key.F6: CheckForUpdates(true); break;
+                case Key.F7: OfferWifiRemote(true); break;
                 case Key.Escape:
                 case Key.BrowserBack:
                 case Key.Back:
@@ -1352,6 +1353,7 @@ namespace CouchTV
             NetworkChange.NetworkAvailabilityChanged -= OnNetworkChanged;
             if (_osd != null) _osd.Close();
             if (_ir != null) _ir.Stop();
+            if (_wifi != null) _wifi.Stop();
             Mouse.OverrideCursor = null;
             base.OnClosed(e);
         }

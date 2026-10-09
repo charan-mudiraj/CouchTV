@@ -98,3 +98,19 @@ fun textFrames(text: String): List<IntArray> {             // send necFrame(0x52
 ```
 
 The app's version is `phone-remote/app/src/main/java/com/couchtv/remote/Nec.kt`. CouchTV's self-test (`CouchTV.exe --remotetest report.txt`) mirrors how the receiver reports each frame and checks Hindi, emoji, the digit 1 (byte `31`), garbled frames and missing frames.
+
+## Wi-Fi
+
+The same remote also works over the home network, with no pointing, and on phones without an IR blaster. It uses the same button codes, so `remote.ini` applies to both. The phone prefers Wi-Fi while the TV answers, and falls back to infrared when it doesn't, for example when the PC is asleep.
+
+1. **Finding the TV.** The phone sends the text `COUCHTV?` by UDP to port **47700**, both as a broadcast (the subnet's, like `192.168.1.255`, and `255.255.255.255`) and directly to the address that answered last time. CouchTV replies `COUCHTV 1 47701 <PC name>`: protocol 1, TCP port 47701.
+2. **Connecting.** The phone opens TCP port **47701**. Both sides send lines of UTF-8 text ending in `\n`:
+
+| Phone sends | CouchTV answers | Meaning |
+|---|---|---|
+| `HELLO CouchTV-Remote <version>` | `WELCOME <PC name>` | connected |
+| `PING` (every second) | `PONG` | keeps it alive; either side drops the link after 3–5 s without one |
+| `BTN CE 05 N`, then `BTN CE 05 R` every 108 ms while held | | a button: address and command in hex, like an NEC frame; CouchTV treats it exactly like the receiver's `NEC 00CE 0005` |
+| `TEXT <base64 of UTF-8>` | | words for search, all at once (no frames or CRC needed) |
+
+Windows Firewall has to allow CouchTV in: the installer adds the rule *CouchTV phone remote* (CouchTV.exe, local network only). On a PC installed before Wi-Fi mode, CouchTV asks once and Windows shows its permission prompt; press F7 on the home screen to ask again. The code is `src/RemoteServer.cs` and `phone-remote/.../WifiLink.kt`.

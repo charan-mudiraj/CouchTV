@@ -164,6 +164,12 @@ if ($NoShell) {
 # Also start CouchTV when Explorer is the shell (desktop mode, or if Windows ignores the shell setting).
 Set-RegValue 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' 'CouchTV' "`"$exe`" --autostart" 'String'
 
+# The phone remote over Wi-Fi: let CouchTV receive connections, from the home network only.
+Apply 'Let the phone remote connect over Wi-Fi (firewall rule, local network only)' {
+    & netsh.exe advfirewall firewall delete rule name="CouchTV phone remote" | Out-Null
+    & netsh.exe advfirewall firewall add rule name="CouchTV phone remote" dir=in action=allow program="$exe" remoteip=localsubnet profile=any enable=yes | Out-Null
+}
+
 # ------------------------------------------------------------------ tweaks
 if (-not $SkipTweaks) {
     Section 'TV-friendly Windows settings'
