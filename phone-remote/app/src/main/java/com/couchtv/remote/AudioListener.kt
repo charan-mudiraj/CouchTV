@@ -20,7 +20,8 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Plays the TV's sound on this phone ("Sound on phones" in ir-receiver/PROTOCOL.md). CouchTV sends uncompressed
- * 16-bit stereo in 5 ms packets while this asks for it ("LISTEN" every second).
+ * 16-bit stereo in 3.75 ms chunks while this asks for it ("LISTEN 2" every second); each packet also carries the
+ * chunk before it, so a packet lost on the Wi-Fi is repaired from the next one.
  *
  * Two threads: one receives packets into a queue, the other writes them to the speaker or headphones and waits
  * whenever the phone's own audio system is full, so the phone sets the pace. The cushion (how much sound is ready
@@ -52,6 +53,7 @@ class AudioListener(context: Context, private val tvHost: String) {
 
     // Counters for the notification (see stats()).
     @Volatile private var lost = 0
+    @Volatile private var repaired = 0
     @Volatile private var gaps = 0
     @Volatile private var adjusted = 0
 
@@ -85,10 +87,11 @@ class AudioListener(context: Context, private val tvHost: String) {
             s.soTimeout = 200
             s.receiveBufferSize = 256 * 1024
             socket = s
-            val listen = "LISTEN".toByteArray(Charsets.US_ASCII)
+            val listen = "LISTEN 2".toByteArray(Charsets.US_ASCII)   // 2: each packet also carries the previous chunk
             val buffer = ByteArray(4096)
             var lastSequence = -1L
             var lastAsk = 0L
+            var lastChunk: Chunk? = null
             while (running) {
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastAsk >= 1000) {
@@ -102,14 +105,31 @@ class AudioListener(context: Context, private val tvHost: String) {
                     continue
                 }
                 if (packet.length <= HEADER || buffer[0] != 'C'.code.toByte() || buffer[1] != 'T'.code.toByte() ||
-                    buffer[2] != 'A'.code.toByte() || buffer[3] != '1'.code.toByte()) continue
+                    buffer[2] != 'A'.code.toByte() || (buffer[3] != '1'.code.toByte() && buffer[3] != '2'.code.toByte())) continue
                 // Old or repeated packets are dropped; a big jump back means CouchTV restarted its sound.
                 val sequence = uint32(buffer, 4)
                 if (sequence <= lastSequence && lastSequence - sequence < 1000) continue
-                if (lastSequence >= 0 && sequence > lastSequence + 1 && sequence - lastSequence < 1000) lost += (sequence - lastSequence - 1).toInt()
+                val rate = uint32(buffer, 8).toInt()
+                val withPrevious = buffer[3] == '2'.code.toByte() && (buffer[13].toInt() and 1) != 0
+                val size = if (withPrevious) (packet.length - HEADER) / 2 else packet.length - HEADER
+                val missing = if (lastSequence >= 0 && sequence - lastSequence < 1000) (sequence - lastSequence - 1).toInt() else 0
+                if (missing > 0) {
+                    // Packets lost on the Wi-Fi. The one just before this travels inside it too, so it's repaired;
+                    // anything lost before that is filled by repeating the last chunk, which hides a tiny gap far
+                    // better than skipping (up to 3; a longer outage is just skipped).
+                    val unrecovered = if (withPrevious) missing - 1 else missing
+                    for (i in 0 until minOf(unrecovered, 3)) lastChunk?.let { queue.offer(it) }
+                    lost += unrecovered
+                    if (withPrevious) {
+                        queue.offer(Chunk(rate, buffer.copyOfRange(HEADER + size, HEADER + 2 * size)))
+                        repaired++
+                    }
+                }
                 lastSequence = sequence
-                queue.offer(Chunk(uint32(buffer, 8).toInt(), buffer.copyOfRange(HEADER, packet.length)))
-                while (queue.size > 200) queue.poll()   // over a second behind (the phone stalled): keep the newest
+                val chunk = Chunk(rate, buffer.copyOfRange(HEADER, HEADER + size))
+                queue.offer(chunk)
+                lastChunk = chunk
+                while (queue.size > 250) queue.poll()   // about a second behind (the phone stalled): keep the newest
             }
         } catch (e: Exception) {
             if (running) Log.w(TAG, "TV sound (receiving)", e)
@@ -216,7 +236,7 @@ class AudioListener(context: Context, private val tvHost: String) {
     private fun sample(b: ByteArray, at: Int): Int = (b[at].toInt() and 0xFF) or (b[at + 1].toInt() shl 8)
 
     /** For the notification: cushion, packets lost on the Wi-Fi, times the sound ran out, smooth clock corrections. */
-    fun stats(): IntArray = intArrayOf(cushionMs, lost, gaps, adjusted)
+    fun stats(): IntArray = intArrayOf(cushionMs, lost, repaired, gaps, adjusted)
 
     private fun setCushion(track: AudioTrack, ms: Int, rate: Int) {
         cushionMs = ms.coerceIn(SPEAKER_MS, MOST_MS)

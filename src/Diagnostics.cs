@@ -346,7 +346,7 @@ namespace CouchTV
                 using (var tone = new System.Media.SoundPlayer(Tone(440, 1.0, 0.03)))
                 {
                     phone.Client.ReceiveTimeout = 1000;
-                    byte[] listen = Encoding.ASCII.GetBytes("LISTEN");
+                    byte[] listen = Encoding.ASCII.GetBytes("LISTEN 2");
                     var server = new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 47792);
                     phone.Send(listen, listen.Length, server);
                     System.Threading.Thread.Sleep(300);
@@ -367,17 +367,26 @@ namespace CouchTV
             catch (Exception ex) { report.AppendLine("FAILED: " + ex.Message); }
             finally { share.Stop(); }
 
-            int loud = 0, peak = 0, rate = 0, gaps = 0;
+            int loud = 0, peak = 0, rate = 0, gaps = 0, repairs = 0, badRepairs = 0;
             uint last = 0;
+            byte[] previous = null;
             foreach (byte[] p in packets)
             {
-                if (p.Length < 16 || Encoding.ASCII.GetString(p, 0, 4) != "CTA1") continue;
+                if (p.Length < 16 || Encoding.ASCII.GetString(p, 0, 4) != "CTA2") continue;
                 uint seq = BitConverter.ToUInt32(p, 4);
                 if (last != 0 && seq != last + 1) gaps++;
                 last = seq;
+                // Each packet carries its chunk, then a copy of the one before: check it matches what came before.
+                int half = (p.Length - 16) / 2;
+                if ((p[13] & 1) != 0 && previous != null)
+                {
+                    repairs++;
+                    for (int i = 0; i < half; i++) if (p[16 + half + i] != previous[16 + i]) { badRepairs++; break; }
+                }
+                previous = p;
                 rate = (int)BitConverter.ToUInt32(p, 8);
                 int max = 0;
-                for (int i = 16; i + 1 < p.Length; i += 2) max = Math.Max(max, Math.Abs((int)BitConverter.ToInt16(p, i)));
+                for (int i = 16; i + 1 < 16 + half; i += 2) max = Math.Max(max, Math.Abs((int)BitConverter.ToInt16(p, i)));
                 peak = Math.Max(peak, max);
                 if (max > 100) loud++;
             }
@@ -385,10 +394,11 @@ namespace CouchTV
             long longest = 0;
             for (int i = 1; i < times.Count; i++) longest = Math.Max(longest, times[i] - times[i - 1]);
             report.AppendLine("Packets: " + packets.Count + ", " + (packets.Count > 0 ? packets[0].Length : 0) + " bytes each, every " + ms.ToString("0.0") + " ms on average");
-            report.AppendLine("Sample rate: " + rate + " Hz, gaps in the sequence: " + gaps);
+            report.AppendLine("Sample rate: " + rate + " Hz, gaps in the sequence: " + gaps + ", repair copies: " + repairs + " (" + badRepairs + " wrong)");
             report.AppendLine("With the tone: " + loud + " packets, peak " + peak + " of 32767; silent: " + (packets.Count - loud));
             report.AppendLine("Longest wait between packets: " + longest + " ms (silence keeps coming after the tone ends)");
-            bool ok = packets.Count > 350 && loud > 100 && packets.Count - loud > 100 && gaps == 0 && longest < 60;
+            bool ok = packets.Count > 450 && loud > 100 && packets.Count - loud > 100 && gaps == 0 && longest < 60 && repairs > 400 && badRepairs == 0
+                      && packets.Count > 0 && packets[0].Length == 16 + 2 * 720;
             report.AppendLine(ok ? "PASS" : "FAIL");
             File.WriteAllText(path, report.ToString());
             return ok ? 0 : 1;

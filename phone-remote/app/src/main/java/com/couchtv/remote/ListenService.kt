@@ -42,7 +42,7 @@ class ListenService : Service() {
         override fun run() {
             val stats = listener?.stats() ?: return
             getSystemService(NotificationManager::class.java)
-                .notify(NOTIFICATION_ID, notification(getString(R.string.listen_stats, stats[0], stats[1], stats[2], stats[3])))
+                .notify(NOTIFICATION_ID, notification(getString(R.string.listen_stats, stats[0], stats[1], stats[2], stats[3], stats[4])))
             main.postDelayed(this, 3000)
         }
     }

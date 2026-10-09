@@ -11,21 +11,31 @@ namespace CouchTV
     /// <summary>
     /// Plays the TV's sound on phones too, each into its own headphones ("Listen on this phone" in the remote app).
     /// Captures what Windows plays (WASAPI loopback, so it works with any app) and sends it to the phones on the
-    /// Wi-Fi as uncompressed 16-bit stereo in 5 ms UDP packets: no encoding delay, and small enough to never split.
-    ///   A phone sends "LISTEN" to UDP port 47702 every second while it wants sound, and "STOP" when it's done.
-    ///   Each packet: "CTA1", sequence (uint32), sample rate (uint32), channels (byte, 2), 3 zero bytes, then samples.
+    /// Wi-Fi as uncompressed 16-bit stereo in chunks of 180 frames (3.75 ms at 48 kHz): no encoding delay.
+    ///   A phone sends "LISTEN 2" (or plain "LISTEN") to UDP port 47702 every second while it wants sound, and
+    ///   "STOP" when it's done.
+    ///   Each packet: "CTA1" or "CTA2", sequence (uint32), sample rate (uint32), channels (byte, 2), flags (byte),
+    ///   2 zero bytes, then the chunk's samples. CTA2 (for "LISTEN 2") also carries the previous chunk after it
+    ///   (flags bit 1), so a packet lost on the Wi-Fi is repaired from the next one; both still fit one Wi-Fi frame.
     /// Capturing only runs while someone is listening.
     /// </summary>
     internal sealed class AudioShare
     {
         public const int Port = 47702;
-        const int HeaderBytes = 16;
+        const int HeaderBytes = 16, Frames = 180;   // 2 chunks + header = 1456 bytes, under the 1472 that fit a frame
+
+        sealed class Listener
+        {
+            public IPEndPoint Phone;
+            public DateTime Seen;
+            public int Version;
+        }
 
         public event Action<int> ListenersChanged;   // on a background thread
 
         readonly int _port;
         readonly IPAddress _bind;
-        readonly Dictionary<string, KeyValuePair<IPEndPoint, DateTime>> _listeners = new Dictionary<string, KeyValuePair<IPEndPoint, DateTime>>();
+        readonly Dictionary<string, Listener> _listeners = new Dictionary<string, Listener>();
         UdpClient _udp;
         volatile bool _stop;
         Thread _capture;
@@ -72,7 +82,7 @@ namespace CouchTV
                             throw;
                         }
                         string message = Encoding.ASCII.GetString(data).Trim();
-                        if (message.StartsWith("LISTEN")) Add(from);
+                        if (message.StartsWith("LISTEN")) Add(from, message == "LISTEN 2" ? 2 : 1);
                         else if (message.StartsWith("STOP")) Remove(from);
                         Expire();
                     }
@@ -83,13 +93,13 @@ namespace CouchTV
             }
         }
 
-        void Add(IPEndPoint phone)
+        void Add(IPEndPoint phone, int version)
         {
             bool added;
             lock (_listeners)
             {
                 added = !_listeners.ContainsKey(phone.ToString());
-                _listeners[phone.ToString()] = new KeyValuePair<IPEndPoint, DateTime>(phone, DateTime.UtcNow);
+                _listeners[phone.ToString()] = new Listener { Phone = phone, Seen = DateTime.UtcNow, Version = version };
                 if (_capture == null || !_capture.IsAlive)
                 {
                     _capture = new Thread(Capture) { IsBackground = true, Name = "Phone audio capture", Priority = ThreadPriority.Highest };
@@ -120,8 +130,8 @@ namespace CouchTV
             var gone = new List<string>();
             lock (_listeners)
             {
-                foreach (KeyValuePair<string, KeyValuePair<IPEndPoint, DateTime>> pair in _listeners)
-                    if ((DateTime.UtcNow - pair.Value.Value).TotalSeconds > 3) gone.Add(pair.Key);
+                foreach (KeyValuePair<string, Listener> pair in _listeners)
+                    if ((DateTime.UtcNow - pair.Value.Seen).TotalSeconds > 3) gone.Add(pair.Key);
                 foreach (string key in gone) _listeners.Remove(key);
             }
             if (gone.Count > 0) Changed();
@@ -133,11 +143,9 @@ namespace CouchTV
             if (handler != null) handler(Listeners);
         }
 
-        List<IPEndPoint> Targets()
+        List<Listener> Targets()
         {
-            var targets = new List<IPEndPoint>();
-            lock (_listeners) foreach (KeyValuePair<IPEndPoint, DateTime> v in _listeners.Values) targets.Add(v.Key);
-            return targets;
+            lock (_listeners) return new List<Listener>(_listeners.Values);
         }
 
         // ---------------------------------------------------------------- capturing and sending
@@ -170,12 +178,18 @@ namespace CouchTV
             using (var loopback = new Loopback())
             {
                 Log.Info("Phone audio: capturing " + loopback.Description);
-                int perPacket = loopback.SampleRate / 200;   // 5 ms
+                const int perPacket = Frames, chunkBytes = Frames * 4;
                 var pcm = new List<short>(perPacket * 4);
-                var packet = new byte[HeaderBytes + perPacket * 4];
-                Encoding.ASCII.GetBytes("CTA1", 0, 4, packet, 0);
-                BitConverter.GetBytes((uint)loopback.SampleRate).CopyTo(packet, 8);
-                packet[12] = 2;
+                // Version 1: just the chunk. Version 2: the chunk, then the previous one, to repair a lost packet.
+                var plain = new byte[HeaderBytes + chunkBytes];
+                var repairing = new byte[HeaderBytes + 2 * chunkBytes];
+                Encoding.ASCII.GetBytes("CTA1", 0, 4, plain, 0);
+                Encoding.ASCII.GetBytes("CTA2", 0, 4, repairing, 0);
+                foreach (byte[] p in new[] { plain, repairing })
+                {
+                    BitConverter.GetBytes((uint)loopback.SampleRate).CopyTo(p, 8);
+                    p[12] = 2;
+                }
                 uint sequence = 0;
                 var sender = new UdpClient(new IPEndPoint(_bind, 0));
                 // When nothing plays (a paused video), Windows produces no sound data at all. Phones would run dry
@@ -211,17 +225,24 @@ namespace CouchTV
                         int offset = 0;
                         while (pcm.Count - offset >= perPacket * 2)
                         {
-                            BitConverter.GetBytes(sequence++).CopyTo(packet, 4);
+                            // The last chunk moves behind the new one (the repair copy), then the new one goes in front.
+                            Buffer.BlockCopy(repairing, HeaderBytes, repairing, HeaderBytes + chunkBytes, chunkBytes);
+                            repairing[13] = (byte)(sequence > 0 ? 1 : 0);
+                            BitConverter.GetBytes(sequence).CopyTo(plain, 4);
+                            BitConverter.GetBytes(sequence).CopyTo(repairing, 4);
+                            sequence++;
                             for (int i = 0; i < perPacket * 2; i++)
                             {
                                 short s = pcm[offset + i];
-                                packet[HeaderBytes + i * 2] = (byte)s;
-                                packet[HeaderBytes + i * 2 + 1] = (byte)(s >> 8);
+                                plain[HeaderBytes + i * 2] = (byte)s;
+                                plain[HeaderBytes + i * 2 + 1] = (byte)(s >> 8);
                             }
+                            Buffer.BlockCopy(plain, HeaderBytes, repairing, HeaderBytes, chunkBytes);
                             offset += perPacket * 2;
-                            foreach (IPEndPoint phone in Targets())
+                            foreach (Listener phone in Targets())
                             {
-                                try { sender.Send(packet, packet.Length, phone); }
+                                byte[] packet = phone.Version >= 2 ? repairing : plain;
+                                try { sender.Send(packet, packet.Length, phone.Phone); }
                                 catch (SocketException) { }   // that phone's gone; it expires on its own
                             }
                         }
