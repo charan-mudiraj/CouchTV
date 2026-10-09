@@ -67,7 +67,20 @@ namespace CouchTV
             {
                 // First run: write the defaults out so there is a file to edit.
                 if (!File.Exists(path)) File.WriteAllText(path, DefaultText());
-                return Parse(File.ReadAllText(path), path);
+                string text = File.ReadAllText(path);
+                var changes = new List<string>();
+                string upgraded = ConfigUpgrade.Apply(text, changes);
+                if (upgraded != text)
+                {
+                    try
+                    {
+                        File.Copy(path, path + ".bak", true);   // the file as it was, just in case
+                        File.WriteAllText(path, upgraded, new System.Text.UTF8Encoding(false));
+                        Log.Info("couchtv.ini upgraded: " + string.Join(", ", changes));
+                    }
+                    catch (Exception ex) { Log.Error("Upgrading " + path, ex); }   // still use the upgraded settings this time
+                }
+                return Parse(upgraded, path);
             }
             catch (Exception ex)
             {

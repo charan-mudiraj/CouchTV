@@ -165,8 +165,7 @@ namespace CouchTV
                             if (t != null) where.Add(new KeyValuePair<Tile, string>(t, "Likely here"));
                         }
                     }
-                    where = KeepSubscribed(where, cfg.Subscriptions);
-                    foreach (KeyValuePair<Tile, string> pair in where) AddSearch(plan, pair.Key, text, pair.Value);
+                    AddWatchOptions(plan, where, text, cfg);
                     if (intent.Season > 0) plan.Summary += " · season " + intent.Season;
                     return;
 
@@ -241,13 +240,38 @@ namespace CouchTV
             return false;
         }
 
-        /// <summary>With subscriptions listed in couchtv.ini, paid apps you don't have are dropped, unless that leaves nothing.</summary>
-        static List<KeyValuePair<Tile, string>> KeepSubscribed(List<KeyValuePair<Tile, string>> where, List<string> subscriptions)
+        /// <summary>
+        /// Where to look for a show or film, in order of preference:
+        /// 1. your subscriptions (couchtv.ini Subscriptions) that have it: only those;
+        /// 2. otherwise the other apps that have it (some of their titles are free, and the card says which need a plan);
+        /// 3. otherwise a search of your subscriptions, which may well have it anyway.
+        /// YouTube isn't used for shows and films (it only rents them); it's for music and videos.
+        /// </summary>
+        internal static void AddWatchOptions(SearchPlan plan, List<KeyValuePair<Tile, string>> where, string text, Config cfg)
         {
-            if (subscriptions.Count == 0) return where;
-            var kept = where.FindAll(p => p.Value.StartsWith("Free") || Launcher.SearchTemplate(p.Key) != null && IsHost(p.Key, "youtube.com")
-                || subscriptions.Exists(s => FindApp(s, new List<Tile> { p.Key }) != null));
-            return kept.Count > 0 ? kept : where;
+            var found = where.FindAll(p => !IsHost(p.Key, "youtube.com") && p.Key.Kind != TileKind.Browser);
+            var yours = found.FindAll(p => IsSubscribed(p.Key, cfg.Subscriptions));
+            if (yours.Count > 0)
+            {
+                foreach (KeyValuePair<Tile, string> pair in yours) AddSearch(plan, pair.Key, text, pair.Value);
+                return;
+            }
+            if (found.Count > 0)
+            {
+                foreach (KeyValuePair<Tile, string> pair in found)
+                    AddSearch(plan, pair.Key, text, cfg.Subscriptions.Count > 0 && pair.Value == "Streams here" ? "Needs a subscription" : pair.Value);
+                return;
+            }
+            foreach (string name in cfg.Subscriptions)
+            {
+                Tile t = FindApp(name, cfg.AppTiles);
+                if (t != null && !IsHost(t, "youtube.com")) AddSearch(plan, t, text, "Search " + t.Label);
+            }
+        }
+
+        static bool IsSubscribed(Tile t, List<string> subscriptions)
+        {
+            return subscriptions.Exists(s => FindApp(s, new List<Tile> { t }, true) != null);
         }
 
         internal static SearchOption ActionOption(string action, int value)

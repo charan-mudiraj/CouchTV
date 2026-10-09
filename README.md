@@ -89,7 +89,9 @@ To type instead, tap the search bar on the phone, or press F3 on a keyboard and 
 | You say | What happens |
 |---|---|
 | *"panchayat ka season 3 lagao"* | Finds the series, checks where it streams in India (Prime Video) and **opens it by itself** after a 2-second countdown. Press Back during the countdown to choose something else. |
-| a title that's on two apps | Puts both first, marked *Streams here* or *Free with ads*. You choose. |
+| a show or film on **Netflix** (your subscription) | Opens it on Netflix, even if other apps have it too |
+| one that isn't on Netflix | Prime Video or JioHotstar, if they have it (some of their titles are free; the card says *Needs a subscription* or *Free with ads*). If both have it, you choose. |
+| one it can't place | Searches Netflix for it |
 | *"play some music"*, *"arijit singh ke gaane"* | **Plays** on YouTube straight away: it picks the top song and keeps going with a mix of similar songs |
 | *"mr beast ka latest video"* | Plays his newest upload |
 | *"cooking videos dikhao"* | Shows YouTube's results, since you asked to look through them |
@@ -104,7 +106,7 @@ It needs two free keys, which stay on the TV PC (in `%LOCALAPPDATA%\CouchTV\keys
 2. **TMDB** (says which app has a show or film): make an account at [themoviedb.org](https://www.themoviedb.org/signup), then **Settings → API → Create**, choose *Developer*, and copy the **API Key** (32 letters and digits).
 3. **Give them to the TV:** on the phone remote, tap the search bar, paste a key and tap Search. The TV recognises it and asks *Save this key?*. Do the same for the other one.
 
-Without keys, search still works: songs and videos go to YouTube, *"… on netflix"* searches Netflix, and everything else shows the plain app row. If you subscribe to some apps, list them in `couchtv.ini` (`Subscriptions = Netflix`) and search leaves out the paid apps you don't have. Where-to-watch data comes from JustWatch, via TMDB. The phone does the speech recognition (Google's, the same as Android's voice typing), and the receiver needs no change. How the words travel over infrared is in [ir-receiver/PROTOCOL.md](ir-receiver/PROTOCOL.md#text-voice-search).
+Without keys, search still works: songs and videos go to YouTube, *"… on netflix"* searches Netflix, and everything else shows the plain app row. Your subscriptions are listed in `couchtv.ini` as `Subscriptions = Netflix`; add others there (for example `Netflix, JioHotstar`) when you subscribe. YouTube is used for music and videos, never for shows and films. Where-to-watch data comes from JustWatch, via TMDB. The phone does the speech recognition (Google's, the same as Android's voice typing), and the receiver needs no change. How the words travel over infrared is in [ir-receiver/PROTOCOL.md](ir-receiver/PROTOCOL.md#text-voice-search).
 
 ## Make it start fast
 
@@ -137,7 +139,8 @@ Foreground = #FFFFFF
 - **Search in another app:** add its search address to the tile, with `{q}` where the words go, for example `Search = https://example.com/search?q={q}`. `Search = off` leaves a tile out of search.
 - **Remote's Home button does nothing?** Add the key it sends to `HomeKeys` in the `[CouchTV]` section, for example `HomeKeys = BrowserHome, Win, Hold:BrowserBack, F12`.
 - **Wallpaper:** `Wallpaper = C:\Users\Public\Pictures\beach.jpg`.
-- Kodi and VLC tiles appear by themselves if those programs are installed.
+- A Kodi tile appears by itself if Kodi is installed. The VLC tile is hidden; set `Enabled = true` in its section to bring it back.
+- **Settings changes from updates:** updates never replace your `couchtv.ini`. When a new version changes a default (like hiding VLC), it applies that change to your file once and records `ConfigVersion`; if you change it back, your choice stays.
 
 **Which browser for what:** paid services (Netflix, Prime Video, JioHotstar) open in **Edge**. Edge is Netflix's best-supported Windows browser (up to 4K with HDR), while Brave isn't on Netflix's supported list, and paid plans have no ads for Brave to block anyway. Free, ad-supported sites (YouTube, the web) open in **Brave**, whose Shields block the ads.
 

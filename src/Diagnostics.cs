@@ -219,13 +219,42 @@ namespace CouchTV
             var guess = new SearchIntent { Intent = "watch", Title = "Panchayat", SearchText = "Panchayat" };
             guess.Apps.Add("Prime Video");
             guess.Apps.Add("Netflix");
+            Config unsubscribed = Config.Parse(System.Text.RegularExpressions.Regex.Replace(Config.DefaultText(), @"(?m)^Subscriptions =.*$", "Subscriptions ="), "test");
+            plan = new SearchPlan();
+            SmartSearch.Build(plan, guess, "panchayat", unsubscribed, noKeys);
+            check("no TMDB key: the AI's guesses become the options", plan.Options.Count == 2 && plan.Options[0].Tile.Name == "Prime Video" && plan.Options[0].Query == "Panchayat");
             plan = new SearchPlan();
             SmartSearch.Build(plan, guess, "panchayat", defaults, noKeys);
-            check("no TMDB key: the AI's guesses become the options", plan.Options.Count == 2 && plan.Options[0].Tile.Name == "Prime Video" && plan.Options[0].Query == "Panchayat");
-            Config subscribed = Config.Parse(System.Text.RegularExpressions.Regex.Replace(Config.DefaultText(), @"(?m)^Subscriptions =.*$", "Subscriptions = Netflix"), "test");
-            plan = new SearchPlan();
-            SmartSearch.Build(plan, guess, "panchayat", subscribed, noKeys);
-            check("Subscriptions = Netflix drops apps you don't pay for", plan.Options.Count == 1 && plan.Options[0].Tile.Name == "Netflix");
+            check("Subscriptions = Netflix (the default): Netflix alone when it has it", plan.Options.Count == 1 && plan.Options[0].Tile.Name == "Netflix");
+
+            // ----- shows and films: your subscriptions first, then other apps that have it, then a search of yours
+            Tile prime = defaults.AppTiles.Find(x => x.Name == "Prime Video"), hotstar = defaults.AppTiles.Find(x => x.Name == "JioHotstar");
+            Func<Config, KeyValuePair<Tile, string>[], string> watch = (config, found) =>
+            {
+                var p = new SearchPlan();
+                SmartSearch.AddWatchOptions(p, new List<KeyValuePair<Tile, string>>(found), "Some Show", config);
+                return string.Join(", ", p.Options.ConvertAll(o => o.Tile.Name + "/" + o.Caption).ToArray());
+            };
+            check("on Netflix and Prime: Netflix only", watch(defaults, new[] { Pair(prime, "Streams here"), Pair(netflix, "Streams here") }) == "Netflix/Streams here");
+            check("not on Netflix: Prime and JioHotstar, saying which needs a plan",
+                watch(defaults, new[] { Pair(prime, "Streams here"), Pair(hotstar, "Free with ads") }) == "Prime Video/Needs a subscription, JioHotstar/Free with ads");
+            check("only rentable on YouTube: search Netflix instead", watch(defaults, new[] { Pair(youtube, "Rent or buy") }) == "Netflix/Search Netflix");
+            check("nothing known: search Netflix", watch(defaults, new KeyValuePair<Tile, string>[0]) == "Netflix/Search Netflix");
+            check("no subscriptions and nothing known: the plain app row", watch(unsubscribed, new KeyValuePair<Tile, string>[0]) == "");
+
+            // ----- one-time settings changes on an installed couchtv.ini from before them
+            string oldIni = System.Text.RegularExpressions.Regex.Replace(Config.DefaultText(), @"(?m)^(Subscriptions = Netflix|ConfigVersion = 1|Enabled = false\r?\n(?=Type = app\r?\nExe = %ProgramFiles%\\VideoLAN))\r?\n?", "");
+            var changes = new List<string>();
+            string upgraded = ConfigUpgrade.Apply(oldIni, changes);
+            Config after = Config.Parse(upgraded, "test");
+            check("upgrade: test file really is the old kind", ConfigUpgrade.Get(oldIni, "CouchTV", "ConfigVersion") == null && ConfigUpgrade.Get(oldIni, "VLC", "Enabled") == null);
+            check("upgrade: VLC hidden, Netflix subscribed, version recorded", ConfigUpgrade.Get(upgraded, "VLC", "Enabled") == "false"
+                && after.Subscriptions.Count == 1 && after.Subscriptions[0] == "Netflix" && ConfigUpgrade.Get(upgraded, "CouchTV", "ConfigVersion") == "1");
+            check("upgrade: the new line goes with the other settings, before the tiles' comments",
+                upgraded.IndexOf("Subscriptions = Netflix") < upgraded.IndexOf(";  Tiles: each"));
+            check("upgrade: runs once (changing it back afterwards sticks)", ConfigUpgrade.Apply(ConfigUpgrade.Set(upgraded, "VLC", "Enabled", "true", false), new List<string>()).Contains("Enabled = true"));
+            check("upgrade: a new install's file is left alone", ConfigUpgrade.Apply(Config.DefaultText(), new List<string>()) == Config.DefaultText());
+            check("upgrade: everything else in the file is kept", upgraded.Contains("[Netflix]") && upgraded.Contains("HomeKeys = ") && after.AppTiles.Count == defaults.AppTiles.Count);
 
             SearchIntent play = SmartSearch.ParseIntent("{\"intent\":\"video\",\"title\":\"\",\"kind\":\"unknown\",\"year\":0,\"season\":0,\"episode\":0," +
                 "\"search_text\":\"MrBeast\",\"apps\":[\"YouTube\"],\"action\":\"none\",\"value\":0,\"play\":true,\"newest\":true}");
@@ -295,6 +324,8 @@ namespace CouchTV
             }
             return codes;
         }
+
+        static KeyValuePair<Tile, string> Pair(Tile t, string caption) { return new KeyValuePair<Tile, string>(t, caption); }
 
         static string Decode(List<string> codes)
         {
