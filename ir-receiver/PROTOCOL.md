@@ -121,6 +121,6 @@ Windows Firewall has to allow CouchTV in: the installer adds the rule *CouchTV p
 
 - The phone sends `LISTEN` to UDP port **47702** every second while it wants sound, and `STOP` when done. CouchTV drops a phone that's been quiet for 3 seconds, and only captures while someone listens.
 - Each packet is 5 ms of uncompressed 16-bit stereo (976 bytes at 48 kHz): `CTA1`, a sequence number (uint32), the sample rate (uint32), the channel count (1 byte, 2), 3 zero bytes, then the samples, little-endian. 5.1 and 7.1 are folded into stereo, keeping the centre (dialogue).
-- The phone keeps about 40 ms ready (up to 150 ms after Wi-Fi hiccups), skips ahead when it falls behind, and holds the Wi-Fi in low-latency mode. Bluetooth headphones add their own 100–250 ms; wired earphones don't.
+- The phone lets its own audio system set the pace, and keeps a cushion ready: 60 ms for the speaker and wired earphones, 160 ms for Bluetooth (which takes sound in big, irregular gulps and shares the phone's radio with 2.4 GHz Wi-Fi), growing by 20 ms whenever sound runs out, up to 300 ms. If packets slowly pile up (the two clocks differ slightly), it drops one now and then. It holds the Wi-Fi in low-latency mode. Bluetooth headphones add their own 100–250 ms on top; wired earphones don't.
 
 `CouchTV.exe --audiotest report.txt` plays a quiet tone and checks it arrives intact over this PC's loopback. The code is `src/AudioShare.cs` and `phone-remote/.../AudioListener.kt`.
