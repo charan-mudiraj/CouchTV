@@ -31,6 +31,8 @@ import java.util.concurrent.Executors
 class WifiLink(context: Context) {
     companion object {
         const val DISCOVERY_PORT = 47700
+        const val CONTROL_PORT = 47701
+        const val DEFAULT_ADDRESS = "192.168.0.13"   // the TV PC's reserved address on the home router
         private const val TAG = "CouchTV"
     }
 
@@ -54,6 +56,22 @@ class WifiLink(context: Context) {
     @Volatile private var socket: Socket? = null
     @Volatile private var writer: OutputStreamWriter? = null
     @Volatile private var lastHeard = 0L
+    @Volatile private var welcomed = false
+
+    /**
+     * The TV's address (reserved for the TV PC in the router): it's tried first, with no searching. If it doesn't
+     * answer, the app searches the network as usual, so it still works if the TV's address changes. Change it by
+     * tapping the status line; empty means "just search".
+     */
+    var manualAddress: String?
+        get() = prefs.getString("manual_ip", DEFAULT_ADDRESS)?.takeIf { it.isNotBlank() }
+        set(value) {
+            prefs.edit().putString("manual_ip", value?.trim() ?: "").apply()
+            if (running) {
+                stop()
+                start()
+            }
+        }
 
     /** Connected, and the TV answered recently (it answers a ping every second), so it's really there. */
     val connected: Boolean
@@ -88,20 +106,35 @@ class WifiLink(context: Context) {
     private fun loop(gen: Int) {
         while (running && gen == generation) {
             var found = false
-            try {
-                val network = wifiNetwork()
-                val tv = if (network != null) find(network) else null
-                if (network != null && tv != null && running && gen == generation) {
-                    found = true
-                    session(network, tv)
+            val network = wifiNetwork()
+            if (network != null) {
+                // The address you entered first; then a search of the network, in case it changed.
+                val manual = manualAddress
+                if (manual != null) {
+                    val tv = runCatching { Tv(InetAddress.getByName(manual), CONTROL_PORT, manual) }.getOrNull()
+                    if (tv != null) found = attempt(network, tv, gen)
                 }
-            } catch (e: Exception) {
-                Log.i(TAG, "Wi-Fi remote: ${e.message}")
+                if (!found && running && gen == generation) {
+                    val tv = runCatching { find(network) }.getOrNull()
+                    if (tv != null) found = attempt(network, tv, gen)
+                }
             }
-            close()
-            setTv(null)
             if (running && gen == generation) SystemClock.sleep(if (found) 500 else 2000)
         }
+    }
+
+    /** Connects and stays connected while the TV answers. True if the TV said hello (it was really there). */
+    private fun attempt(network: Network, tv: Tv, gen: Int): Boolean {
+        if (!running || gen != generation) return false
+        welcomed = false
+        try {
+            session(network, tv)
+        } catch (e: Exception) {
+            Log.i(TAG, "Wi-Fi remote ${tv.address.hostAddress}: ${e.message}")
+        }
+        close()
+        setTv(null)
+        return welcomed
     }
 
     /** The Wi-Fi network (not mobile data, even when the phone sends internet traffic that way). */
@@ -175,6 +208,7 @@ class WifiLink(context: Context) {
             val line = reader.readLine() ?: break   // a timeout throws instead, which ends the session too
             lastHeard = SystemClock.elapsedRealtime()
             if (line.startsWith("WELCOME")) {
+                welcomed = true
                 prefs.edit().putString("last_ip", tv.address.hostAddress).apply()
                 setTv(line.removePrefix("WELCOME").trim().ifEmpty { tv.name })
             }

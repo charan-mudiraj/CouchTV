@@ -53,6 +53,27 @@ namespace CouchTV
 
         public static string TvName { get { return Environment.MachineName; } }
 
+        /// <summary>This PC's IPv4 address on the home network (the adapter with a router), for the phone's settings.</summary>
+        public static string LocalAddress()
+        {
+            try
+            {
+                foreach (System.Net.NetworkInformation.NetworkInterface ni in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
+                {
+                    if (ni.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up) continue;
+                    System.Net.NetworkInformation.IPInterfaceProperties ip = ni.GetIPProperties();
+                    bool hasRouter = false;
+                    foreach (System.Net.NetworkInformation.GatewayIPAddressInformation g in ip.GatewayAddresses)
+                        if (g.Address.AddressFamily == AddressFamily.InterNetwork && !g.Address.Equals(IPAddress.Any)) hasRouter = true;
+                    if (!hasRouter) continue;
+                    foreach (System.Net.NetworkInformation.UnicastIPAddressInformation a in ip.UnicastAddresses)
+                        if (a.Address.AddressFamily == AddressFamily.InterNetwork) return a.Address.ToString();
+                }
+            }
+            catch (Exception ex) { Log.Info("Local address: " + ex.Message); }
+            return null;
+        }
+
         public void Start()
         {
             new Thread(Discovery) { IsBackground = true, Name = "Wi-Fi remote discovery" }.Start();

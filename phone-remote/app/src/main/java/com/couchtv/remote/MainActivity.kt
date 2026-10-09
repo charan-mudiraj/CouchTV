@@ -225,12 +225,59 @@ class MainActivity : Activity() {
     private fun showStatus() {
         val status = findViewById<TextView>(R.id.status)
         val tv = remote.wifi.tvName
+        val address = remote.wifi.manualAddress
         status.setTextColor(getColor(if (tv != null) R.color.good else R.color.muted))
         status.text = when {
             tv != null -> getString(R.string.wifi_connected, tv)
+            address != null -> getString(if (remote.ir.available) R.string.wifi_trying_ir else R.string.wifi_trying, address)
             !remote.ir.available -> getString(R.string.wifi_looking_no_ir)
             !remote.ir.supports38kHz -> getString(R.string.no_38khz)
             else -> getString(R.string.ready)
+        }
+        status.setOnClickListener { editTvAddress() }
+    }
+
+    /** The TV's address on the Wi-Fi (reserved for it in the router), or empty to find it automatically. */
+    private fun editTvAddress() {
+        val density = resources.displayMetrics.density
+        val padding = (20 * density).toInt()
+        val input = EditText(this).apply {
+            setText(remote.wifi.manualAddress ?: "")
+            hint = getString(R.string.tv_address_hint)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            setSingleLine()
+            setSelection(text.length)
+        }
+        val help = TextView(this).apply {
+            setText(R.string.tv_address_help)
+            setTextColor(getColor(R.color.muted))
+            setPadding(0, padding / 2, 0, 0)
+        }
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(padding, padding / 2, padding, 0)
+            addView(input)
+            addView(help)
+        }
+        val shown = AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+            .setTitle(R.string.tv_address_title)
+            .setView(form)
+            .setPositiveButton(R.string.save, null)
+            .setNeutralButton(R.string.find_automatically) { _, _ ->
+                remote.wifi.manualAddress = ""
+                showStatus()
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+        shown.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val address = input.text.toString().trim()
+            if (!Regex("^\\d{1,3}(\\.\\d{1,3}){3}$|^[A-Za-z0-9][A-Za-z0-9.-]*$").matches(address)) {
+                input.error = getString(R.string.need_address)
+                return@setOnClickListener
+            }
+            remote.wifi.manualAddress = address
+            showStatus()
+            shown.dismiss()
         }
     }
 

@@ -5,6 +5,13 @@
     <string name="ready">Point the top of the phone at the TV, or join the TV\'s Wi-Fi to skip pointing</string>
     <string name="wifi_connected">Connected to %1$s over Wi-Fi · no need to point</string>
     <string name="wifi_looking_no_ir">Looking for the TV on Wi-Fi… Connect this phone to the same Wi-Fi as the TV.</string>
+    <string name="wifi_trying">Connecting to the TV at %1$s over Wi-Fi… Tap to change the address.</string>
+    <string name="wifi_trying_ir">Point the phone at the TV, or wait: connecting to it at %1$s over Wi-Fi… Tap to change.</string>
+    <string name="tv_address_title">TV address</string>
+    <string name="tv_address_hint">e.g. 192.168.0.13</string>
+    <string name="tv_address_help">The TV PC\'s IP address on your Wi-Fi. The TV shows it under Settings &amp; power &gt; Remote. If it doesn\'t answer, the app searches the network instead.</string>
+    <string name="find_automatically">Find automatically</string>
+    <string name="need_address">An IP address like 192.168.0.13</string>
     <string name="no_ir">This phone has no IR blaster, so it can\'t send to the TV.</string>
     <string name="no_38khz">This phone\'s IR blaster can\'t send at 38 kHz, so the TV may not hear it.</string>
 

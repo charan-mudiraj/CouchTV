@@ -82,7 +82,8 @@ namespace CouchTV
             {
                 if (RemoteServer.FirewallRuleExists())
                 {
-                    if (again) Dispatcher.BeginInvoke(new Action(() => Toast("The phone remote can already connect over Wi-Fi.")));
+                    if (again) Dispatcher.BeginInvoke(new Action(() => Toast("The phone remote can already connect over Wi-Fi. This TV's address is " +
+                                                                             (RemoteServer.LocalAddress() ?? "unknown") + ".")));
                     return;
                 }
                 Dispatcher.BeginInvoke(new Action(() =>
@@ -96,7 +97,7 @@ namespace CouchTV
                         {
                             bool ok = RemoteServer.AddFirewallRule();
                             Dispatcher.BeginInvoke(new Action(() => Toast(ok
-                                ? "Done. Open the remote app on a phone on the same Wi-Fi: it connects by itself."
+                                ? "Done. Open the remote app on a phone on the same Wi-Fi. This TV's address is " + (RemoteServer.LocalAddress() ?? "shown under Remote") + "."
                                 : "Not allowed. Press F7 on the home screen to try again.")));
                         }));
                 }));
@@ -455,7 +456,9 @@ namespace CouchTV
             if (_setupStatus == null) return;
             bool connected = _ir != null && _ir.Port != null;
             _setupDot.Fill = Theme.Brush(connected ? Theme.Good : Theme.Bad);
-            _setupStatus.Text = connected ? "Receiver ready on " + _ir.Port : "Receiver not found - plug it in";
+            string address = RemoteServer.LocalAddress();
+            _setupStatus.Text = (connected ? "Receiver ready on " + _ir.Port : "Receiver not found - plug it in") +
+                                (address != null ? "   ·   Wi-Fi remote: " + address : "");
         }
 
         void SetFeedback(string text, Color color)
