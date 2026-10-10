@@ -27,8 +27,9 @@ import java.util.concurrent.TimeUnit
  * whenever the phone's own audio system is full, so the phone sets the pace. The cushion (how much sound is ready
  * in the audio system) covers Wi-Fi hiccups: 60 ms for the speaker and wired earphones, 160 ms for Bluetooth, which
  * takes sound in big irregular gulps and shares the phone's radio with the Wi-Fi. If sound still runs out, the
- * cushion grows (up to 300 ms). The TV's and the phone's clocks differ very slightly, so if packets slowly pile up
- * in the queue, one is dropped now and then. Bluetooth headphones add their own delay, which no app can remove.
+ * cushion grows (up to 300 ms). The TV's and the phone's clocks differ very slightly, so the sound plays a hair
+ * faster or slower to keep pace (Resampler), and sound lost along with its repair copy is filled in (Concealer).
+ * Bluetooth headphones add their own delay, which no app can remove.
  */
 class AudioListener(context: Context, private val tvHost: String) {
     companion object {
@@ -38,9 +39,12 @@ class AudioListener(context: Context, private val tvHost: String) {
         private const val SPEAKER_MS = 60
         private const val BLUETOOTH_MS = 160
         private const val MOST_MS = 300
+        private const val EASING = 7200.0   // frames owed / this = how much faster or slower (0.15 s to settle)
+        private const val MOST_SPEED = 0.006   // 0.6%: a little over one frame per chunk
     }
 
-    private class Chunk(val rate: Int, val samples: ByteArray)
+    /** [samples] is null for a chunk lost on the Wi-Fi, to be made up ([frames] long). */
+    private class Chunk(val rate: Int, val samples: ByteArray?, val frames: Int = (samples?.size ?: 0) / 4)
 
     private val connectivity = context.applicationContext.getSystemService(ConnectivityManager::class.java)
     private val queue = LinkedBlockingQueue<Chunk>()
@@ -91,7 +95,6 @@ class AudioListener(context: Context, private val tvHost: String) {
             val buffer = ByteArray(4096)
             var lastSequence = -1L
             var lastAsk = 0L
-            var lastChunk: Chunk? = null
             while (running) {
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastAsk >= 1000) {
@@ -115,10 +118,9 @@ class AudioListener(context: Context, private val tvHost: String) {
                 val missing = if (lastSequence >= 0 && sequence - lastSequence < 1000) (sequence - lastSequence - 1).toInt() else 0
                 if (missing > 0) {
                     // Packets lost on the Wi-Fi. The one just before this travels inside it too, so it's repaired;
-                    // anything lost before that is filled by repeating the last chunk, which hides a tiny gap far
-                    // better than skipping (up to 3; a longer outage is just skipped).
+                    // anything lost before that is made up when it's played (up to 3; a longer outage is skipped).
                     val unrecovered = if (withPrevious) missing - 1 else missing
-                    for (i in 0 until minOf(unrecovered, 3)) lastChunk?.let { queue.offer(it) }
+                    for (i in 0 until minOf(unrecovered, 3)) queue.offer(Chunk(rate, null, size / 4))
                     lost += unrecovered
                     if (withPrevious) {
                         queue.offer(Chunk(rate, buffer.copyOfRange(HEADER + size, HEADER + 2 * size)))
@@ -126,9 +128,7 @@ class AudioListener(context: Context, private val tvHost: String) {
                     }
                 }
                 lastSequence = sequence
-                val chunk = Chunk(rate, buffer.copyOfRange(HEADER, HEADER + size))
-                queue.offer(chunk)
-                lastChunk = chunk
+                queue.offer(Chunk(rate, buffer.copyOfRange(HEADER, HEADER + size)))
                 while (queue.size > 250) queue.poll()   // about a second behind (the phone stalled): keep the newest
             }
         } catch (e: Exception) {
@@ -152,6 +152,9 @@ class AudioListener(context: Context, private val tvHost: String) {
             var backlog = 0.0   // packets waiting here, smoothed over about a second
             var fill = 0.0      // ms of sound ready in the audio system, smoothed likewise
             var written = 0L    // frames handed to the audio system
+            var owed = 0.0      // frames to drop (above 0) or add (below) by playing a hair faster or slower
+            val concealer = Concealer()
+            val resampler = Resampler()
             while (running) {
                 val chunk = queue.poll(200, TimeUnit.MILLISECONDS) ?: continue
                 if (track == null || chunk.rate != rate) {
@@ -186,22 +189,22 @@ class AudioListener(context: Context, private val tvHost: String) {
                     underruns = t.underrunCount
                 }
                 // The TV's and the phone's clocks never tick at exactly the same speed. Rather than dropping or
-                // padding 5 ms at once (a break you can hear), play this packet 0.4% faster or slower: inaudible.
+                // padding 5 ms at once (a break you can hear), each check that finds sound piling up or running low
+                // owes a frame, and the sound plays up to 0.6% faster or slower, easing in and out, until it's paid:
+                // inaudible. Checks that disagree cancel out rather than wobbling the sound.
                 backlog = backlog * 0.995 + queue.size * 0.005
                 val head = t.playbackHeadPosition.toLong() and 0xFFFFFFFFL
                 fill = fill * 0.995 + (written - head) * 1000.0 / rate * 0.005
-                val frames = chunk.samples.size / 4
-                val samples = when {
-                    backlog > (if (bluetooth) 6 else 3) -> {            // piling up: the TV runs a hair fast
-                        adjusted++
-                        stretch(chunk.samples, frames - 1)
-                    }
-                    now - started > 3000 && queue.isEmpty() && fill < cushionMs * 0.4 -> {   // running low: a hair slow
-                        adjusted++
-                        stretch(chunk.samples, frames + 1)
-                    }
-                    else -> chunk.samples
+                if (backlog > (if (bluetooth) 6 else 3)) {                                    // piling up: the TV runs a hair fast
+                    adjusted++
+                    owed += 1
+                } else if (now - started > 3000 && queue.isEmpty() && fill < cushionMs * 0.4) {   // running low: a hair slow
+                    adjusted++
+                    owed -= 1
                 }
+                val step = 1.0 + (owed / EASING).coerceIn(-MOST_SPEED, MOST_SPEED)
+                val samples = resampler.process(concealer.next(chunk.samples, chunk.frames), step)
+                owed -= samples.size / 4 * (step - 1)   // what this chunk dropped or added
                 val n = t.write(samples, 0, samples.size)   // waits while the phone's audio system is full
                 if (n > 0) written += n / 4
             }
@@ -211,29 +214,6 @@ class AudioListener(context: Context, private val tvHost: String) {
             track?.release()
         }
     }
-
-    /** 16-bit stereo resampled to [outFrames] frames by straight-line interpolation; its first and last samples stay put. */
-    private fun stretch(input: ByteArray, outFrames: Int): ByteArray {
-        val inFrames = input.size / 4
-        if (inFrames < 2 || outFrames < 2) return input
-        val out = ByteArray(outFrames * 4)
-        for (i in 0 until outFrames) {
-            val position = i.toDouble() * (inFrames - 1) / (outFrames - 1)
-            val a = position.toInt()
-            val b = minOf(a + 1, inFrames - 1)
-            val f = position - a
-            for (c in 0..1) {
-                val sa = sample(input, a * 4 + c * 2)
-                val sb = sample(input, b * 4 + c * 2)
-                val v = (sa + (sb - sa) * f).toInt()
-                out[i * 4 + c * 2] = v.toByte()
-                out[i * 4 + c * 2 + 1] = (v shr 8).toByte()
-            }
-        }
-        return out
-    }
-
-    private fun sample(b: ByteArray, at: Int): Int = (b[at].toInt() and 0xFF) or (b[at + 1].toInt() shl 8)
 
     /** For the notification: cushion, packets lost on the Wi-Fi, times the sound ran out, smooth clock corrections. */
     fun stats(): IntArray = intArrayOf(cushionMs, lost, repaired, gaps, adjusted)

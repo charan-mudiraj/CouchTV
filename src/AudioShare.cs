@@ -255,23 +255,36 @@ namespace CouchTV
 
         // ---------------------------------------------------------------- Windows audio (WASAPI loopback)
 
-        /// <summary>What the default speakers are playing, as 16-bit stereo, read in small pieces.</summary>
+        /// <summary>
+        /// What the default speakers are playing, as 16-bit stereo, read in small pieces. Sound outputs without a
+        /// volume control of their own (HDMI usually) get Windows' volume applied before this hears it, so at a low
+        /// TV volume phones would get faint, grainy sound; there it's undone, and each phone sets its own volume.
+        /// </summary>
         internal sealed class Loopback : IDisposable
         {
             const int ShareModeShared = 0, StreamFlagsLoopback = 0x00020000, BufferFlagsSilent = 0x2;
-            const int RenderFlow = 0, MultimediaRole = 1, ClsctxAll = 23;
+            const int RenderFlow = 0, MultimediaRole = 1, ClsctxAll = 23, HardwareVolume = 1;
+            const float MostGain = 100f;   // 40 dB: the volume is undone down to about 10% on the slider
             static readonly Guid FloatFormat = new Guid("00000003-0000-0010-8000-00aa00389b71");
             static readonly Guid PcmFormat = new Guid("00000001-0000-0010-8000-00aa00389b71");
 
-            object _enumerator, _device, _client, _capture;
+            object _enumerator, _device, _client, _capture, _volume;
             readonly IAudioCaptureClient _reader;
+            readonly IAudioEndpointVolume _level;
             readonly int _channels, _bits;
             readonly bool _float;
             byte[] _buffer = new byte[0];
             float[] _frame;
+            float _gain = 1f, _wantedGain = 1f;   // making up for Windows' volume, eased towards the wanted value
+            float _limit = 1f;                    // turned down for a moment when the sound would clip
+            int _volumeChecked = Environment.TickCount - 1000;
+            uint _noise = 2463534242;
 
             public int SampleRate { get; private set; }
             public string Description { get; private set; }
+
+            /// <summary>True where Windows applies its volume before the loopback, so it's undone here.</summary>
+            public bool UndoesVolume { get { return _level != null; } }
 
             public Loopback()
             {
@@ -312,6 +325,22 @@ namespace CouchTV
                     Check(audio.GetService(ref captureId, out capture), "capture service");
                     _capture = capture;
                     _reader = (IAudioCaptureClient)capture;
+
+                    // Windows' volume is either the device's own (the loopback hears full volume) or applied in software.
+                    try
+                    {
+                        Guid volumeId = typeof(IAudioEndpointVolume).GUID;
+                        object volume;
+                        uint support;
+                        if (device.Activate(ref volumeId, ClsctxAll, IntPtr.Zero, out volume) >= 0)
+                        {
+                            _volume = volume;
+                            var level = (IAudioEndpointVolume)volume;
+                            if (level.QueryHardwareSupport(out support) >= 0 && (support & HardwareVolume) == 0) _level = level;
+                        }
+                    }
+                    catch (Exception) { }
+                    if (_level != null) Description += ", Windows volume undone";
                     Check(audio.Start(), "start");
                 }
                 catch
@@ -324,6 +353,15 @@ namespace CouchTV
             /// <summary>Appends any new sound to pcm (16-bit stereo, interleaved). False if there was none yet.</summary>
             public bool Read(List<short> pcm)
             {
+                if (_level != null && Environment.TickCount - _volumeChecked >= 50)
+                {
+                    _volumeChecked = Environment.TickCount;
+                    float db;
+                    bool muted;
+                    // Muted is silence: nothing to undo, so leave the gain where it was.
+                    if (_level.GetMasterVolumeLevel(out db) >= 0 && _level.GetMute(out muted) >= 0 && !muted)
+                        _wantedGain = Math.Min(MostGain, (float)Math.Pow(10, -db / 20));
+                }
                 bool any = false;
                 uint next;
                 Check(_reader.GetNextPacketSize(out next), "packet size");
@@ -352,6 +390,7 @@ namespace CouchTV
                 }
                 if (_buffer.Length < frames * stride) _buffer = new byte[frames * stride * 2];
                 Marshal.Copy(data, _buffer, 0, frames * stride);
+                float ease = 100f / SampleRate, release = 10f / SampleRate;   // about 10 ms and 100 ms
                 for (int f = 0; f < frames; f++)
                 {
                     for (int c = 0; c < _channels; c++) _frame[c] = Sample(f * stride + c * bytes);
@@ -367,10 +406,20 @@ namespace CouchTV
                             right += 0.5f * frame[7];
                         }
                     }
-                    pcm.Add(ToShort(left));
-                    pcm.Add(ToShort(right));
+                    _gain += (_wantedGain - _gain) * ease;
+                    left *= _gain;
+                    right *= _gain;
+                    // A peak that would clip turns the sound down at once, and it comes back over about 100 ms: far
+                    // gentler on the ear than cutting the tops off the wave.
+                    float peak = Math.Max(Math.Abs(left), Math.Abs(right)) * _limit;
+                    if (peak > Ceiling) _limit *= Ceiling / peak;
+                    else _limit += (1f - _limit) * release;
+                    pcm.Add(ToShort(left * _limit));
+                    pcm.Add(ToShort(right * _limit));
                 }
             }
+
+            const float Ceiling = 0.98f;
 
             float Sample(int offset)
             {
@@ -383,10 +432,24 @@ namespace CouchTV
                 }
             }
 
-            static short ToShort(float value)
+            /// <summary>
+            /// To 16 bits, rounded, with a whisper of noise (TPDF dither, under a step of 16-bit) so quiet sound fades
+            /// out smoothly rather than turning grainy. Exact silence stays silent.
+            /// </summary>
+            short ToShort(float value)
             {
-                value = Math.Max(-1f, Math.Min(1f, value));
-                return (short)(value * 32767f);
+                if (value == 0f) return 0;
+                int s = (int)Math.Floor(value * 32767f + Noise() - Noise() + 0.5f);
+                return (short)Math.Max(-32768, Math.Min(32767, s));
+            }
+
+            /// <summary>0 to 1, evenly spread (xorshift: fast, and plenty random for dither).</summary>
+            float Noise()
+            {
+                _noise ^= _noise << 13;
+                _noise ^= _noise >> 17;
+                _noise ^= _noise << 5;
+                return (_noise >> 8) * (1f / 16777216f);
             }
 
             static void Check(int hr, string what)
@@ -397,9 +460,9 @@ namespace CouchTV
             public void Dispose()
             {
                 try { if (_client != null) ((IAudioClient)_client).Stop(); } catch (Exception) { }
-                foreach (object com in new[] { _capture, _client, _device, _enumerator })
+                foreach (object com in new[] { _volume, _capture, _client, _device, _enumerator })
                     if (com != null && Marshal.IsComObject(com)) Marshal.ReleaseComObject(com);
-                _capture = _client = _device = _enumerator = null;
+                _volume = _capture = _client = _device = _enumerator = null;
             }
 
             [ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
@@ -441,6 +504,28 @@ namespace CouchTV
                 [PreserveSig] int GetBuffer(out IntPtr data, out uint frames, out uint flags, out ulong devicePosition, out ulong qpcPosition);
                 [PreserveSig] int ReleaseBuffer(uint frames);
                 [PreserveSig] int GetNextPacketSize(out uint frames);
+            }
+
+            [ComImport, Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+            interface IAudioEndpointVolume
+            {
+                [PreserveSig] int RegisterControlChangeNotify(IntPtr notify);
+                [PreserveSig] int UnregisterControlChangeNotify(IntPtr notify);
+                [PreserveSig] int GetChannelCount(out uint count);
+                [PreserveSig] int SetMasterVolumeLevel(float levelDb, ref Guid context);
+                [PreserveSig] int SetMasterVolumeLevelScalar(float level, ref Guid context);
+                [PreserveSig] int GetMasterVolumeLevel(out float levelDb);
+                [PreserveSig] int GetMasterVolumeLevelScalar(out float level);
+                [PreserveSig] int SetChannelVolumeLevel(uint channel, float levelDb, ref Guid context);
+                [PreserveSig] int SetChannelVolumeLevelScalar(uint channel, float level, ref Guid context);
+                [PreserveSig] int GetChannelVolumeLevel(uint channel, out float levelDb);
+                [PreserveSig] int GetChannelVolumeLevelScalar(uint channel, out float level);
+                [PreserveSig] int SetMute([MarshalAs(UnmanagedType.Bool)] bool mute, ref Guid context);
+                [PreserveSig] int GetMute([MarshalAs(UnmanagedType.Bool)] out bool muted);
+                [PreserveSig] int GetVolumeStepInfo(out uint step, out uint count);
+                [PreserveSig] int VolumeStepUp(ref Guid context);
+                [PreserveSig] int VolumeStepDown(ref Guid context);
+                [PreserveSig] int QueryHardwareSupport(out uint mask);
             }
         }
     }
