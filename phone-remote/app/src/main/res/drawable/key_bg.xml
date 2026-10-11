@@ -1,15 +1,48 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- A raised key, drawn like a real one: its side below, a light rim on top, a softly lit face. Pressed, it sinks (with animator/key_press). -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:state_pressed="true">
-        <shape android:shape="rectangle">
-            <solid android:color="@color/surface_pressed" />
-            <corners android:radius="18dp" />
-        </shape>
+        <layer-list>
+        <item android:top="4dp" android:bottom="3dp">
+            <shape android:shape="rectangle">
+                <solid android:color="@color/key_edge" />
+                <corners android:radius="18dp" />
+            </shape>
+        </item>
+        <item android:bottom="4dp">
+            <shape android:shape="rectangle">
+                <solid android:color="@color/key_pressed_rim" />
+                <corners android:radius="18dp" />
+            </shape>
+        </item>
+        <item android:top="1dp" android:bottom="4dp">
+            <shape android:shape="rectangle">
+                <gradient android:angle="270" android:startColor="@color/key_pressed_top" android:endColor="@color/key_pressed_bottom" />
+                <corners android:radius="18dp" />
+            </shape>
+        </item>
+    </layer-list>
     </item>
     <item>
-        <shape android:shape="rectangle">
-            <solid android:color="@color/surface" />
-            <corners android:radius="18dp" />
-        </shape>
+        <layer-list>
+        <item android:top="4dp" android:bottom="0dp">
+            <shape android:shape="rectangle">
+                <solid android:color="@color/key_edge" />
+                <corners android:radius="18dp" />
+            </shape>
+        </item>
+        <item android:bottom="4dp">
+            <shape android:shape="rectangle">
+                <solid android:color="@color/key_rim" />
+                <corners android:radius="18dp" />
+            </shape>
+        </item>
+        <item android:top="1dp" android:bottom="4dp">
+            <shape android:shape="rectangle">
+                <gradient android:angle="270" android:startColor="@color/key_top" android:endColor="@color/key_bottom" />
+                <corners android:radius="18dp" />
+            </shape>
+        </item>
+    </layer-list>
     </item>
 </selector>

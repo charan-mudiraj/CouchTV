@@ -126,6 +126,7 @@ class VoiceSearch(private val activity: Activity, private val remote: Remote) {
         languageButton = view.findViewById(R.id.voice_language)
         // Tap the mic to finish early, or to try again after a miss.
         mic?.setOnClickListener { if (listening) recognizer?.stopListening() else listen() }
+        mic?.let { Haptics.attach(it) }
         languageButton?.setOnClickListener { nextLanguage() }
         view.findViewById<Button>(R.id.voice_type).setOnClickListener {
             stopListening()

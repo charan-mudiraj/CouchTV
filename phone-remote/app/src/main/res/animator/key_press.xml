@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A key goes down 3 dp while pressed (its background shows less of its side meanwhile), and springs back up. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_pressed="true">
+        <objectAnimator
+            android:duration="40"
+            android:propertyName="translationY"
+            android:valueTo="3dp"
+            android:valueType="floatType" />
+    </item>
+    <item>
+        <objectAnimator
+            android:duration="120"
+            android:interpolator="@android:interpolator/decelerate_quad"
+            android:propertyName="translationY"
+            android:valueTo="0dp"
+            android:valueType="floatType" />
+    </item>
+</selector>

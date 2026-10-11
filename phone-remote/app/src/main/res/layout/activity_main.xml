@@ -55,8 +55,9 @@
             android:layout_marginStart="10dp"
             android:background="@drawable/listen_bg"
             android:contentDescription="@string/listen_start"
+            android:paddingBottom="4dp"
             android:src="@drawable/ic_headphones"
-            android:stateListAnimator="@null"
+            android:stateListAnimator="@animator/key_press"
             android:tooltipText="@string/listen_start" />
 
         <ImageButton
@@ -66,8 +67,9 @@
             android:layout_marginStart="10dp"
             android:background="@drawable/power_bg"
             android:contentDescription="@string/power"
+            android:paddingBottom="4dp"
             android:src="@drawable/ic_power"
-            android:stateListAnimator="@null" />
+            android:stateListAnimator="@animator/key_press" />
     </LinearLayout>
 
     <!-- Shown when a newer build is on GitHub -->
@@ -157,10 +159,13 @@
                         android:layout_height="48dp"
                         android:background="@drawable/mic_bg"
                         android:contentDescription="@string/voice_search"
-                        android:padding="12dp"
+                        android:paddingStart="13dp"
+                        android:paddingTop="11dp"
+                        android:paddingEnd="13dp"
+                        android:paddingBottom="15dp"
                         android:scaleType="fitCenter"
                         android:src="@drawable/ic_mic"
-                        android:stateListAnimator="@null" />
+                        android:stateListAnimator="@animator/key_press" />
                 </LinearLayout>
 
                 <!-- As big as the space left allows -->

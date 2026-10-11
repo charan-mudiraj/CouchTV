@@ -114,6 +114,10 @@ class MainActivity : Activity() {
             setOnClickListener { checkForUpdate(manual = true) }
         }
         findViewById<Button>(R.id.update_now).setOnClickListener { startUpdate() }
+        // Keys that act on a tap still click under the finger (the held ones do in bindHold).
+        for (id in intArrayOf(R.id.listen, R.id.voice_search, R.id.search_bar, R.id.add_button, R.id.update_now)) {
+            Haptics.attach(findViewById(id))
+        }
 
         val pager = findViewById<PagerView>(R.id.pager)
         val dots = findViewById<PageDots>(R.id.dots)
@@ -408,14 +412,8 @@ class MainActivity : Activity() {
         var pressId = 0
         val gesture = PressGesture(
             view,
-            onPress = {
-                view.isPressed = true
-                pressId = remote.press(address, command)
-            },
-            onRelease = {
-                view.isPressed = false
-                remote.release(pressId)
-            },
+            onPress = { pressId = remote.press(address, command) },
+            onRelease = { remote.release(pressId) },
         )
         view.setOnTouchListener { v, event ->
             val handled = gesture.onTouch(event)
@@ -433,8 +431,10 @@ class MainActivity : Activity() {
         findViewById<View>(R.id.my_buttons_empty).visibility = if (myButtons.isEmpty()) View.VISIBLE else View.GONE
         for (button in myButtons) {
             val view = Button(this, null, 0, R.style.RemoteKey_Text).apply { text = button.label }
-            if (editing) view.setOnClickListener { editButton(button) }
-            else bindHold(view, button.address, button.command)
+            if (editing) {
+                view.setOnClickListener { editButton(button) }
+                Haptics.attach(view)
+            } else bindHold(view, button.address, button.command)
             grid.addView(view)
         }
     }

@@ -14,7 +14,7 @@ Everything fits the screen; nothing scrolls up or down. The top stays put (the c
 3. **Pointer:** a large pointer pad, with scroll and right-click.
 4. **My buttons:** your own buttons, and the app's version.
 
-The D-pad, pointer pad and grids size themselves to the phone's screen.
+The D-pad, pointer pad and grids size themselves to the phone's screen. The keys look and feel like a real remote's: raised, with their sides showing, they sink when pressed and click under your finger (a short vibration going down, and a lighter one coming up on phones with a precise vibration motor).
 
 - **Voice search.** Tap the blue mic and say what to watch. The phone turns your words into text and sends them to the TV, which lets you pick the app to search in. Tap the search bar to type instead.
 - **D-pad and OK.** Hold a direction to keep moving.
@@ -110,6 +110,7 @@ Each button sends an NEC frame (38 kHz, address `0xCE`), then a "still held" fra
 | `Codes.kt` | The button codes |
 | `DpadView.kt` | The round D-pad |
 | `MainActivity.kt` | The screen, and your own buttons |
+| `Haptics.kt`, `PressGesture.kt` | The click under the finger, and telling a press from a swipe |
 | `PagerView.kt`, `PageDots.kt`, `FitGrid.kt` | The sideways pages, their dots, and button grids that shrink to fit |
 | `CustomButtons.kt` | Saves your own buttons |
 

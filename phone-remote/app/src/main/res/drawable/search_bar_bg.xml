@@ -1,15 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- The search bar, set into the remote like a slot: a shadow inside its top edge and a light lip along the bottom. -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:state_pressed="true">
-        <shape android:shape="rectangle">
-            <solid android:color="@color/surface_pressed" />
-            <corners android:radius="32dp" />
-        </shape>
+        <layer-list>
+            <item><shape android:shape="rectangle"><solid android:color="@color/slot_lip" /><corners android:radius="30dp" /></shape></item>
+            <item android:bottom="1dp"><shape android:shape="rectangle"><solid android:color="@color/slot_shadow" /><corners android:radius="30dp" /></shape></item>
+            <item android:top="3dp" android:bottom="1dp"><shape android:shape="rectangle"><gradient android:angle="270" android:startColor="@color/slot_pressed_top" android:endColor="@color/slot_pressed_bottom" /><corners android:radius="30dp" /></shape></item>
+        </layer-list>
     </item>
     <item>
-        <shape android:shape="rectangle">
-            <solid android:color="@color/surface" />
-            <corners android:radius="32dp" />
-        </shape>
+        <layer-list>
+            <item><shape android:shape="rectangle"><solid android:color="@color/slot_lip" /><corners android:radius="30dp" /></shape></item>
+            <item android:bottom="1dp"><shape android:shape="rectangle"><solid android:color="@color/slot_shadow" /><corners android:radius="30dp" /></shape></item>
+            <item android:top="3dp" android:bottom="1dp"><shape android:shape="rectangle"><gradient android:angle="270" android:startColor="@color/slot_top" android:endColor="@color/slot_bottom" /><corners android:radius="30dp" /></shape></item>
+        </layer-list>
     </item>
 </selector>

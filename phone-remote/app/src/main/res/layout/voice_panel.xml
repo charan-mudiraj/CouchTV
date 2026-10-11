@@ -16,7 +16,11 @@
         android:layout_height="112dp"
         android:background="@drawable/mic_bg"
         android:contentDescription="@string/voice_mic"
-        android:padding="30dp"
+        android:paddingStart="30dp"
+        android:paddingTop="28dp"
+        android:paddingEnd="30dp"
+        android:paddingBottom="32dp"
+        android:stateListAnimator="@animator/key_press"
         android:scaleType="fitCenter"
         android:src="@drawable/ic_mic" />
 

@@ -7,6 +7,11 @@
         <item name="android:colorAccent">@color/good</item>
     </style>
 
+    <!--
+        Keys look and move like real ones: raised, with their side showing below (key_bg and friends), and they sink
+        3 dp while pressed (key_press). The bottom padding keeps icons and text in the middle of the key's face.
+    -->
+
     <!-- An icon key. -->
     <style name="RemoteKey">
         <item name="android:layout_width">0dp</item>
@@ -16,7 +21,9 @@
         <item name="android:layout_marginEnd">5dp</item>
         <item name="android:background">@drawable/key_bg</item>
         <item name="android:scaleType">center</item>
-        <item name="android:stateListAnimator">@null</item>
+        <item name="android:paddingTop">0dp</item>
+        <item name="android:paddingBottom">4dp</item>
+        <item name="android:stateListAnimator">@animator/key_press</item>
     </style>
 
     <!-- A text key; also used for "My buttons". -->
@@ -26,40 +33,32 @@
         <item name="android:textSize">15sp</item>
         <item name="android:textAllCaps">false</item>
         <item name="android:fontFamily">sans-serif-medium</item>
-        <item name="android:stateListAnimator">@null</item>
+        <item name="android:paddingStart">8dp</item>
+        <item name="android:paddingEnd">8dp</item>
+        <item name="android:paddingTop">0dp</item>
+        <item name="android:paddingBottom">4dp</item>
+        <item name="android:stateListAnimator">@animator/key_press</item>
         <item name="android:minHeight">0dp</item>
         <item name="android:minWidth">0dp</item>
         <item name="android:maxLines">2</item>
     </style>
 
-    <!-- An app shortcut, tinted per app. -->
-    <style name="AppChip" parent="android:Widget.Material.Button">
-        <item name="android:layout_width">wrap_content</item>
-        <item name="android:layout_height">48dp</item>
-        <item name="android:layout_marginEnd">10dp</item>
-        <item name="android:paddingStart">20dp</item>
-        <item name="android:paddingEnd">20dp</item>
-        <item name="android:background">@drawable/chip_bg</item>
-        <item name="android:foreground">?android:attr/selectableItemBackground</item>
-        <item name="android:textColor">#FFFFFF</item>
-        <item name="android:textSize">15sp</item>
-        <item name="android:textAllCaps">false</item>
-        <item name="android:fontFamily">sans-serif-medium</item>
-        <item name="android:stateListAnimator">@null</item>
-        <item name="android:minWidth">0dp</item>
-    </style>
-
-    <!-- A big app tile on the Apps page, tinted per app; the grid sets its size. -->
+    <!-- A big app tile on the Apps page: chip_bg's greys multiplied by the app's colour; the grid sets its size. -->
     <style name="AppTile" parent="android:Widget.Material.Button">
         <item name="android:layout_width">0dp</item>
         <item name="android:layout_height">0dp</item>
         <item name="android:background">@drawable/chip_bg</item>
-        <item name="android:foreground">?android:attr/selectableItemBackground</item>
+        <item name="android:backgroundTintMode">multiply</item>
+        <item name="android:paddingTop">0dp</item>
+        <item name="android:paddingBottom">4dp</item>
+        <item name="android:shadowColor">#66000000</item>
+        <item name="android:shadowDy">1.5</item>
+        <item name="android:shadowRadius">2</item>
         <item name="android:textColor">#FFFFFF</item>
         <item name="android:textSize">18sp</item>
         <item name="android:textAllCaps">false</item>
         <item name="android:fontFamily">sans-serif-medium</item>
-        <item name="android:stateListAnimator">@null</item>
+        <item name="android:stateListAnimator">@animator/key_press</item>
         <item name="android:minWidth">0dp</item>
         <item name="android:minHeight">0dp</item>
     </style>

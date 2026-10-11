@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.TRANSMIT_IR" />
+    <!-- A click under the finger as a key goes down, like a real remote's. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Updates: check GitHub, download the new APK and install it. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
