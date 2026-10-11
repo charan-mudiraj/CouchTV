@@ -7,8 +7,8 @@
     <string name="wifi_looking_no_ir">Looking for the TV on Wi-Fi… Connect this phone to the same Wi-Fi as the TV.</string>
     <string name="wifi_trying">Connecting to the TV at %1$s over Wi-Fi… Tap to change the address.</string>
     <string name="wifi_trying_ir">Point the phone at the TV, or wait: connecting to it at %1$s over Wi-Fi… Tap to change.</string>
-    <string name="listen_start">Listen on this phone (headphones)</string>
-    <string name="listen_stop">Playing the TV\'s sound here · tap to stop</string>
+    <string name="listen_start">Listen on this phone (earphones)</string>
+    <string name="listen_stop">Playing the TV\'s sound on this phone · tap the headphones to stop</string>
     <string name="listen_no_tv">Connect to the TV over Wi-Fi first (the line at the top turns green).</string>
     <string name="listen_channel">TV sound on this phone</string>
     <string name="listen_notification_title">Playing the TV\'s sound</string>
@@ -70,6 +70,9 @@
     <string name="key_delete">Delete</string>
 
     <string name="pointer">Pointer</string>
+    <string name="pointer_help">Hold an arrow to move the pointer; the middle clicks.</string>
+    <string name="tv_keys">TV</string>
+    <string name="page_of">Page %1$d of %2$d</string>
     <string name="click">Click</string>
     <string name="scroll_up">Scroll up</string>
     <string name="right_click">Right click</string>

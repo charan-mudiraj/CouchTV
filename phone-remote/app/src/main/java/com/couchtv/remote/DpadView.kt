@@ -21,6 +21,10 @@ class DpadView @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
 
     enum class Part { UP, DOWN, LEFT, RIGHT, CENTER }
 
+    private companion object {
+        const val MOST_DP = 320f   // the widest the pad gets
+    }
+
     interface Listener {
         fun onPress(part: Part)
         fun onRelease(part: Part)
@@ -62,16 +66,22 @@ class DpadView @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
     private val chevron = Path()
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        // Square, as wide as allowed but at most 320 dp.
+        // Square, as wide as allowed but at most 320 dp; given a height (the space left on its page), it fills that
+        // and the pad sits in the middle, as big as fits.
         val width = if (MeasureSpec.getMode(widthMeasureSpec) == MeasureSpec.UNSPECIFIED) (240 * density).toInt()
                     else MeasureSpec.getSize(widthMeasureSpec)
-        val size = min(width, (320 * density).toInt())
-        setMeasuredDimension(width, size)
+        val size = min(width, (MOST_DP * density).toInt())
+        val height = when (MeasureSpec.getMode(heightMeasureSpec)) {
+            MeasureSpec.EXACTLY -> MeasureSpec.getSize(heightMeasureSpec)
+            MeasureSpec.AT_MOST -> min(size, MeasureSpec.getSize(heightMeasureSpec))
+            else -> size
+        }
+        setMeasuredDimension(width, height)
     }
 
     private val centerX get() = width / 2f
     private val centerY get() = height / 2f
-    private val outerRadius get() = min(width, height) / 2f - 2 * density
+    private val outerRadius get() = min(min(width, height) / 2f, MOST_DP / 2 * density) - 2 * density
     private val innerRadius get() = outerRadius * 0.40f
 
     override fun onDraw(canvas: Canvas) {

@@ -49,6 +49,42 @@
         <item name="android:minWidth">0dp</item>
     </style>
 
+    <!-- A big app tile on the Apps page, tinted per app; the grid sets its size. -->
+    <style name="AppTile" parent="android:Widget.Material.Button">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">0dp</item>
+        <item name="android:background">@drawable/chip_bg</item>
+        <item name="android:foreground">?android:attr/selectableItemBackground</item>
+        <item name="android:textColor">#FFFFFF</item>
+        <item name="android:textSize">18sp</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:stateListAnimator">@null</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:minHeight">0dp</item>
+    </style>
+
+    <!-- The name at the top of a page. -->
+    <style name="PageTitle">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginBottom">12dp</item>
+        <item name="android:textColor">@color/ink</item>
+        <item name="android:textSize">20sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+    </style>
+
+    <!-- One page: as wide as the screen (the pager sets it), never scrolling. -->
+    <style name="Page">
+        <item name="android:layout_width">360dp</item>
+        <item name="android:layout_height">match_parent</item>
+        <item name="android:orientation">vertical</item>
+        <item name="android:paddingStart">20dp</item>
+        <item name="android:paddingEnd">20dp</item>
+        <item name="android:paddingTop">8dp</item>
+        <item name="android:paddingBottom">4dp</item>
+    </style>
+
     <style name="Section">
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>

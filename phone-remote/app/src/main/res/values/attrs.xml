@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- FitGrid: buttons in a grid that shrinks its rows to fit, so pages never scroll. -->
+    <declare-styleable name="FitGrid">
+        <attr name="columns" format="integer" />
+        <attr name="rowHeight" format="dimension" />
+        <attr name="gap" format="dimension" />
+        <attr name="fillLastRow" format="boolean" />
+    </declare-styleable>
+</resources>

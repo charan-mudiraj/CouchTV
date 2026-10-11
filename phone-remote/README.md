@@ -7,6 +7,15 @@ A remote control app for CouchTV. It works two ways, and picks by itself:
 
 **What's on it**
 
+Everything fits the screen; nothing scrolls up or down. The top stays put (the connection status, the headphones button for the TV's sound, and **Power**), and underneath, pages swipe sideways like a phone's home screen. The dots at the bottom show which page you're on; tap one to jump there, and Back returns to the first page.
+
+1. **Remote:** search, the D-pad, Back / Home / Menu, volume and Play-Pause.
+2. **Apps:** big tiles for Netflix, YouTube, Prime Video, JioHotstar and Web, plus the TV's Exit, Full screen, Sleep timer and Delete.
+3. **Pointer:** a large pointer pad, with scroll and right-click.
+4. **My buttons:** your own buttons, and the app's version.
+
+The D-pad, pointer pad and grids size themselves to the phone's screen.
+
 - **Voice search.** Tap the blue mic and say what to watch. The phone turns your words into text and sends them to the TV, which lets you pick the app to search in. Tap the search bar to type instead.
 - **D-pad and OK.** Hold a direction to keep moving.
 - **Back, Home, Menu.** Holding Back also goes Home.
@@ -14,6 +23,7 @@ A remote control app for CouchTV. It works two ways, and picks by itself:
 - **Exit, Full screen, Sleep timer, Delete.**
 - **Power**, which puts the TV to sleep and wakes it.
 - **App shortcuts:** Netflix, YouTube, Prime Video, JioHotstar, Web.
+- **The TV's sound on this phone:** the headphones button at the top (green while it plays).
 - **A pointer pad** for sites that need a mouse: hold a direction to move the pointer, the middle clicks, plus scroll and right-click.
 - **My buttons:** add buttons with your own codes, then teach the TV what they do.
 
@@ -31,7 +41,7 @@ and install it. The first time, Android asks you to allow installs from your bro
 
 After the first install, the app keeps itself up to date:
 
-- **It checks GitHub when you open it** (at most every 15 minutes). To check right away, tap the version line at the bottom of the screen.
+- **It checks GitHub when you open it** (at most every 15 minutes). To check right away, tap the version line on the *My buttons* page.
 - **When a newer build exists,** a green banner shows *Update available: "commit message"*. Tap **Update**: it downloads the new APK, checks it's exactly the file GitHub built (SHA-256), and installs it.
 - **The first update** asks you to allow installs from CouchTV Remote (a switch in Settings; the app takes you there), then Android asks you to confirm. On Android 12+ later updates can install without asking, although Xiaomi's installer may still want one tap.
 - **Version numbers** come from GitHub's build count (1.1, 1.2, ...). The version line shows the version and the commit it was built from.
@@ -70,7 +80,7 @@ The project has no third-party libraries, only the Android framework, so there's
 
 ## Listen on this phone
 
-Tap **Listen on this phone** (under the search bar) to hear the TV's sound in this phone's headphones, over Wi-Fi. Several phones can listen at once, each with its own headphones and volume (the phone's volume buttons). It keeps playing with the screen off; tap the button again, or **Stop** in the notification, to end. Lip sync is about 0.1 s.
+Tap the **headphones button** at the top to hear the TV's sound in this phone's headphones, over Wi-Fi. Several phones can listen at once, each with its own headphones and volume (the phone's volume buttons). It keeps playing with the screen off; the button stays green meanwhile. Tap it again, or **Stop** in the notification, to end. Lip sync is about 0.1 s.
 
 The sound plays on wired earphones (or USB, or line out) when they're plugged in, else the phone's speaker, never on Bluetooth: that's where it sounds best, and Bluetooth shares the phone's 2.4 GHz radio with the Wi-Fi the sound comes over. So the app also keeps Bluetooth **off** while it's in use (on screen, or playing the TV's sound), and switches it off again if it's turned on. On Android 12 and older it does that by itself (Android 12 asks for *Nearby devices* once). Android 13 and newer don't let apps switch Bluetooth off, so there the app shows Android's own *Turn off Bluetooth?* question each time it finds Bluetooth on, unless the app is the phone's device owner (the dedicated-remote setup), which can switch it off by itself.
 
@@ -100,6 +110,7 @@ Each button sends an NEC frame (38 kHz, address `0xCE`), then a "still held" fra
 | `Codes.kt` | The button codes |
 | `DpadView.kt` | The round D-pad |
 | `MainActivity.kt` | The screen, and your own buttons |
+| `PagerView.kt`, `PageDots.kt`, `FitGrid.kt` | The sideways pages, their dots, and button grids that shrink to fit |
 | `CustomButtons.kt` | Saves your own buttons |
 
 ## Feedback to send

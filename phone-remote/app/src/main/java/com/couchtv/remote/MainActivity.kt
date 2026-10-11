@@ -6,6 +6,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -17,12 +18,16 @@ import android.view.MotionEvent
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import java.util.concurrent.Executors
 
-/** The remote: D-pad, TV buttons, app shortcuts, a pointer pad, and buttons you add yourself. */
+/**
+ * The remote, fitting the screen without scrolling: the status, the TV's sound here and power stay at the top, and
+ * pages swipe sideways underneath (remote, apps, pointer, your own buttons), with dots to show which.
+ */
 class MainActivity : Activity() {
     companion object {
         private const val REQUEST_BLUETOOTH = 44       // the "Nearby devices" permission, to switch Bluetooth off
@@ -59,7 +64,7 @@ class MainActivity : Activity() {
         findViewById<View>(R.id.voice_search).setOnClickListener { voice.start() }
         findViewById<View>(R.id.search_bar).setOnClickListener { voice.type() }
 
-        findViewById<Button>(R.id.listen).setOnClickListener {
+        findViewById<ImageButton>(R.id.listen).setOnClickListener {
             if (ListenService.running) stopService(Intent(this, ListenService::class.java)) else startListening()
         }
         ListenService.onChange = { showListen() }
@@ -109,6 +114,13 @@ class MainActivity : Activity() {
             setOnClickListener { checkForUpdate(manual = true) }
         }
         findViewById<Button>(R.id.update_now).setOnClickListener { startUpdate() }
+
+        val pager = findViewById<PagerView>(R.id.pager)
+        val dots = findViewById<PageDots>(R.id.dots)
+        dots.count = pager.pageCount
+        dots.current = pager.page
+        pager.onPageChanged = { dots.current = it }
+        dots.onPick = { pager.go(it) }
         InstallReceiver.onFailure = { message ->
             updating = false
             installStarted = false
@@ -129,12 +141,25 @@ class MainActivity : Activity() {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 43)   // for its Stop button; it plays either way
         }
         startForegroundService(Intent(this, ListenService::class.java).putExtra(ListenService.EXTRA_TV, tv))
+        toast(getString(R.string.listen_stop))
     }
 
+    /** The headphones button at the top: green while the TV's sound plays here. */
     private fun showListen() {
-        val button = findViewById<Button>(R.id.listen)
-        button.setText(if (ListenService.running) R.string.listen_stop else R.string.listen_start)
-        button.setTextColor(getColor(if (ListenService.running) R.color.good else R.color.ink))
+        val button = findViewById<ImageButton>(R.id.listen)
+        val on = ListenService.running
+        button.isSelected = on
+        button.imageTintList = ColorStateList.valueOf(getColor(if (on) R.color.background else R.color.ink))
+        val label = getString(if (on) R.string.listen_stop else R.string.listen_start)
+        button.contentDescription = label
+        button.tooltipText = label
+    }
+
+    /** Back on another page goes to the first; on the first, it leaves as usual. */
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION")
+    override fun onBackPressed() {
+        val pager = findViewById<PagerView>(R.id.pager)
+        if (pager.page > 0) pager.go(0) else super.onBackPressed()
     }
 
     override fun onDestroy() {
@@ -377,7 +402,7 @@ class MainActivity : Activity() {
         override fun onRelease(part: DpadView.Part) = remote.release(pressId)
     }
 
-    /** Sends while the finger is down, like holding a button on a real remote; a drag scrolls the page instead. */
+    /** Sends while the finger is down, like holding a button on a real remote; a swipe turns the page instead. */
     @SuppressLint("ClickableViewAccessibility")
     private fun bindHold(view: View, address: Int, command: Int) {
         var pressId = 0
@@ -401,29 +426,16 @@ class MainActivity : Activity() {
 
     // ---------------------------------------------------------------- your own buttons
 
+    /** Three to a row; the rows get shorter as buttons are added, so they always fit their page. */
     private fun showMyButtons() {
-        val container = findViewById<LinearLayout>(R.id.my_buttons)
-        container.removeAllViews()
+        val grid = findViewById<FitGrid>(R.id.my_buttons)
+        grid.removeAllViews()
         findViewById<View>(R.id.my_buttons_empty).visibility = if (myButtons.isEmpty()) View.VISIBLE else View.GONE
-        val perRow = 3
-        val gap = (8 * resources.displayMetrics.density).toInt()
-        myButtons.chunked(perRow).forEach { rowButtons ->
-            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            for (i in 0 until perRow) {
-                val button = rowButtons.getOrNull(i)
-                val view = Button(this, null, 0, R.style.RemoteKey_Text).apply {
-                    text = button?.label ?: ""
-                    visibility = if (button == null) View.INVISIBLE else View.VISIBLE
-                }
-                if (button != null) {
-                    if (editing) view.setOnClickListener { editButton(button) }
-                    else bindHold(view, button.address, button.command)
-                }
-                row.addView(view, LinearLayout.LayoutParams(0, (56 * resources.displayMetrics.density).toInt(), 1f).apply {
-                    setMargins(if (i == 0) 0 else gap / 2, gap / 2, if (i == perRow - 1) 0 else gap / 2, gap / 2)
-                })
-            }
-            container.addView(row)
+        for (button in myButtons) {
+            val view = Button(this, null, 0, R.style.RemoteKey_Text).apply { text = button.label }
+            if (editing) view.setOnClickListener { editButton(button) }
+            else bindHold(view, button.address, button.command)
+            grid.addView(view)
         }
     }
 
