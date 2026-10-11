@@ -78,6 +78,7 @@ class MainActivity : Activity() {
             override fun onButton(right: Boolean, down: Boolean) = remote.pointerButton(right, down)
             override fun onStop() = remote.pointerStop()
         }
+        findViewById<View>(R.id.pointer_look).setOnClickListener { choosePointer() }
         // The trackpad's buttons, held down for as long as the finger is (to drag with another finger on the pad).
         bindHold(findViewById<View>(R.id.left_click), { remote.pointerButton(false, true) }, { remote.pointerButton(false, false) })
         bindHold(findViewById<View>(R.id.right_click), { remote.pointerButton(true, true) }, { remote.pointerButton(true, false) })
@@ -424,6 +425,72 @@ class MainActivity : Activity() {
             if (event.actionMasked == MotionEvent.ACTION_UP) v.performClick()
             handled
         }
+    }
+
+    // ---------------------------------------------------------------- the TV's pointer
+
+    /** The TV pointer's style, size and colour: it changes on the TV as you pick (over Wi-Fi). */
+    private fun choosePointer() {
+        if (!remote.viaWifi) {
+            toast(getString(R.string.pointer_needs_wifi))
+            return
+        }
+        val now = (remote.wifi.pointerLook ?: "arrow 64 white").split(" ")
+        var style = now.getOrNull(0) ?: "arrow"
+        var size = now.getOrNull(1)?.toIntOrNull() ?: 64
+        var color = now.getOrNull(2) ?: "white"
+        val send = { remote.wifi.setPointer(style, size, color) }
+
+        val padding = (20 * resources.displayMetrics.density).toInt()
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(padding, padding / 2, padding, 0)
+        }
+        form.addView(caption(R.string.pointer_style))
+        form.addView(choices(listOf("arrow" to R.string.pointer_arrow, "dot" to R.string.pointer_dot, "ring" to R.string.pointer_ring),
+            3, { style }) { style = it; send() })
+        form.addView(caption(R.string.pointer_size))
+        form.addView(choices(listOf(48 to R.string.size_medium, 64 to R.string.size_large, 96 to R.string.size_huge, 128 to R.string.size_giant),
+            2, { size }) { size = it; send() })
+        form.addView(caption(R.string.pointer_color))
+        val colors = mapOf("white" to R.color.pointer_white, "yellow" to R.color.pointer_yellow, "blue" to R.color.pointer_blue,
+            "green" to R.color.pointer_green, "pink" to R.color.pointer_pink)
+        form.addView(choices(listOf("white" to R.string.color_white, "yellow" to R.string.color_yellow, "blue" to R.string.color_blue,
+            "green" to R.string.color_green, "pink" to R.string.color_pink), 3, { color }, colors) { color = it; send() })
+        form.addView(caption(R.string.pointer_help))
+        AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+            .setTitle(R.string.pointer_title)
+            .setView(form)
+            .setPositiveButton(R.string.done, null)
+            .show()
+    }
+
+    /** Keys to pick one of [options] (value to label); the picked one is ticked. [colors] tints each label. */
+    private fun <T> choices(options: List<Pair<T, Int>>, columns: Int, picked: () -> T, colors: Map<T, Int>? = null, onPick: (T) -> Unit): FitGrid {
+        val density = resources.displayMetrics.density
+        val grid = FitGrid(this).apply {
+            this.columns = columns
+            rowHeight = (50 * density).toInt()
+            gap = (8 * density).toInt()
+        }
+        val keys = options.map { (value, label) -> Triple(value, getString(label), Button(this, null, 0, R.style.RemoteKey_Text)) }
+        fun show() {
+            for ((value, label, key) in keys) {
+                val on = value == picked()
+                key.text = if (on) "✓ $label" else label
+                key.setTextColor(getColor(colors?.get(value) ?: if (on) R.color.good else R.color.ink))
+            }
+        }
+        for ((value, _, key) in keys) {
+            key.setOnClickListener {
+                onPick(value)
+                show()
+            }
+            Haptics.attach(key)
+            grid.addView(key)
+        }
+        show()
+        return grid
     }
 
     // ---------------------------------------------------------------- your own buttons

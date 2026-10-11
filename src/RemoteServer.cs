@@ -22,6 +22,8 @@ namespace CouchTV
     ///     MOVE &lt;dx&gt; &lt;dy&gt;            the phone's trackpad: move the pointer by that many pixels
     ///     WHEEL &lt;dy&gt; [&lt;dx&gt;]         scroll (120 = a mouse wheel notch; up/right when positive)
     ///     MOUSE L|R D|U             a mouse button down or up (a phone that drops lets go of what it held)
+    ///     POINTER &lt;style&gt; &lt;size&gt; &lt;colour&gt;   the pointer's look, e.g. "POINTER arrow 64 white"; CouchTV
+    ///                               also tells a phone the current one, after WELCOME
     /// Buttons go through the same remote.ini mapping as infrared ones, so both remotes behave the same.
     /// </summary>
     internal sealed class RemoteServer
@@ -32,6 +34,10 @@ namespace CouchTV
         public event Action<IrSignal> Button;      // raised on the UI thread
         public event Action<string> Text;          // raised on the UI thread
         public event Action<string> Connected;     // a phone connected (its address), on the UI thread
+        public event Action<string, int, string> PointerLook;   // the phone chose a pointer: style, size, colour (UI thread)
+
+        /// <summary>The pointer's look now ("arrow 64 white"), told to each phone as it connects.</summary>
+        internal Func<string> CurrentPointer;
 
         // What the trackpad lines do, straight from the network thread for the least delay. The self-test swaps
         // these to watch rather than move the real pointer.
@@ -187,7 +193,8 @@ namespace CouchTV
                 case "HELLO":
                     Log.Info("Wi-Fi remote connected: " + who + " (" + line + ")");
                     Raise(() => { if (Connected != null) Connected(who); });
-                    return "WELCOME " + TvName;
+                    Func<string> pointer = CurrentPointer;
+                    return "WELCOME " + TvName + (pointer != null ? "\nPOINTER " + pointer() : "");
                 case "PING":
                     return "PONG";
                 case "BTN":
@@ -215,6 +222,14 @@ namespace CouchTV
                 case "WHEEL":
                     if (parts.Length >= 2 && TryInt(parts[1], 2400, out dy) && dy != 0) Wheel(dy, false);
                     if (parts.Length >= 3 && TryInt(parts[2], 2400, out dx) && dx != 0) Wheel(dx, true);
+                    return null;
+                case "POINTER":
+                    int size;
+                    if (parts.Length >= 4 && int.TryParse(parts[2], out size))
+                    {
+                        string style = parts[1], colour = parts[3];
+                        Raise(() => { if (PointerLook != null) PointerLook(style, size, colour); });
+                    }
                     return null;
                 case "MOUSE":
                     if (parts.Length >= 3 && (parts[1] == "L" || parts[1] == "R") && (parts[2] == "D" || parts[2] == "U"))

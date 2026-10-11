@@ -331,6 +331,84 @@ namespace CouchTV
         static KeyValuePair<Tile, string> Pair(Tile t, string caption) { return new KeyValuePair<Tile, string>(t, caption); }
 
         /// <summary>
+        /// CouchTV.exe --pointertest folder: draws every pointer into folder\pointers.png to look at, checks the
+        /// cursor files, then puts a big one in place for a moment and Windows' own back (the pointer flickers).
+        /// </summary>
+        public static int PointerTest(string folder)
+        {
+            var report = new StringBuilder();
+            bool ok = true;
+            Action<string, bool> check = (name, pass) => { report.AppendLine((pass ? "PASS  " : "FAIL  ") + name); ok &= pass; };
+            Directory.CreateDirectory(folder);
+
+            // A contact sheet: each style's pointer, link and text cursor, in white, then the other colours, each on a
+            // dark and a light background; then the arrow at every size.
+            const int cell = 80;
+            var kinds = new[] { Pointer.Kind.Normal, Pointer.Kind.Link, Pointer.Kind.Text };
+            var sheet = new DrawingVisual();
+            int width = cell * 2 * (kinds.Length + Pointer.ColorNames.Length - 1), height = cell * (Pointer.Styles.Length + 2);
+            using (DrawingContext dc = sheet.RenderOpen())
+            {
+                dc.DrawRectangle(Brushes.Black, null, new Rect(0, 0, width, height));
+                for (int row = 0; row < Pointer.Styles.Length; row++)
+                {
+                    int col = 0;
+                    foreach (Pointer.Kind kind in kinds) DrawCell(dc, Pointer.Styles[row], 64, "white", kind, col++, row, cell, check);
+                    for (int c = 1; c < Pointer.ColorNames.Length; c++) DrawCell(dc, Pointer.Styles[row], 64, Pointer.ColorNames[c], Pointer.Kind.Normal, col++, row, cell, check);
+                }
+                int[] sizes = { 32, 48, 64, 96, 128 };
+                for (int i = 0; i < sizes.Length; i++)
+                {
+                    int hx, hy;
+                    byte[] px = Pointer.Render("arrow", sizes[i], "white", Pointer.Kind.Normal, out hx, out hy);
+                    var image = BitmapSource.Create(sizes[i], sizes[i], 96, 96, PixelFormats.Bgra32, null, px, sizes[i] * 4);
+                    double x = 10 + i * 150, y = cell * Pointer.Styles.Length + 10;
+                    dc.DrawRectangle(new SolidColorBrush(Color.FromRgb(0x0B, 0x0E, 0x14)), null, new Rect(x, y, 140, 140));
+                    dc.DrawImage(image, new Rect(x, y, sizes[i], sizes[i]));
+                }
+            }
+            var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+            bitmap.Render(sheet);
+            var png = new PngBitmapEncoder();
+            png.Frames.Add(BitmapFrame.Create(bitmap));
+            using (var file = File.Create(Path.Combine(folder, "pointers.png"))) png.Save(file);
+
+            int hotX, hotY;
+            byte[] pixels = Pointer.Render("arrow", 96, "yellow", Pointer.Kind.Normal, out hotX, out hotY);
+            byte[] cur = Pointer.CursorFile(pixels, 96, hotX, hotY);
+            check("a 96-pixel arrow is 96 x 96, pointing from its tip", pixels.Length == 96 * 96 * 4 && hotX == 12 && hotY == 9);
+            check("its .cur file has the cursor header and hotspot", cur.Length == 6 + 16 + 40 + 96 * 96 * 4 + 12 * 96
+                && BitConverter.ToInt16(cur, 2) == 2 && BitConverter.ToInt16(cur, 10) == hotX && BitConverter.ToInt16(cur, 12) == hotY);
+
+            int before = Pointer.CurrentArrowSize();
+            Pointer.Apply("arrow", 96, "yellow");
+            int during = Pointer.CurrentArrowSize();
+            Pointer.Restore();
+            int after = Pointer.CurrentArrowSize();
+            check("Windows' arrow becomes the 96-pixel pointer (was " + before + "), then goes back (" + after + ")",
+                during == 96 && after == before);
+            report.AppendLine(ok ? "All passed" : "FAILED");
+            File.WriteAllText(Path.Combine(folder, "pointertest.txt"), report.ToString());
+            return ok ? 0 : 1;
+        }
+
+        static void DrawCell(DrawingContext dc, string style, int size, string color, Pointer.Kind kind, int col, int row, int cell, Action<string, bool> check)
+        {
+            int hx, hy;
+            byte[] px = Pointer.Render(style, size, color, kind, out hx, out hy);
+            bool visible = false;
+            for (int i = 3; i < px.Length && !visible; i += 4) visible = px[i] > 200;
+            if (!visible) check(style + " " + color + " " + kind + " draws something", false);
+            var image = BitmapSource.Create(size, size, 96, 96, PixelFormats.Bgra32, null, px, size * 4);
+            double x = col * cell * 2, y = row * cell;
+            dc.DrawRectangle(new SolidColorBrush(Color.FromRgb(0x0B, 0x0E, 0x14)), null, new Rect(x, y, cell, cell));
+            dc.DrawRectangle(new SolidColorBrush(Color.FromRgb(0xE4, 0xE6, 0xEA)), null, new Rect(x + cell, y, cell, cell));
+            dc.DrawImage(image, new Rect(x + (cell - size) / 2, y + (cell - size) / 2, size, size));
+            dc.DrawImage(image, new Rect(x + cell + (cell - size) / 2, y + (cell - size) / 2, size, size));
+            dc.DrawEllipse(Brushes.Red, null, new Point(x + (cell - size) / 2 + hx, y + (cell - size) / 2 + hy), 1.5, 1.5);   // the hotspot
+        }
+
+        /// <summary>
         /// CouchTV.exe --audiotest report.txt: plays a quiet tone for 2 seconds and listens like a phone would, over
         /// this PC's loopback, to check the sound arrives: packet format, timing and that it isn't silence.
         /// </summary>
@@ -424,22 +502,29 @@ namespace CouchTV
         /// <summary>The trackpad's pointer moves land on exactly the pixel asked for (nudges it, then puts it back).</summary>
         static void PointerTest(Action<string, bool> check)
         {
+            if (Input.PointerLocked())
+            {
+                check("trackpad: pointer precision not checked: an app (a game?) has locked the pointer", true);
+                return;
+            }
             int x0, y0;
             if (!Input.CursorPosition(out x0, out y0)) { check("trackpad: can't read the pointer's position", false); return; }
             int sx = x0 > 100 ? -1 : 1, sy = y0 > 100 ? -1 : 1;   // away from the screen's edge
             bool exact = true;
+            string path = x0 + "," + y0;
             for (int i = 1; i <= 5 && exact; i++)
             {
                 Input.MoveBy(sx, sy);
                 System.Threading.Thread.Sleep(15);
                 int x, y;
                 exact = Input.CursorPosition(out x, out y) && x == x0 + i * sx && y == y0 + i * sy;
+                path += " > " + x + "," + y;
             }
             Input.MoveBy(-5 * sx, -5 * sy);
             System.Threading.Thread.Sleep(15);
             int xb, yb;
             bool back = Input.CursorPosition(out xb, out yb) && xb == x0 && yb == y0;
-            check("trackpad: each 1-pixel nudge moves the pointer exactly 1 pixel, and back", exact && back);
+            check("trackpad: each 1-pixel nudge moves the pointer exactly 1 pixel, and back" + (exact && back ? "" : " (" + path + " > " + xb + "," + yb + ")"), exact && back);
         }
 
         /// <summary>The Wi-Fi remote end to end on this PC, as the phone does it: discover, connect, press, send words.</summary>
@@ -453,6 +538,7 @@ namespace CouchTV
             server.Move = (x, y) => { lock (pointer) pointer.Add("move " + x + " " + y); };
             server.Wheel = (d, h) => { lock (pointer) pointer.Add((h ? "hwheel " : "wheel ") + d); };
             server.MouseButton = (r, d) => { lock (pointer) pointer.Add((r ? "right " : "left ") + (d ? "down" : "up")); };
+            server.PointerLook += (st, sz, co) => { lock (pointer) pointer.Add("look " + st + " " + sz + " " + co); };
             server.Text += t => { lock (words) words.Add(t); };
             server.Start();
             try
@@ -491,6 +577,7 @@ namespace CouchTV
                     writer.WriteLine("MOUSE L D");
                     writer.WriteLine("MOVE 3 4");
                     writer.WriteLine("MOUSE X D");     // ignored
+                    writer.WriteLine("POINTER dot 96 yellow");
                     writer.WriteLine("PING");
                     reader.ReadLine();                 // everything before it has been handled
                 }
@@ -498,7 +585,7 @@ namespace CouchTV
                 lock (buttons) check("Wi-Fi: buttons arrive as the IR receiver's codes", string.Join(", ", buttons) == "NEC 00CE 0005 N, NEC 00CE 0006 R");
                 lock (words) check("Wi-Fi: words arrive whole, Hindi included", words.Count == 1 && words[0] == "पंचायत season 3");
                 lock (pointer) check("Wi-Fi: the trackpad moves, scrolls and drags; a phone that leaves mid-drag lets go",
-                    string.Join(", ", pointer) == "move 12 -7, wheel -240, hwheel 36, left down, move 3 4, left up");
+                    string.Join(", ", pointer) == "move 12 -7, wheel -240, hwheel 36, left down, move 3 4, look dot 96 yellow, left up");
             }
             catch (Exception ex) { check("Wi-Fi: " + ex.Message, false); }
             finally { server.Stop(); }

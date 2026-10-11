@@ -22,6 +22,8 @@ namespace CouchTV
                 if (remoteTest != null) return Diagnostics.RemoteTest(remoteTest);
                 string audioTest = Arg(args, "--audiotest");
                 if (audioTest != null) return Diagnostics.AudioTest(audioTest);
+                string pointerTest = Arg(args, "--pointertest");
+                if (pointerTest != null) return Diagnostics.PointerTest(pointerTest);
                 string searchTest = Arg(args, "--searchtest");
                 if (searchTest != null) return Diagnostics.SearchTest(args, searchTest);
                 string report = Arg(args, "--selftest");
@@ -40,6 +42,7 @@ namespace CouchTV
                 AppDomain.CurrentDomain.UnhandledException += (s, e) =>
                 {
                     Log.Error("Crash", e.ExceptionObject as Exception);
+                    try { Pointer.Restore(); } catch (Exception) { }
                     Shell.Rescue();
                 };
 

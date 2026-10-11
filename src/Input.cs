@@ -86,8 +86,21 @@ namespace CouchTV
             return ok;
         }
 
+        /// <summary>True while an app (a game, say) has locked the pointer to part of the screen.</summary>
+        public static bool PointerLocked()
+        {
+            RECT clip;
+            return GetClipCursor(out clip)
+                && (clip.Right - clip.Left < GetSystemMetrics(SM_CXVIRTUALSCREEN) || clip.Bottom - clip.Top < GetSystemMetrics(SM_CYVIRTUALSCREEN));
+        }
+
         [StructLayout(LayoutKind.Sequential)]
         struct POINT { public int X, Y; }
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct RECT { public int Left, Top, Right, Bottom; }
+
+        [DllImport("user32.dll")] static extern bool GetClipCursor(out RECT rect);
 
         [DllImport("user32.dll")] static extern bool GetCursorPos(out POINT point);
         [DllImport("user32.dll")] static extern int GetSystemMetrics(int index);

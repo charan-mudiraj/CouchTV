@@ -50,6 +50,8 @@ namespace CouchTV
         public string UpdateRepo = "charan-mudiraj/CouchTV", UpdateBranch = "main";
         public bool SmartSearch = true;                       // AI search, when a Gemini key is set
         public string AiModel = "gemini-flash-lite-latest";
+        public string PointerStyle = "arrow", PointerColor = "white";   // see Pointer.cs
+        public int PointerSize = Pointer.DefaultSize;
         public readonly List<string> Subscriptions = new List<string>();   // tile names you pay for; empty = don't filter
         public string Source;
 
@@ -167,6 +169,11 @@ namespace CouchTV
             UpdateBranch = Get(v, "UpdateBranch", UpdateBranch);
             SmartSearch = GetBool(v, "SmartSearch", true);
             AiModel = Get(v, "AiModel", AiModel);
+            PointerStyle = Get(v, "PointerStyle", PointerStyle);
+            PointerColor = Get(v, "PointerColor", PointerColor);
+            int pointerSize;
+            if (int.TryParse(Get(v, "PointerSize", ""), out pointerSize)) PointerSize = pointerSize;
+            Pointer.Normalise(ref PointerStyle, ref PointerSize, ref PointerColor);
             string subscriptions = Get(v, "Subscriptions", null);
             if (subscriptions != null)
             {

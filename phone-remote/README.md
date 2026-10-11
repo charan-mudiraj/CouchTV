@@ -24,7 +24,7 @@ The D-pad, trackpad and grids size themselves to the phone's screen. The keys lo
 - **Power**, which puts the TV to sleep and wakes it.
 - **App shortcuts:** Netflix, YouTube, Prime Video, JioHotstar, Web.
 - **The TV's sound on this phone:** the headphones button at the top (green while it plays).
-- **A trackpad** for sites that need a mouse, like a laptop's: slide to move the pointer (a quicker slide goes further), tap to click, tap twice and slide to drag; slide two fingers to scroll (a flick glides on) or tap with two to right-click. Over Wi-Fi it follows your finger exactly; over infrared the pointer moves in steps. Swipe to other pages from outside the pad.
+- **A trackpad** for sites that need a mouse, like a laptop's: slide to move the pointer (a quicker slide goes further), tap to click, tap twice and slide to drag; slide two fingers to scroll (a flick glides on) or tap with two to right-click. Over Wi-Fi it follows your finger exactly; over infrared the pointer moves in steps. Swipe to other pages from outside the pad. **Pointer** (top right of the page) changes how the TV's pointer looks: an arrow, a dot or a ring; Medium to Giant; white, yellow, blue, green or pink. The TV changes as you pick.
 - **My buttons:** add buttons with your own codes, then teach the TV what they do.
 
 All the codes match CouchTV's default `remote.ini`, so the app works with the TV as soon as the receiver is plugged in, with no setup.

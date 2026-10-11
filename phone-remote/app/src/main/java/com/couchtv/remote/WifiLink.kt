@@ -107,6 +107,16 @@ class WifiLink(context: Context) {
     /** The trackpad: scroll, 120 a mouse-wheel notch, up and right positive. */
     fun wheel(dy: Int, dx: Int) = send(if (dx == 0) "WHEEL $dy" else "WHEEL $dy $dx")
 
+    /** The TV pointer's look as the TV last said, e.g. "arrow 64 white"; null if it hasn't (an older CouchTV). */
+    @Volatile var pointerLook: String? = null
+        private set
+
+    /** Changes the TV pointer's look: style (arrow, dot, ring), size in pixels, colour. */
+    fun setPointer(style: String, size: Int, color: String) {
+        pointerLook = "$style $size $color"
+        send("POINTER $style $size $color")
+    }
+
     /** The trackpad: a mouse button down or up. */
     fun mouse(right: Boolean, down: Boolean) = send("MOUSE ${if (right) "R" else "L"} ${if (down) "D" else "U"}")
 
@@ -225,6 +235,8 @@ class WifiLink(context: Context) {
                 prefs.edit().putString("last_ip", tv.address.hostAddress).apply()
                 tvAddress = tv.address
                 setTv(line.removePrefix("WELCOME").trim().ifEmpty { tv.name })
+            } else if (line.startsWith("POINTER ")) {
+                pointerLook = line.removePrefix("POINTER ").trim()
             }
         }
     }

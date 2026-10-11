@@ -59,6 +59,12 @@
     <color name="tile_pressed_top">#A6A6A6</color>
     <color name="tile_pressed_bottom">#BCBCBC</color>
     <color name="tile_pressed_rim">#6E6E6E</color>
+    <!-- The TV pointer's colours (as CouchTV draws them, src/Pointer.cs). -->
+    <color name="pointer_white">#FFFFFF</color>
+    <color name="pointer_yellow">#FFD43B</color>
+    <color name="pointer_blue">#4D8BFF</color>
+    <color name="pointer_green">#3DDC84</color>
+    <color name="pointer_pink">#FF5FA2</color>
     <!-- The search bar, set into the remote. -->
     <color name="slot_top">#11151C</color>
     <color name="slot_bottom">#181D26</color>

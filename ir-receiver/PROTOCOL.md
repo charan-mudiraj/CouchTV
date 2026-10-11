@@ -115,6 +115,8 @@ The same remote also works over the home network, with no pointing, and on phone
 | `MOVE <dx> <dy>` | | the trackpad: move the pointer by that many pixels (up to ±2000); the phone does the acceleration, so CouchTV skips Windows' |
 | `WHEEL <dy> [<dx>]` | | the trackpad: scroll, 120 a mouse-wheel notch (smaller amounts scroll smoothly in browsers), up and right positive |
 | `MOUSE L\|R D\|U` | | the trackpad: left or right mouse button down or up; if the phone drops while holding one, CouchTV lets go of it |
+| `POINTER <style> <size> <colour>` | | the pointer's look: `arrow`, `dot` or `ring`; 32–128 pixels; `white`, `yellow`, `blue`, `green` or `pink`. CouchTV shows it at once and keeps it in couchtv.ini |
+| | `POINTER arrow 64 white` (after `WELCOME`) | the pointer's look now, so the phone can show it |
 
 Windows Firewall has to allow CouchTV in: the installer adds the rule *CouchTV phone remote* (CouchTV.exe, local network only). On a PC installed before Wi-Fi mode, CouchTV asks once and Windows shows its permission prompt; press F7 on the home screen to ask again. The code is `src/RemoteServer.cs` and `phone-remote/.../WifiLink.kt`.
 

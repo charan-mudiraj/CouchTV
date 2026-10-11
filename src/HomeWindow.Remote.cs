@@ -44,6 +44,32 @@ namespace CouchTV
 
         bool SetupOpen { get { return _setup != null && _setup.Visibility == Visibility.Visible; } }
 
+        /// <summary>CouchTV's big pointer, as couchtv.ini says (not in the small test window).</summary>
+        void ApplyPointer()
+        {
+            if (!_opt.Windowed) Pointer.Apply(_cfg.PointerStyle, _cfg.PointerSize, _cfg.PointerColor);
+        }
+
+        /// <summary>The phone remote chose a pointer: show it now, and keep it in couchtv.ini.</summary>
+        void ChangePointer(string style, int size, string color)
+        {
+            Pointer.Normalise(ref style, ref size, ref color);
+            _cfg.PointerStyle = style;
+            _cfg.PointerSize = size;
+            _cfg.PointerColor = color;
+            ApplyPointer();
+            string path = System.IO.Path.Combine(Config.AppDir, Config.FileName);
+            try
+            {
+                string text = System.IO.File.ReadAllText(path);
+                string updated = ConfigUpgrade.Set(text, "CouchTV", "PointerStyle", style, true);
+                updated = ConfigUpgrade.Set(updated, "CouchTV", "PointerSize", size.ToString(), true);
+                updated = ConfigUpgrade.Set(updated, "CouchTV", "PointerColor", color, true);
+                if (updated != text) System.IO.File.WriteAllText(path, updated, new System.Text.UTF8Encoding(false));
+            }
+            catch (Exception ex) { Log.Error("Saving the pointer to " + path, ex); }
+        }
+
         void StartRemote()
         {
             _remote = RemoteMap.Load();
@@ -57,7 +83,10 @@ namespace CouchTV
             _wifi.Button += OnIrSignal;
             _wifi.Text += ReceiveSearchText;
             _wifi.Connected += who => { if (IsActive && !SearchOpen) Toast("Phone remote connected over Wi-Fi"); };
+            _wifi.CurrentPointer = () => _cfg.PointerStyle + " " + _cfg.PointerSize + " " + _cfg.PointerColor;
+            _wifi.PointerLook += ChangePointer;
             _wifi.Start();
+            ApplyPointer();
 
             // The TV's sound on phones too, each into its own headphones ("Listen on this phone" in the remote app).
             _sound = new AudioShare();

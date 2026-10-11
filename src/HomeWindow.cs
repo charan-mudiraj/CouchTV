@@ -886,6 +886,7 @@ namespace CouchTV
         void Reload()
         {
             _cfg = Config.Load();
+            if (_wifi != null) ApplyPointer();
             _keys = null;            // keys.ini may have been edited too
             _planCache.Clear();
             if (_ir != null)
@@ -1355,6 +1356,7 @@ namespace CouchTV
             if (_ir != null) _ir.Stop();
             if (_wifi != null) _wifi.Stop();
             if (_sound != null) _sound.Stop();
+            Pointer.Restore();
             Mouse.OverrideCursor = null;
             base.OnClosed(e);
         }
