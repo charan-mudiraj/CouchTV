@@ -268,6 +268,7 @@ namespace CouchTV
             check("YouTube: a page without results gives nothing", SmartSearch.ParseYouTube("<html>consent</html>") == null);
 
             WifiRemoteTest(check);
+            PointerTest(check);
 
             // Made-up keys, built here so GitHub's secret scanning doesn't mistake the source for a real one.
             string oldStyle = "AI" + "za" + new string('x', 35), newStyle = "AQ" + "." + new string('x', 25) + "_" + new string('y', 24);
@@ -420,13 +421,38 @@ namespace CouchTV
             return wav;
         }
 
+        /// <summary>The trackpad's pointer moves land on exactly the pixel asked for (nudges it, then puts it back).</summary>
+        static void PointerTest(Action<string, bool> check)
+        {
+            int x0, y0;
+            if (!Input.CursorPosition(out x0, out y0)) { check("trackpad: can't read the pointer's position", false); return; }
+            int sx = x0 > 100 ? -1 : 1, sy = y0 > 100 ? -1 : 1;   // away from the screen's edge
+            bool exact = true;
+            for (int i = 1; i <= 5 && exact; i++)
+            {
+                Input.MoveBy(sx, sy);
+                System.Threading.Thread.Sleep(15);
+                int x, y;
+                exact = Input.CursorPosition(out x, out y) && x == x0 + i * sx && y == y0 + i * sy;
+            }
+            Input.MoveBy(-5 * sx, -5 * sy);
+            System.Threading.Thread.Sleep(15);
+            int xb, yb;
+            bool back = Input.CursorPosition(out xb, out yb) && xb == x0 && yb == y0;
+            check("trackpad: each 1-pixel nudge moves the pointer exactly 1 pixel, and back", exact && back);
+        }
+
         /// <summary>The Wi-Fi remote end to end on this PC, as the phone does it: discover, connect, press, send words.</summary>
         static void WifiRemoteTest(Action<string, bool> check)
         {
             var buttons = new List<string>();
             var words = new List<string>();
+            var pointer = new List<string>();
             var server = new RemoteServer(null, 47790, 47791, System.Net.IPAddress.Loopback);
             server.Button += s => { lock (buttons) buttons.Add(s.Code + (s.IsRepeat ? " R" : " N")); };
+            server.Move = (x, y) => { lock (pointer) pointer.Add("move " + x + " " + y); };
+            server.Wheel = (d, h) => { lock (pointer) pointer.Add((h ? "hwheel " : "wheel ") + d); };
+            server.MouseButton = (r, d) => { lock (pointer) pointer.Add((r ? "right " : "left ") + (d ? "down" : "up")); };
             server.Text += t => { lock (words) words.Add(t); };
             server.Start();
             try
@@ -459,11 +485,20 @@ namespace CouchTV
                     writer.WriteLine("BTN CE 06 R");
                     writer.WriteLine("BTN ZZ 06 N");   // ignored
                     writer.WriteLine("TEXT " + Convert.ToBase64String(Encoding.UTF8.GetBytes("पंचायत season 3")));
+                    writer.WriteLine("MOVE 12 -7");
+                    writer.WriteLine("MOVE 99999 0");   // ignored: far too big
+                    writer.WriteLine("WHEEL -240 36");
+                    writer.WriteLine("MOUSE L D");
+                    writer.WriteLine("MOVE 3 4");
+                    writer.WriteLine("MOUSE X D");     // ignored
                     writer.WriteLine("PING");
                     reader.ReadLine();                 // everything before it has been handled
                 }
+                System.Threading.Thread.Sleep(300);    // the server notices the phone left
                 lock (buttons) check("Wi-Fi: buttons arrive as the IR receiver's codes", string.Join(", ", buttons) == "NEC 00CE 0005 N, NEC 00CE 0006 R");
                 lock (words) check("Wi-Fi: words arrive whole, Hindi included", words.Count == 1 && words[0] == "पंचायत season 3");
+                lock (pointer) check("Wi-Fi: the trackpad moves, scrolls and drags; a phone that leaves mid-drag lets go",
+                    string.Join(", ", pointer) == "move 12 -7, wheel -240, hwheel 36, left down, move 3 4, left up");
             }
             catch (Exception ex) { check("Wi-Fi: " + ex.Message, false); }
             finally { server.Stop(); }

@@ -112,6 +112,9 @@ The same remote also works over the home network, with no pointing, and on phone
 | `PING` (every second) | `PONG` | keeps it alive; either side drops the link after 3–5 s without one |
 | `BTN CE 05 N`, then `BTN CE 05 R` every 108 ms while held | | a button: address and command in hex, like an NEC frame; CouchTV treats it exactly like the receiver's `NEC 00CE 0005` |
 | `TEXT <base64 of UTF-8>` | | words for search, all at once (no frames or CRC needed) |
+| `MOVE <dx> <dy>` | | the trackpad: move the pointer by that many pixels (up to ±2000); the phone does the acceleration, so CouchTV skips Windows' |
+| `WHEEL <dy> [<dx>]` | | the trackpad: scroll, 120 a mouse-wheel notch (smaller amounts scroll smoothly in browsers), up and right positive |
+| `MOUSE L\|R D\|U` | | the trackpad: left or right mouse button down or up; if the phone drops while holding one, CouchTV lets go of it |
 
 Windows Firewall has to allow CouchTV in: the installer adds the rule *CouchTV phone remote* (CouchTV.exe, local network only). On a PC installed before Wi-Fi mode, CouchTV asks once and Windows shows its permission prompt; press F7 on the home screen to ask again. The code is `src/RemoteServer.cs` and `phone-remote/.../WifiLink.kt`.
 

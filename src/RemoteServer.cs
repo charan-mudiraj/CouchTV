@@ -19,6 +19,9 @@ namespace CouchTV
     ///     PING                     →  PONG          (every second, so both sides notice a dead link quickly)
     ///     BTN &lt;address&gt; &lt;command&gt; N|R   a button, exactly like the IR receiver's "NEC 00CE 00xx" codes
     ///     TEXT &lt;base64 UTF-8&gt;       words for search (voice search)
+    ///     MOVE &lt;dx&gt; &lt;dy&gt;            the phone's trackpad: move the pointer by that many pixels
+    ///     WHEEL &lt;dy&gt; [&lt;dx&gt;]         scroll (120 = a mouse wheel notch; up/right when positive)
+    ///     MOUSE L|R D|U             a mouse button down or up (a phone that drops lets go of what it held)
     /// Buttons go through the same remote.ini mapping as infrared ones, so both remotes behave the same.
     /// </summary>
     internal sealed class RemoteServer
@@ -29,6 +32,12 @@ namespace CouchTV
         public event Action<IrSignal> Button;      // raised on the UI thread
         public event Action<string> Text;          // raised on the UI thread
         public event Action<string> Connected;     // a phone connected (its address), on the UI thread
+
+        // What the trackpad lines do, straight from the network thread for the least delay. The self-test swaps
+        // these to watch rather than move the real pointer.
+        internal Action<int, int> Move = Input.MoveBy;
+        internal Action<int, bool> Wheel = Input.WheelBy;           // delta, horizontal
+        internal Action<bool, bool> MouseButton = Input.Button;     // right, down
 
         readonly Dispatcher _ui;
         readonly int _discoveryPort, _controlPort;
@@ -138,6 +147,7 @@ namespace CouchTV
         void Serve(TcpClient client)
         {
             string who = "?";
+            var held = new bool[2];   // the left and right mouse buttons this phone holds down
             try
             {
                 who = ((IPEndPoint)client.Client.RemoteEndPoint).Address.ToString();
@@ -151,7 +161,7 @@ namespace CouchTV
                     string line;
                     while (!_stop && (line = reader.ReadLine()) != null)
                     {
-                        string reply = Handle(line.Trim(), who);
+                        string reply = Handle(line.Trim(), who, held);
                         if (reply != null) writer.WriteLine(reply);
                     }
                 }
@@ -162,13 +172,16 @@ namespace CouchTV
             {
                 Interlocked.Decrement(ref _clients);
                 client.Close();
+                // A phone that went away mid-drag mustn't leave a mouse button stuck down.
+                for (int i = 0; i < held.Length; i++) if (held[i]) MouseButton(i == 1, false);
             }
         }
 
-        /// <summary>One line from a phone; returns the answer, if any.</summary>
-        internal string Handle(string line, string who)
+        /// <summary>One line from a phone; returns the answer, if any. held: the mouse buttons it holds down.</summary>
+        internal string Handle(string line, string who, bool[] held = null)
         {
             string[] parts = line.Split(' ');
+            int dx, dy;
             switch (parts[0])
             {
                 case "HELLO":
@@ -196,9 +209,30 @@ namespace CouchTV
                         catch (FormatException) { }
                     }
                     return null;
+                case "MOVE":
+                    if (parts.Length >= 3 && TryInt(parts[1], 2000, out dx) && TryInt(parts[2], 2000, out dy)) Move(dx, dy);
+                    return null;
+                case "WHEEL":
+                    if (parts.Length >= 2 && TryInt(parts[1], 2400, out dy) && dy != 0) Wheel(dy, false);
+                    if (parts.Length >= 3 && TryInt(parts[2], 2400, out dx) && dx != 0) Wheel(dx, true);
+                    return null;
+                case "MOUSE":
+                    if (parts.Length >= 3 && (parts[1] == "L" || parts[1] == "R") && (parts[2] == "D" || parts[2] == "U"))
+                    {
+                        bool right = parts[1] == "R", down = parts[2] == "D";
+                        if (held != null) held[right ? 1 : 0] = down;
+                        MouseButton(right, down);
+                    }
+                    return null;
                 default:
                     return null;
             }
+        }
+
+        static bool TryInt(string s, int most, out int value)
+        {
+            return int.TryParse(s, System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture, out value)
+                && value >= -most && value <= most;
         }
 
         static bool TryHex(string s, out int value)

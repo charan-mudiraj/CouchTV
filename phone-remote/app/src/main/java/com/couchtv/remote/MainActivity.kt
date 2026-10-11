@@ -72,10 +72,15 @@ class MainActivity : Activity() {
 
         findViewById<DpadView>(R.id.dpad).listener = dpadListener(
             Codes.UP, Codes.DOWN, Codes.LEFT, Codes.RIGHT, Codes.OK)
-        findViewById<DpadView>(R.id.pointer).apply {
-            centerLabel = getString(R.string.click)
-            listener = dpadListener(Codes.POINTER_UP, Codes.POINTER_DOWN, Codes.POINTER_LEFT, Codes.POINTER_RIGHT, Codes.CLICK)
+        findViewById<TrackpadView>(R.id.trackpad).listener = object : TrackpadView.Listener {
+            override fun onMove(dx: Int, dy: Int) = remote.pointerMove(dx, dy)
+            override fun onWheel(dy: Int, dx: Int) = remote.pointerWheel(dy, dx)
+            override fun onButton(right: Boolean, down: Boolean) = remote.pointerButton(right, down)
+            override fun onStop() = remote.pointerStop()
         }
+        // The trackpad's buttons, held down for as long as the finger is (to drag with another finger on the pad).
+        bindHold(findViewById<View>(R.id.left_click), { remote.pointerButton(false, true) }, { remote.pointerButton(false, false) })
+        bindHold(findViewById<View>(R.id.right_click), { remote.pointerButton(true, true) }, { remote.pointerButton(true, false) })
 
         mapOf(
             R.id.power to Codes.POWER,
@@ -90,15 +95,12 @@ class MainActivity : Activity() {
             R.id.full_screen to Codes.FULL_SCREEN,
             R.id.sleep_timer to Codes.SLEEP_TIMER,
             R.id.delete to Codes.DELETE,
-            R.id.scroll_up to Codes.SCROLL_UP,
-            R.id.right_click to Codes.RIGHT_CLICK,
-            R.id.scroll_down to Codes.SCROLL_DOWN,
             R.id.app_netflix to Codes.NETFLIX,
             R.id.app_youtube to Codes.YOUTUBE,
             R.id.app_prime to Codes.PRIME_VIDEO,
             R.id.app_hotstar to Codes.JIOHOTSTAR,
             R.id.app_web to Codes.WEB,
-        ).forEach { (id, command) -> bindHold(findViewById(id), Codes.ADDRESS, command) }
+        ).forEach { (id, command) -> bindHold(findViewById<View>(id), Codes.ADDRESS, command) }
 
         findViewById<TextView>(R.id.edit_buttons).setOnClickListener {
             editing = !editing
@@ -343,6 +345,8 @@ class MainActivity : Activity() {
             else -> getString(R.string.ready)
         }
         status.setOnClickListener { editTvAddress() }
+        findViewById<TrackpadView>(R.id.trackpad).hint =
+            if (tv == null && !remote.ir.available) getString(R.string.trackpad_offline) else null
     }
 
     /** The TV's address on the Wi-Fi (reserved for it in the router), or empty to find it automatically. */
@@ -407,14 +411,14 @@ class MainActivity : Activity() {
     }
 
     /** Sends while the finger is down, like holding a button on a real remote; a swipe turns the page instead. */
-    @SuppressLint("ClickableViewAccessibility")
     private fun bindHold(view: View, address: Int, command: Int) {
         var pressId = 0
-        val gesture = PressGesture(
-            view,
-            onPress = { pressId = remote.press(address, command) },
-            onRelease = { remote.release(pressId) },
-        )
+        bindHold(view, { pressId = remote.press(address, command) }, { remote.release(pressId) })
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun bindHold(view: View, onPress: () -> Unit, onRelease: () -> Unit) {
+        val gesture = PressGesture(view, onPress, onRelease)
         view.setOnTouchListener { v, event ->
             val handled = gesture.onTouch(event)
             if (event.actionMasked == MotionEvent.ACTION_UP) v.performClick()

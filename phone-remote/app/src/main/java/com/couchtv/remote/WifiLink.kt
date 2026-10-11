@@ -101,6 +101,15 @@ class WifiLink(context: Context) {
     }
 
     /** Words for search. */
+    /** The trackpad: move the TV's pointer by pixels. */
+    fun move(dx: Int, dy: Int) = send("MOVE $dx $dy")
+
+    /** The trackpad: scroll, 120 a mouse-wheel notch, up and right positive. */
+    fun wheel(dy: Int, dx: Int) = send(if (dx == 0) "WHEEL $dy" else "WHEEL $dy $dx")
+
+    /** The trackpad: a mouse button down or up. */
+    fun mouse(right: Boolean, down: Boolean) = send("MOUSE ${if (right) "R" else "L"} ${if (down) "D" else "U"}")
+
     fun text(words: String) {
         send("TEXT " + Base64.encodeToString(words.toByteArray(Charsets.UTF_8), Base64.NO_WRAP))
     }

@@ -69,14 +69,13 @@
     <string name="key_sleep_timer">Sleep timer</string>
     <string name="key_delete">Delete</string>
 
-    <string name="pointer">Pointer</string>
-    <string name="pointer_help">Hold an arrow to move the pointer; the middle clicks.</string>
+    <string name="trackpad">Trackpad</string>
+    <string name="trackpad_help">Slide to move, tap to click, tap twice and slide to drag. Two fingers: slide to scroll, tap to right-click.</string>
+    <string name="trackpad_offline">Connect to the TV over Wi-Fi first</string>
+    <string name="left_click">Left click</string>
     <string name="tv_keys">TV</string>
     <string name="page_of">Page %1$d of %2$d</string>
-    <string name="click">Click</string>
-    <string name="scroll_up">Scroll up</string>
     <string name="right_click">Right click</string>
-    <string name="scroll_down">Scroll down</string>
 
     <string name="my_buttons">My buttons</string>
     <string name="my_buttons_empty">Add buttons that send your own codes, then teach them to the TV.</string>

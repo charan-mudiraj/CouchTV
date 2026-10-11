@@ -13,6 +13,8 @@ namespace CouchTV
         const uint KEYEVENTF_EXTENDEDKEY = 0x1, KEYEVENTF_KEYUP = 0x2;
         const uint MOUSEEVENTF_MOVE = 0x1, MOUSEEVENTF_LEFTDOWN = 0x2, MOUSEEVENTF_LEFTUP = 0x4;
         const uint MOUSEEVENTF_RIGHTDOWN = 0x8, MOUSEEVENTF_RIGHTUP = 0x10, MOUSEEVENTF_WHEEL = 0x800;
+        const uint MOUSEEVENTF_HWHEEL = 0x1000, MOUSEEVENTF_VIRTUALDESK = 0x4000, MOUSEEVENTF_ABSOLUTE = 0x8000;
+        const int SM_XVIRTUALSCREEN = 76, SM_YVIRTUALSCREEN = 77, SM_CXVIRTUALSCREEN = 78, SM_CYVIRTUALSCREEN = 79;
 
         public static void Key(uint vk) { Combo(0, vk); }
 
@@ -39,6 +41,56 @@ namespace CouchTV
         }
 
         public static void Wheel(int notches) { Send(MouseEvent(MOUSEEVENTF_WHEEL, 0, 0, notches * 120)); }
+
+        // ---------------------------------------------------------------- the phone's trackpad
+
+        /// <summary>
+        /// Moves the pointer by exactly (dx, dy) pixels, skipping Windows' mouse acceleration: the phone's trackpad
+        /// has its own. Sent as an absolute position, as Windows' normalised 0–65535 across all screens.
+        /// </summary>
+        public static void MoveBy(int dx, int dy)
+        {
+            POINT p;
+            if (!GetCursorPos(out p)) return;
+            int left = GetSystemMetrics(SM_XVIRTUALSCREEN), top = GetSystemMetrics(SM_YVIRTUALSCREEN);
+            int width = GetSystemMetrics(SM_CXVIRTUALSCREEN), height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+            if (width < 2 || height < 2) return;
+            int x = Math.Max(0, Math.Min(width - 1, p.X + dx - left));
+            int y = Math.Max(0, Math.Min(height - 1, p.Y + dy - top));
+            // Windows turns n back into the pixel n * size / 65536, rounded down: the smallest n that lands on x.
+            int nx = (int)Math.Min(65535, ((long)x * 65536 + width - 1) / width);
+            int ny = (int)Math.Min(65535, ((long)y * 65536 + height - 1) / height);
+            Send(MouseEvent(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK, nx, ny, 0));
+        }
+
+        /// <summary>A mouse button down or up (a click is both; holding it between drags).</summary>
+        public static void Button(bool right, bool down)
+        {
+            uint flags = right ? (down ? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_RIGHTUP) : (down ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP);
+            Send(MouseEvent(flags, 0, 0, 0));
+        }
+
+        /// <summary>Scrolls by delta (120 is one notch of a mouse wheel; less scrolls smoothly in browsers): up/right when positive.</summary>
+        public static void WheelBy(int delta, bool horizontal)
+        {
+            Send(MouseEvent(horizontal ? MOUSEEVENTF_HWHEEL : MOUSEEVENTF_WHEEL, 0, 0, delta));
+        }
+
+        /// <summary>Where the pointer is, in screen pixels.</summary>
+        public static bool CursorPosition(out int x, out int y)
+        {
+            POINT p;
+            bool ok = GetCursorPos(out p);
+            x = p.X;
+            y = p.Y;
+            return ok;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct POINT { public int X, Y; }
+
+        [DllImport("user32.dll")] static extern bool GetCursorPos(out POINT point);
+        [DllImport("user32.dll")] static extern int GetSystemMetrics(int index);
 
         static INPUT KeyEvent(uint vk, bool up)
         {
