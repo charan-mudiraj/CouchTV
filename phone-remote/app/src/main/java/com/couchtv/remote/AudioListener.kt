@@ -2,7 +2,9 @@ package com.couchtv.remote
 
 import android.content.Context
 import android.media.AudioAttributes
+import android.media.AudioDeviceInfo
 import android.media.AudioFormat
+import android.media.AudioManager
 import android.media.AudioTrack
 import android.net.ConnectivityManager
 import android.net.Network
@@ -29,7 +31,10 @@ import java.util.concurrent.TimeUnit
  * takes sound in big irregular gulps and shares the phone's radio with the Wi-Fi. If sound still runs out, the
  * cushion grows (up to 300 ms). The TV's and the phone's clocks differ very slightly, so the sound plays a hair
  * faster or slower to keep pace (Resampler), and sound lost along with its repair copy is filled in (Concealer).
- * Bluetooth headphones add their own delay, which no app can remove.
+ *
+ * The sound goes to wired earphones (or USB, or line out) when they're plugged in, else the phone's speaker: never
+ * Bluetooth, even if Bluetooth headphones are connected (BluetoothGuard also keeps Bluetooth off). The Bluetooth
+ * cushion stays for phones that ignore that.
  */
 class AudioListener(context: Context, private val tvHost: String) {
     companion object {
@@ -41,12 +46,21 @@ class AudioListener(context: Context, private val tvHost: String) {
         private const val MOST_MS = 300
         private const val EASING = 7200.0   // frames owed / this = how much faster or slower (0.15 s to settle)
         private const val MOST_SPEED = 0.006   // 0.6%: a little over one frame per chunk
+
+        /** Where the sound goes, first one present wins. */
+        private val OUTPUTS = intArrayOf(
+            AudioDeviceInfo.TYPE_WIRED_HEADPHONES, AudioDeviceInfo.TYPE_WIRED_HEADSET,
+            AudioDeviceInfo.TYPE_USB_HEADSET, AudioDeviceInfo.TYPE_USB_DEVICE, AudioDeviceInfo.TYPE_LINE_ANALOG,
+            AudioDeviceInfo.TYPE_BUILTIN_SPEAKER,
+        )
     }
 
     /** [samples] is null for a chunk lost on the Wi-Fi, to be made up ([frames] long). */
     private class Chunk(val rate: Int, val samples: ByteArray?, val frames: Int = (samples?.size ?: 0) / 4)
 
     private val connectivity = context.applicationContext.getSystemService(ConnectivityManager::class.java)
+    private val audio = context.applicationContext.getSystemService(AudioManager::class.java)
+    private var routedTo: Int? = null   // the output the sound was last pointed at (playing thread only)
     private val queue = LinkedBlockingQueue<Chunk>()
     @Volatile private var running = false
     @Volatile private var socket: DatagramSocket? = null
@@ -161,6 +175,8 @@ class AudioListener(context: Context, private val tvHost: String) {
                     track?.release()
                     rate = chunk.rate
                     val created = makeTrack(rate)
+                    routedTo = null
+                    route(created)
                     bluetooth = isBluetooth(created)
                     setCushion(created, if (bluetooth) BLUETOOTH_MS else SPEAKER_MS, rate)
                     created.play()
@@ -175,6 +191,7 @@ class AudioListener(context: Context, private val tvHost: String) {
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastCheck >= 1000) {
                     lastCheck = now
+                    route(t)   // earphones plugged in or out
                     // Headphones connected or disconnected meanwhile: start again from that kind's cushion.
                     val bt = isBluetooth(t)
                     if (bt != bluetooth) {
@@ -221,6 +238,18 @@ class AudioListener(context: Context, private val tvHost: String) {
     private fun setCushion(track: AudioTrack, ms: Int, rate: Int) {
         cushionMs = ms.coerceIn(SPEAKER_MS, MOST_MS)
         track.setBufferSizeInFrames(cushionMs * rate / 1000)
+    }
+
+    /** Points the sound at the first of [OUTPUTS] present, when that changes: never at Bluetooth. */
+    private fun route(track: AudioTrack) {
+        val outputs = audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+        var best: AudioDeviceInfo? = null
+        for (type in OUTPUTS) {
+            best = outputs.firstOrNull { it.type == type }
+            if (best != null) break
+        }
+        if (best == null || best.id == routedTo) return
+        if (track.setPreferredDevice(best)) routedTo = best.id
     }
 
     /** Bluetooth headphones and speakers (classic, LE Audio and hearing aids). */

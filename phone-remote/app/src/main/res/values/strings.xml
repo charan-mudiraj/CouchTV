@@ -15,6 +15,13 @@
     <string name="listen_notification_text">In this phone\'s headphones. Tap Stop to end.</string>
     <string name="stop">Stop</string>
     <string name="listen_stats">Cushion %1$d ms · lost %2$d (repaired %3$d) · gaps %4$d · smoothed %5$d</string>
+    <string name="bluetooth_off_title">Turn off Bluetooth?</string>
+    <string name="bluetooth_off_message">The TV\'s sound plays at its best on wired earphones or this phone\'s speaker, and Bluetooth slows down the Wi-Fi it comes over. So CouchTV Remote keeps Bluetooth off while you use it.\n\nTo do that, it needs “Nearby devices”: allow it on the next screen.</string>
+    <string name="turn_off">Turn off</string>
+    <string name="not_now">Not now</string>
+    <string name="bluetooth_switched_off">Bluetooth is off while CouchTV Remote is in use, for the best sound</string>
+    <string name="bluetooth_still_on">Bluetooth is still on. Turn it off for the best TV sound.</string>
+    <string name="bluetooth_turn_off_here">Turn Bluetooth off here for the best TV sound</string>
     <string name="tv_address_title">TV address</string>
     <string name="tv_address_hint">e.g. 192.168.0.13</string>
     <string name="tv_address_help">The TV PC\'s IP address on your Wi-Fi. The TV shows it under Settings &amp; power &gt; Remote. If it doesn\'t answer, the app searches the network instead.</string>

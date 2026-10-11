@@ -16,9 +16,16 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- Bluetooth stays off while the app is in use: the TV's sound plays on wired earphones or the speaker, and the
+         Wi-Fi has the 2.4 GHz radio to itself. Switching it off takes BLUETOOTH_ADMIN up to Android 11, then
+         "Nearby devices" (BLUETOOTH_CONNECT), which Android 13+ also wants for its "turn off Bluetooth?" question. -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <!-- Not required: phones without an IR blaster use Wi-Fi. -->
     <uses-feature android:name="android.hardware.consumerir" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
 
     <!-- Android 11+ only lets the app see the speech recognizer and Google's voice screen when it asks for them. -->
     <queries>

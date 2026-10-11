@@ -24,6 +24,12 @@ import java.util.concurrent.Executors
 
 /** The remote: D-pad, TV buttons, app shortcuts, a pointer pad, and buttons you add yourself. */
 class MainActivity : Activity() {
+    companion object {
+        private const val REQUEST_BLUETOOTH = 44       // the "Nearby devices" permission, to switch Bluetooth off
+        private const val REQUEST_BLUETOOTH_OFF = 45   // Android's "turn off Bluetooth?" question
+        private const val ACTION_REQUEST_DISABLE = "android.bluetooth.adapter.action.REQUEST_DISABLE"
+    }
+
     private lateinit var remote: Remote
     private lateinit var voice: VoiceSearch
     private lateinit var store: CustomButtons
@@ -143,25 +149,70 @@ class MainActivity : Activity() {
         super.onPause()
     }
 
-    // Over Wi-Fi the app finds the TV by itself each time it's opened, and lets go when it's put away.
+    // Over Wi-Fi the app finds the TV by itself each time it's opened, and lets go when it's put away. Bluetooth stays
+    // off meanwhile (BluetoothGuard).
     override fun onStart() {
         super.onStart()
         remote.wifi.start()
+        BluetoothGuard.askUser = { askToTurnOffBluetooth() }
+        BluetoothGuard.hold(this, "screen")
     }
 
     override fun onStop() {
         remote.wifi.stop()
+        BluetoothGuard.askUser = null
+        BluetoothGuard.release("screen")
         super.onStop()
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == VoiceSearch.REQUEST_MIC) voice.onPermissionResult(grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED)
+        val granted = grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED
+        when (requestCode) {
+            VoiceSearch.REQUEST_MIC -> voice.onPermissionResult(granted)
+            REQUEST_BLUETOOTH -> if (granted) askAndroidToTurnOffBluetooth() else openBluetoothSettings()
+        }
     }
 
-    /** Google's voice screen (the fallback for voice search) answers here. */
+    /** Google's voice screen (the fallback for voice search) and Android's Bluetooth question answer here. */
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == REQUEST_BLUETOOTH_OFF) {
+            if (BluetoothGuard.isOn(this) && resultCode != RESULT_OK) toast(getString(R.string.bluetooth_still_on))
+            return
+        }
         if (!voice.onActivityResult(requestCode, resultCode, data)) super.onActivityResult(requestCode, resultCode, data)
+    }
+
+    // ---------------------------------------------------------------- Bluetooth off
+
+    /** Bluetooth is on and this phone wants the user's OK before the app switches it off. */
+    private fun askToTurnOffBluetooth() {
+        if (BluetoothGuard.needsPermission(this)) {
+            AlertDialog.Builder(this)
+                .setTitle(R.string.bluetooth_off_title)
+                .setMessage(R.string.bluetooth_off_message)
+                .setPositiveButton(R.string.turn_off) { _, _ ->
+                    requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), REQUEST_BLUETOOTH)
+                }
+                .setNegativeButton(R.string.not_now, null)
+                .show()
+        } else askAndroidToTurnOffBluetooth()
+    }
+
+    /** Switches Bluetooth off (Android 12 and older), or shows Android's own question (13 and newer). */
+    private fun askAndroidToTurnOffBluetooth() {
+        if (BluetoothGuard.switchOff(this)) return
+        try {
+            startActivityForResult(Intent(ACTION_REQUEST_DISABLE), REQUEST_BLUETOOTH_OFF)
+        } catch (e: Exception) {   // a phone without that question, or no permission
+            openBluetoothSettings()
+        }
+    }
+
+    private fun openBluetoothSettings() {
+        if (!BluetoothGuard.isOn(this)) return
+        toast(getString(R.string.bluetooth_turn_off_here))
+        runCatching { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
     }
 
     override fun onResume() {

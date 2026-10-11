@@ -70,7 +70,9 @@ The project has no third-party libraries, only the Android framework, so there's
 
 ## Listen on this phone
 
-Tap **Listen on this phone** (under the search bar) to hear the TV's sound in this phone's headphones, over Wi-Fi. Several phones can listen at once, each with its own headphones and volume (the phone's volume buttons). It keeps playing with the screen off; tap the button again, or **Stop** in the notification, to end. Wired earphones give the best lip sync (about 0.1 s); Bluetooth headphones add 0.1–0.25 s.
+Tap **Listen on this phone** (under the search bar) to hear the TV's sound in this phone's headphones, over Wi-Fi. Several phones can listen at once, each with its own headphones and volume (the phone's volume buttons). It keeps playing with the screen off; tap the button again, or **Stop** in the notification, to end. Lip sync is about 0.1 s.
+
+The sound plays on wired earphones (or USB, or line out) when they're plugged in, else the phone's speaker, never on Bluetooth: that's where it sounds best, and Bluetooth shares the phone's 2.4 GHz radio with the Wi-Fi the sound comes over. So the app also keeps Bluetooth **off** while it's in use (on screen, or playing the TV's sound), and switches it off again if it's turned on. On Android 12 and older it does that by itself (Android 12 asks for *Nearby devices* once). Android 13 and newer don't let apps switch Bluetooth off, so there the app shows Android's own *Turn off Bluetooth?* question each time it finds Bluetooth on, unless the app is the phone's device owner (the dedicated-remote setup), which can switch it off by itself.
 
 ## Voice search
 
@@ -92,6 +94,8 @@ Each button sends an NEC frame (38 kHz, address `0xCE`), then a "still held" fra
 | `WifiLink.kt` | Finds the TV on the Wi-Fi and keeps a connection to it |
 | `Remote.kt` | Sends each press over Wi-Fi when connected, otherwise by infrared |
 | `AudioListener.kt`, `ListenService.kt` | *Listen on this phone*: plays the TV's sound here, with the screen off too |
+| `Resampler.kt`, `Concealer.kt` | Keeping pace with the TV's clock inaudibly, and filling in sound lost on the Wi-Fi |
+| `BluetoothGuard.kt` | Keeps Bluetooth off while the app is in use |
 | `VoiceSearch.kt` | Listens, turns speech into text, and sends it; typing too |
 | `Codes.kt` | The button codes |
 | `DpadView.kt` | The round D-pad |

@@ -18,6 +18,7 @@ import android.os.IBinder
 /**
  * Keeps the TV's sound playing on this phone with the screen off or the app closed, until Stop (here, or in the
  * notification). Holds the Wi-Fi in its fastest mode meanwhile: phones' Wi-Fi power saving can add 100 ms or more.
+ * Bluetooth stays off too (BluetoothGuard).
  */
 class ListenService : Service() {
     companion object {
@@ -61,6 +62,7 @@ class ListenService : Service() {
         }
         showNotification()
         if (listener == null) {
+            BluetoothGuard.hold(this, "sound")
             holdWifi()
             listener = AudioListener(this, tv).also { it.start() }
             main.postDelayed(refresh, 3000)
@@ -76,6 +78,7 @@ class ListenService : Service() {
         listener = null
         for (lock in locks) if (lock.isHeld) lock.release()
         locks.clear()
+        BluetoothGuard.release("sound")
         running = false
         onChange?.invoke()
         super.onDestroy()
