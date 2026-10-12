@@ -481,7 +481,7 @@ namespace CouchTV
         {
             switch (o.Action)
             {
-                case "sleep": Shell.Sleep(); break;
+                case "sleep": SleepNow(); break;
                 case "home": GoHome(); break;
                 case "mute": ChangeVolume(0, true); break;
                 case "volume":

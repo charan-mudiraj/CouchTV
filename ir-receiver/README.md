@@ -76,7 +76,7 @@ The CouchTV phone remote needs no setup: its buttons are already in `remote.ini`
 With a **2-channel 5 V relay module** (the common blue one with optocouplers, about ₹62) the receiver also presses the PC's and the TV's power buttons for you:
 
 - **Power while the PC is asleep or off**, even after a power cut: the PC and the TV both come on. (Asleep, the PC is woken over USB; if that doesn't work within 8 seconds, or it was shut down, its power button is pressed.)
-- **The TV follows the PC.** When the PC sleeps or shuts down, whatever did it (Power, the sleep timer, idle, Windows' menu), the TV goes off a few seconds later; when the PC wakes or starts, the TV comes on.
+- **The TV follows the PC.** When the PC goes to sleep, whatever did it (Power, the sleep timer, idle), CouchTV tells the receiver and the TV goes off at once; when the PC wakes or starts, the TV comes on within half a second. The TV ignores its button for about 15 s after switching, so a quick sleep-and-wake waits that long. Shut down from elsewhere (without CouchTV), the TV goes off about 4 s after the PC's USB goes quiet.
 - **Power while the PC is on** is still CouchTV's: it puts the PC to sleep, and the TV follows.
 - **CouchTV's Turn off and Restart** tell the receiver first, so the TV goes off once the PC has shut down, and stays on through a restart, even if the PC's USB power blinks and restarts the receiver as the PC goes off.
 - **Your own buttons keep working**, because the relays are wired alongside them.

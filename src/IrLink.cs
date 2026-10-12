@@ -53,6 +53,27 @@ namespace CouchTV
         /// <summary>Queues a command line for the receiver (sent once connected).</summary>
         public void Send(string line) { _outbox.Enqueue(line); }
 
+        /// <summary>
+        /// Sends a line and waits (up to timeoutMs) until it's gone out: for "the PC is going to sleep now", which has
+        /// to reach the receiver before Windows suspends. False if there's no receiver, or it took too long.
+        /// </summary>
+        public bool SendNow(string line, int timeoutMs)
+        {
+            if (_port == null) return false;
+            _outbox.Enqueue(line);
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            while (clock.ElapsedMilliseconds < timeoutMs)
+            {
+                if (_outbox.IsEmpty)
+                {
+                    Thread.Sleep(30);   // taken from the queue; give it a moment to be written
+                    return true;
+                }
+                Thread.Sleep(10);
+            }
+            return false;
+        }
+
         /// <summary>FNV-1a hash of the upper-cased code: how the receiver stores its wake-up buttons.</summary>
         public static uint Hash(string code)
         {

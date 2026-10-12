@@ -800,7 +800,7 @@ namespace CouchTV
             switch (t.Action)
             {
                 case "sleep":
-                    Shell.Sleep();
+                    SleepNow();
                     break;
                 case "sleeptimer":
                     CycleSleepTimer();
@@ -942,7 +942,7 @@ namespace CouchTV
                 _sleepAt = null;
                 UpdateSleepCaption();
                 Log.Info("Sleep timer");
-                Shell.Sleep();
+                SleepNow();
                 return;
             }
             if (!_sleepWarned && left.TotalSeconds <= 60)
@@ -1126,6 +1126,9 @@ namespace CouchTV
 
         void OnPowerChanged(object sender, PowerModeChangedEventArgs e)
         {
+            // Any sleep (Power, the timer, idle): with the relay, the receiver switches the TV off straight away.
+            // This runs as Windows suspends, so it has to go out now (Windows allows about 2 s).
+            if (e.Mode == PowerModes.Suspend && _ir != null) _ir.SendNow("SLEEP SOON", 1000);
             if (e.Mode != PowerModes.Resume) return;
             Dispatcher.BeginInvoke(new Action(() =>
             {
@@ -1337,6 +1340,19 @@ namespace CouchTV
         }
 
         // ================================================================ lifetime
+
+        /// <summary>Puts the PC to sleep, telling the receiver first, so the TV goes off at once.</summary>
+        void SleepNow()
+        {
+            if (_ir != null) _ir.Send("SLEEP SOON");
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };   // time to send it
+            timer.Tick += (s, e) =>
+            {
+                timer.Stop();
+                Shell.Sleep();
+            };
+            timer.Start();
+        }
 
         /// <summary>
         /// Shuts down or restarts, telling the receiver first: with the relay, it switches the TV off once the PC is off,

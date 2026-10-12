@@ -262,7 +262,7 @@ namespace CouchTV
                 case "volup": ChangeVolume(0.02f, false); return;
                 case "voldown": ChangeVolume(-0.02f, false); return;
                 case "mute": ChangeVolume(0, true); return;
-                case "power": Shell.Sleep(); return;
+                case "power": SleepNow(); return;
                 case "sleeptimer":
                     string message = CycleSleepTimer();
                     if (!IsActive) Osd.ShowMessage('', message, 3);
