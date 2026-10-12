@@ -17,8 +17,10 @@
   can't do while the PC is asleep or off.
 
   Power control (version 4), with a 2-channel relay module; without one, the receiver works as before:
-    relay 1 (K1, IN1 <- pin 8) "presses" the TV's power button, relay 2 (K2, IN2 <- pin 9) the PC's. Each button's two
-    wires also go to its relay's middle (COM) and normally-open (NO) screw terminals, so the buttons keep working.
+    the relay switched by IN1 (<- pin 8) "presses" the PC's power button, the one switched by IN2 (<- pin 9) the TV's.
+    Each button's two wires also go to its relay's middle (COM) and normally-open (NO) screw terminals, so the buttons
+    keep working. Check which relay each IN clicks (PRESS PC / PRESS TV, or watch the module's IN LEDs) before wiring:
+    swapped, the TV's "off" press lands on the PC's button, and a shutdown turns into an on-off loop.
     (On the common blue module, with the screw terminals at the top, NO is each relay's right-hand terminal.)
   - Power while the PC is asleep or off: it's woken over USB, or, if that can't work (shut down, or after a power
     cut), its power button is pressed; and the TV is switched on.
@@ -71,10 +73,10 @@
 
 const uint8_t IR_PIN = 2;
 const uint8_t LED_PIN = 17;        // the board's RX LED (lit when LOW): blinks for every button it decodes
-const uint8_t TV_RELAY = 8;        // relay module IN1 (K1)
-const uint8_t PC_RELAY = 9;        // relay module IN2 (K2)
+const uint8_t PC_RELAY = 8;        // relay module IN1: the PC's power button
+const uint8_t TV_RELAY = 9;        // relay module IN2: the TV's power button
 const uint8_t TV_SENSE = 10;       // the TV's USB 5 V, through 2.2 kOhm, with 10 kOhm to GND
-const char VERSION[] = "5.2";
+const char VERSION[] = "5.3";
 
 const uint8_t MAX_WAKE = 16;
 const uint8_t EEPROM_MAGIC = 0xC7;
