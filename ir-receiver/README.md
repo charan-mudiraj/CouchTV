@@ -88,10 +88,10 @@ With a **2-channel 5 V relay module** (the common blue one with optocouplers, ab
 | Leonardo `GND` | another row (the "GND row") |
 | IR sensor VCC | the 5 V row (instead of `5V` directly) |
 | relay module `VCC` / `GND` | the 5 V row / the GND row |
-| relay module `IN1` | pin `8`: the **PC's** power button |
-| relay module `IN2` | pin `9`: the **TV's** power button |
+| relay module `IN1` | pin `8`: relay K1, the **TV's** power button |
+| relay module `IN2` | pin `9`: relay K2, the **PC's** power button |
 
-Leave the module's **JD-VCC jumper** on. Then each relay's screw terminals take its button's two wires (either way round), connected **alongside** the button, not instead of it. The **middle** terminal is COM; use it with the outer one that's **open until the relay clicks** (NO). Which outer one that is varies between modules, so check it first: with a multimeter, or with the board itself: wire the relay's middle terminal to `GND` and an outer one to pin `10`, open the Serial Monitor and type `CONTACT PC` (relay 1) or `CONTACT TV` (relay 2). It answers `CONTACT NO` (use that terminal) or `CONTACT NC` (use the other one).
+Leave the module's **JD-VCC jumper** on. Then each relay's screw terminals take its button's two wires (either way round), connected **alongside** the button, not instead of it. The **middle** terminal is COM; use it with the outer one that's **open until the relay clicks** (NO). On the common blue module, with the screw terminals at the top, that's each relay's **right-hand** terminal. To check yours: with a multimeter, or with the board itself: wire the relay's middle terminal to `GND` and an outer one to pin `10`, open the Serial Monitor and type `CONTACT TV` (relay K1) or `CONTACT PC` (relay K2). It answers `CONTACT NO` (use that terminal) or `CONTACT NC` (use the other one).
 
 **TV sensing (recommended).** The TV's button is a toggle, so the receiver needs to know whether the TV is on. Without sensing it remembers what it last did, which goes wrong if someone uses the TV's own button. Many TVs power their USB port only while they're on: check by plugging in a phone, which should charge only while the TV is on. If yours does, cut open an old USB cable: its **red** wire (5 V) goes through a **2.2 kΩ** resistor to pin `10`, a **10 kΩ** resistor goes from pin `10` to the GND row, and its **black** wire goes to the GND row. Then type `SENSE ON` in the Serial Monitor (it's remembered).
 
