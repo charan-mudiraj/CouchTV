@@ -57,6 +57,7 @@
     <string name="app_web">Web</string>
 
     <string name="power">Power</string>
+    <string name="power_needs_ir">Power works by infrared for now, and this phone has no IR blaster.</string>
     <string name="back">Back (hold for Home)</string>
     <string name="home">Home</string>
     <string name="menu">Menu</string>

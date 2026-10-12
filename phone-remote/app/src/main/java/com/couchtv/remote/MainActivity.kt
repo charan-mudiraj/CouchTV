@@ -54,6 +54,7 @@ class MainActivity : Activity() {
         setContentView(R.layout.activity_main)
         remote = Remote(this)
         remote.wifi.onChange = { showStatus() }
+        remote.onPowerNeedsIr = { toast(getString(R.string.power_needs_ir)) }
         store = CustomButtons(this)
         myButtons = store.load()
 

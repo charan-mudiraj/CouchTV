@@ -101,7 +101,7 @@ The app's version is `phone-remote/app/src/main/java/com/couchtv/remote/Nec.kt`.
 
 ## Wi-Fi
 
-The same remote also works over the home network, with no pointing, and on phones without an IR blaster. It uses the same button codes, so `remote.ini` applies to both. The phone prefers Wi-Fi while the TV answers, and falls back to infrared when it doesn't, for example when the PC is asleep.
+The same remote also works over the home network, with no pointing, and on phones without an IR blaster. It uses the same button codes, so `remote.ini` applies to both. The phone prefers Wi-Fi while the TV answers, and falls back to infrared when it doesn't, for example when the PC is asleep. **Power always goes by infrared**, even while connected: the receiver handles it whether the PC is on (it passes it to CouchTV) or asleep (it wakes it), whereas over Wi-Fi it raced the link, which drops as the PC sleeps and comes back as it wakes.
 
 1. **Finding the TV.** The phone sends the text `COUCHTV?` by UDP to port **47700**, both as a broadcast (the subnet's, like `192.168.1.255`, and `255.255.255.255`) and directly to the address that answered last time. CouchTV replies `COUCHTV 1 47701 <PC name>`: protocol 1, TCP port 47701.
 2. **Connecting.** The phone opens TCP port **47701**. Both sides send lines of UTF-8 text ending in `\n`:

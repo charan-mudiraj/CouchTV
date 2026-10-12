@@ -21,9 +21,19 @@ class Remote(context: Context) {
     /** Presses go over Wi-Fi right now. */
     val viaWifi: Boolean get() = wifi.connected
 
+    /** Called on the main thread when Power can't be sent: this phone has no IR blaster. */
+    var onPowerNeedsIr: (() -> Unit)? = null
+
     /** Starts a press and returns its id for [release]. With [hold] false, it's a single press. */
     fun press(address: Int, command: Int, hold: Boolean = true): Int {
         val id = ++lastPress
+        if (address == Codes.ADDRESS && command == Codes.POWER) {
+            // Power goes by infrared only, for now: the receiver handles it whether the PC is on (it tells CouchTV)
+            // or asleep (it wakes it). Over Wi-Fi it raced the link, which drops as the PC sleeps and comes back as
+            // it wakes, so a press at the wrong moment went to a PC that was no longer listening.
+            if (ir.available) irPresses[id] = ir.press(address, command, hold) else onPowerNeedsIr?.invoke()
+            return id
+        }
         if (wifi.connected) {
             heldPress = if (hold) id else 0
             worker.execute {
