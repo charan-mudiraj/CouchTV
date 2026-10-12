@@ -1,5 +1,5 @@
 /*
-  CouchIR - a universal infrared receiver for CouchTV.
+  CouchIR - a universal infrared receiver for CouchTV, which also switches the PC and the TV on and off.
 
   Board:    Arduino Pro Micro / Leonardo / Micro (ATmega32U4, 5 V, 16 MHz).
             In the Arduino IDE choose Tools > Board > "Arduino Leonardo".
@@ -13,8 +13,25 @@
       IR,<code>,R      the button is still held (repeat)
 
   The code text is stable for each button, so CouchTV can map it to an action. CouchTV decides what every button
-  does. The receiver only remembers which buttons are "power" buttons, so it can wake the PC from sleep, which
-  CouchTV can't do itself while the PC is asleep.
+  does. The receiver only remembers which buttons are "power" buttons, so it can switch the PC on, which CouchTV
+  can't do while the PC is asleep or off.
+
+  Power control (version 4), with a 2-channel relay module; without one, the receiver works as before:
+    relay 1 (IN1 <- pin 8) "presses" the PC's power button, relay 2 (IN2 <- pin 9) the TV's. Each button's two wires
+    also go to its relay's middle (COM) and normally-open (NO) screw terminals, so the buttons keep working.
+  - Power while the PC is asleep or off: it's woken over USB, or, if that can't work (shut down, or after a power
+    cut), its power button is pressed; and the TV is switched on.
+  - Power while the PC is on is left to CouchTV, which puts it to sleep.
+  - The TV follows the PC: when the PC sleeps or shuts down, whatever did it (Power, the sleep timer, idle,
+    Windows' menu), the TV is switched off; when the PC wakes or starts, the TV is switched on.
+  - The TV's button is a toggle, so the receiver keeps track of whether the TV is on: from what it last did, or,
+    with TV sensing (SENSE ON), from the TV's USB port, which only has 5 V while the TV is on. Wiring: the TV USB
+    port's 5 V -> 2.2 kOhm -> pin 10, with 10 kOhm from pin 10 to GND, and the port's ground to GND.
+  - The PC's button is never held longer than 0.3 s (holding it 4 s would force the PC off), and a second Power
+    press within 5 s is ignored, so a double tap can't undo itself.
+  Most relay modules switch on when their input goes LOW; "RELAY HIGH" is for ones that switch on when it's HIGH.
+
+  Nothing is ever sent to the PC while it sleeps: the board's USB code would wake it up to deliver it.
 
   Commands from the PC, one per line:
       ?              ->  COUCHIR <version> <number of wake buttons>
@@ -22,6 +39,12 @@
       WAKE <hash>    ->  add a wake button: FNV-1a hash of its upper-cased code text, 8 hex digits
       WAKE SAVE      ->  store the list in EEPROM (only changed bytes are written)
       WAKE LIST      ->  print the list
+      STATE          ->  STATE PC ON|OFF TV ON|OFF SENSE ON|OFF RELAY LOW|HIGH
+      PRESS PC|TV    ->  press that power button once, to test the wiring
+      SENSE ON|OFF   ->  TV sensing on or off (saved)
+      RELAY LOW|HIGH ->  the input level that switches the relays on (saved)
+      CONTACT PC|TV  ->  finds the right screw terminal: wire the relay's middle terminal to GND and an outer one
+                         to pin 10 (nothing else on them); it says whether that one closes on a press (NO, use it)
 */
 
 #define EXCLUDE_EXOTIC_PROTOCOLS   // Bose, Lego, Whynter, FAST: not used by TV remotes; saves flash
@@ -31,18 +54,43 @@
 
 const uint8_t IR_PIN = 2;
 const uint8_t LED_PIN = 17;        // the board's RX LED (lit when LOW): blinks for every button it decodes
-const char VERSION[] = "1";
+const uint8_t PC_RELAY = 8;        // relay module IN1
+const uint8_t TV_RELAY = 9;        // relay module IN2
+const uint8_t TV_SENSE = 10;       // the TV's USB 5 V, through 2.2 kOhm, with 10 kOhm to GND
+const char VERSION[] = "4";
 
 const uint8_t MAX_WAKE = 16;
 const uint8_t EEPROM_MAGIC = 0xC7;
+const uint8_t SETTINGS_AT = 100, SETTINGS_MAGIC = 0x5E;   // after the wake list (bytes 0 to 65)
+const uint8_t FLAG_SENSE = 1, FLAG_RELAY_HIGH = 2;
 // The CouchTV phone remote's power button always wakes the PC, even before CouchTV has sent its list.
 const char PHONE_POWER[] = "NEC 00CE 0020";
 
+const unsigned long PC_PRESS_MS = 300;        // a short press: sleep or wake (4 s would force it off)
+const unsigned long TV_PRESS_MS = 400;
+const unsigned long AWAKE_STABLE_MS = 2000;   // how long the PC's USB must be up before it counts as on...
+const unsigned long ASLEEP_STABLE_MS = 4000;  // ...or quiet before it counts as asleep or off
+const unsigned long POWER_GAP_MS = 5000;      // a second Power press within this is ignored
+const unsigned long WAKE_WAIT_MS = 8000;      // woken over USB but not up by then: press its button
+const unsigned long TV_CHECK_MS = 6000;       // with sensing: pressed, but the TV hasn't changed by then: once more
+
 uint32_t wakeHashes[MAX_WAKE];
 uint8_t wakeCount = 0;
+uint8_t flags = 0;
 char command[40];
 uint8_t commandLength = 0;
 unsigned long ledOffAt = 0;
+
+int8_t pcOn = -1;                  // -1 not known yet (just started), 0 asleep or off, 1 on
+bool rawAwake = false;             // the PC's USB right now...
+unsigned long rawSince = 0;        // ...and since when
+bool tvOn = false;                 // what the receiver believes, without sensing
+int8_t tvWant = -1;                // with sensing: the state a press is meant to reach, until it's checked
+unsigned long tvCheckAt = 0;
+uint8_t tvTries = 0;
+bool powerUsed = false;
+unsigned long lastPower = 0;
+unsigned long wakeDeadline = 0;    // 0: no wake-up pending
 
 uint32_t hashCode(const char *text) {
   uint32_t hash = 2166136261UL;                         // FNV-1a, same as CouchTV
@@ -73,13 +121,16 @@ bool isWakeButton(const char *code) {
   return false;
 }
 
-void loadWakeList() {
+void loadSettings() {
   wakeCount = 0;
-  if (EEPROM.read(0) != EEPROM_MAGIC) return;
-  uint8_t count = EEPROM.read(1);
-  if (count > MAX_WAKE) return;
-  for (uint8_t i = 0; i < count; i++) EEPROM.get(2 + i * 4, wakeHashes[i]);
-  wakeCount = count;
+  if (EEPROM.read(0) == EEPROM_MAGIC) {
+    uint8_t count = EEPROM.read(1);
+    if (count <= MAX_WAKE) {
+      for (uint8_t i = 0; i < count; i++) EEPROM.get(2 + i * 4, wakeHashes[i]);
+      wakeCount = count;
+    }
+  }
+  flags = EEPROM.read(SETTINGS_AT) == SETTINGS_MAGIC ? EEPROM.read(SETTINGS_AT + 1) : 0;
 }
 
 void saveWakeList() {
@@ -88,10 +139,122 @@ void saveWakeList() {
   for (uint8_t i = 0; i < wakeCount; i++) EEPROM.put(2 + i * 4, wakeHashes[i]);
 }
 
+void saveFlags() {
+  EEPROM.update(SETTINGS_AT, SETTINGS_MAGIC);
+  EEPROM.update(SETTINGS_AT + 1, flags);
+}
+
 void blink() {
   digitalWrite(LED_PIN, LOW);
   ledOffAt = millis() + 40;
 }
+
+// ---------------------------------------------------------------- power
+
+bool pcAwake() { return USBDevice.configured() && !USBDevice.isSuspended(); }
+
+// Only while the PC is awake: sending anything while it sleeps would wake it.
+void report(const __FlashStringHelper *text) {
+  if (pcAwake()) Serial.println(text);
+}
+
+uint8_t relayOn() { return (flags & FLAG_RELAY_HIGH) ? HIGH : LOW; }
+uint8_t relayOff() { return (flags & FLAG_RELAY_HIGH) ? LOW : HIGH; }
+
+void press(uint8_t relay, unsigned long ms) {
+  digitalWrite(relay, relayOn());
+  delay(ms);
+  digitalWrite(relay, relayOff());
+}
+
+bool sensing() { return flags & FLAG_SENSE; }
+bool tvSensed() { return digitalRead(TV_SENSE) == HIGH; }
+bool tvIsOn() { return sensing() ? tvSensed() : tvOn; }
+
+void pressTv() {
+  press(TV_RELAY, TV_PRESS_MS);
+  tvTries++;
+  if (sensing()) {
+    tvCheckAt = millis() + TV_CHECK_MS;
+  } else {
+    tvOn = tvWant == 1;
+    tvWant = -1;
+  }
+}
+
+void setTv(bool on) {
+  tvTries = 0;
+  if (tvIsOn() == on) {
+    tvWant = -1;
+    return;
+  }
+  tvWant = on ? 1 : 0;
+  pressTv();
+  report(on ? F("POWER TV ON") : F("POWER TV OFF"));
+}
+
+// Power, while the PC is asleep or off.
+void powerOn() {
+  unsigned long now = millis();
+  if (powerUsed && now - lastPower < POWER_GAP_MS) return;
+  powerUsed = true;
+  lastPower = now;
+  if (USBDevice.wakeupHost()) {
+    wakeDeadline = now + WAKE_WAIT_MS;     // asleep, with Windows allowing USB wake-up: check it worked
+    if (wakeDeadline == 0) wakeDeadline = 1;
+  } else {
+    press(PC_RELAY, PC_PRESS_MS);          // shut down, after a power cut, or wake-up not allowed
+  }
+  setTv(true);
+}
+
+void watchPower() {
+  unsigned long now = millis();
+  bool awake = pcAwake();
+  if (awake != rawAwake) {
+    rawAwake = awake;
+    rawSince = now;
+  }
+  if (now - rawSince >= (awake ? AWAKE_STABLE_MS : ASLEEP_STABLE_MS) && pcOn != (awake ? 1 : 0)) {
+    bool justStarted = pcOn < 0;
+    pcOn = awake ? 1 : 0;
+    if (justStarted) tvOn = awake;         // just powered up: assume the TV matches the PC
+    else setTv(awake);                     // the TV follows the PC
+    if (awake) wakeDeadline = 0;
+  }
+
+  if (wakeDeadline != 0) {
+    if (awake) wakeDeadline = 0;
+    else if ((long)(now - wakeDeadline) >= 0) {
+      wakeDeadline = 0;
+      press(PC_RELAY, PC_PRESS_MS);        // the USB wake-up didn't take
+    }
+  }
+
+  if (tvWant >= 0 && sensing() && (long)(now - tvCheckAt) >= 0) {
+    if (tvSensed() == (tvWant == 1)) tvWant = -1;
+    else if (tvTries < 2) pressTv();       // a press can be missed; one more, then leave it
+    else tvWant = -1;
+  }
+}
+
+// CONTACT: is the terminal on pin 10 closed at rest, and when the relay is on?
+void checkContact(uint8_t relay) {
+  pinMode(TV_SENSE, INPUT_PULLUP);
+  delay(5);
+  bool closedAtRest = digitalRead(TV_SENSE) == LOW;
+  digitalWrite(relay, relayOn());
+  delay(80);
+  bool closedOn = digitalRead(TV_SENSE) == LOW;
+  digitalWrite(relay, relayOff());
+  pinMode(TV_SENSE, INPUT);
+  if (!closedAtRest && closedOn) Serial.println(F("CONTACT NO: closes on a press, use this terminal"));
+  else if (closedAtRest && !closedOn) Serial.println(F("CONTACT NC: opens on a press, use the other outer terminal"));
+  else if (closedAtRest) Serial.println(F("CONTACT always closed: check the wiring"));
+  else Serial.println(F("CONTACT never closes: check the wiring, or try RELAY HIGH"));
+}
+
+// ---------------------------------------------------------------- infrared and commands
 
 void handleSignal(const IRData &ir) {
   if (ir.protocol == UNKNOWN) return;                                        // noise, or not a remote signal
@@ -101,8 +264,8 @@ void handleSignal(const IRData &ir) {
   bool repeat = ir.flags & (IRDATA_FLAGS_IS_REPEAT | IRDATA_FLAGS_IS_AUTO_REPEAT);
   blink();
 
-  if (USBDevice.isSuspended()) {                                             // the PC is asleep
-    if (!repeat && isWakeButton(code)) USBDevice.wakeupHost();
+  if (!pcAwake()) {                                                          // the PC is asleep or off
+    if (!repeat && isWakeButton(code)) powerOn();
     return;
   }
   Serial.print(F("IR,"));
@@ -128,6 +291,32 @@ void runCommand(const char *text) {
   } else if (strncmp(text, "WAKE ", 5) == 0) {
     if (wakeCount < MAX_WAKE) wakeHashes[wakeCount++] = strtoul(text + 5, NULL, 16);
     Serial.println(F("OK"));
+  } else if (strcmp(text, "STATE") == 0) {
+    Serial.print(F("STATE PC "));
+    Serial.print(pcOn == 1 ? F("ON") : F("OFF"));
+    Serial.print(F(" TV "));
+    Serial.print(tvIsOn() ? F("ON") : F("OFF"));
+    Serial.print(F(" SENSE "));
+    Serial.print(sensing() ? F("ON") : F("OFF"));
+    Serial.print(F(" RELAY "));
+    Serial.println((flags & FLAG_RELAY_HIGH) ? F("HIGH") : F("LOW"));
+  } else if (strcmp(text, "PRESS PC") == 0 || strcmp(text, "PRESS TV") == 0) {
+    bool pc = text[6] == 'P';
+    press(pc ? PC_RELAY : TV_RELAY, pc ? PC_PRESS_MS : TV_PRESS_MS);
+    if (!pc && !sensing()) tvOn = !tvOn;
+    Serial.println(F("OK"));
+  } else if (strcmp(text, "SENSE ON") == 0 || strcmp(text, "SENSE OFF") == 0) {
+    flags = text[7] == 'N' ? (flags | FLAG_SENSE) : (flags & ~FLAG_SENSE);
+    saveFlags();
+    Serial.println(F("OK"));
+  } else if (strcmp(text, "RELAY LOW") == 0 || strcmp(text, "RELAY HIGH") == 0) {
+    flags = text[6] == 'H' ? (flags | FLAG_RELAY_HIGH) : (flags & ~FLAG_RELAY_HIGH);
+    saveFlags();
+    digitalWrite(PC_RELAY, relayOff());
+    digitalWrite(TV_RELAY, relayOff());
+    Serial.println(F("OK"));
+  } else if (strcmp(text, "CONTACT PC") == 0 || strcmp(text, "CONTACT TV") == 0) {
+    checkContact(text[8] == 'P' ? PC_RELAY : TV_RELAY);
   } else if (text[0] != 0) {
     Serial.println(F("ERR"));
   }
@@ -148,11 +337,17 @@ void readCommands() {
 }
 
 void setup() {
+  loadSettings();
+  // Relays off before the pins become outputs, so starting up never "presses" a button.
+  digitalWrite(PC_RELAY, relayOff());
+  digitalWrite(TV_RELAY, relayOff());
+  pinMode(PC_RELAY, OUTPUT);
+  pinMode(TV_RELAY, OUTPUT);
+  pinMode(TV_SENSE, INPUT);
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, HIGH);
   Serial.begin(115200);
   Keyboard.begin();
-  loadWakeList();
   IrReceiver.begin(IR_PIN, DISABLE_LED_FEEDBACK);
 }
 
@@ -162,6 +357,7 @@ void loop() {
     IrReceiver.resume();
   }
   readCommands();
+  watchPower();
   if (ledOffAt != 0 && (long)(millis() - ledOffAt) >= 0) {
     digitalWrite(LED_PIN, HIGH);
     ledOffAt = 0;

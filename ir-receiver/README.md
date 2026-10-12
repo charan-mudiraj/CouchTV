@@ -58,7 +58,7 @@ Push the jumpers' **female** ends onto the sensor's legs and the **male** ends i
 2. Plug the board in. Choose **Tools → Board → Arduino AVR Boards → Arduino Leonardo** (use this for the Pro Micro too), then **Tools → Port** and pick the new COM port.
 3. Open **Tools → Manage Libraries**, search for **IRremote** and install *IRremote by shirriff, z3t0, ArminJo* (version 4.x). The *Keyboard* library is already built in.
 4. **File → Open** `ir-receiver/firmware/CouchIR/CouchIR.ino`, then press **Upload** (the → button). It uses about half of the board's memory. If the upload hangs on a clone board, press the board's reset button once when the IDE says "Uploading...".
-5. **Test it:** open **Tools → Serial Monitor**, set it to **115200 baud** and **New Line**, then press buttons on any remote. You should see lines like `IR,NEC 0004 0040,N`, and the board's RX light blinks for each one. Type `?` and press Enter: it answers `COUCHIR 1 0`. Close the Serial Monitor afterwards, because only one program can use the receiver at a time.
+5. **Test it:** open **Tools → Serial Monitor**, set it to **115200 baud** and **New Line**, then press buttons on any remote. You should see lines like `IR,NEC 0004 0040,N`, and the board's RX light blinks for each one. Type `?` and press Enter: it answers `COUCHIR 4 0`. Close the Serial Monitor afterwards, because only one program can use the receiver at a time.
 
 ## Use it with CouchTV
 
@@ -70,6 +70,34 @@ Push the jumpers' **female** ends onto the sensor's legs and the **male** ends i
 The CouchTV phone remote needs no setup: its buttons are already in `remote.ini` (see [PROTOCOL.md](PROTOCOL.md)).
 
 **To wake the PC with the remote:** set up a Power button, then re-run `Install-CouchTV.cmd` with the receiver plugged in. That allows it to wake the PC. Also turn on *USB wake* in the BIOS (see the main README). Only buttons mapped to Power wake it, so a different remote in the room won't switch the TV on.
+
+## Switching the PC and the TV on and off (optional: a relay)
+
+With a **2-channel 5 V relay module** (the common blue one with optocouplers, about ₹62) the receiver also presses the PC's and the TV's power buttons for you:
+
+- **Power while the PC is asleep or off**, even after a power cut: the PC and the TV both come on. (Asleep, the PC is woken over USB; if that doesn't work within 8 seconds, or it was shut down, its power button is pressed.)
+- **The TV follows the PC.** When the PC sleeps or shuts down, whatever did it (Power, the sleep timer, idle, Windows' menu), the TV goes off a few seconds later; when the PC wakes or starts, the TV comes on.
+- **Power while the PC is on** is still CouchTV's: it puts the PC to sleep, and the TV follows.
+- **Your own buttons keep working**, because the relays are wired alongside them.
+
+**Wiring.** The board has one 5 V socket, so a mini breadboard shares it between the sensor and the relay module:
+
+| From | To |
+|---|---|
+| Leonardo `5V` | a breadboard row (the "5 V row") |
+| Leonardo `GND` | another row (the "GND row") |
+| IR sensor VCC | the 5 V row (instead of `5V` directly) |
+| relay module `VCC` / `GND` | the 5 V row / the GND row |
+| relay module `IN1` | pin `8`: the **PC's** power button |
+| relay module `IN2` | pin `9`: the **TV's** power button |
+
+Leave the module's **JD-VCC jumper** on. Then each relay's screw terminals take its button's two wires (either way round), connected **alongside** the button, not instead of it. The **middle** terminal is COM; use it with the outer one that's **open until the relay clicks** (NO). Which outer one that is varies between modules, so check it first: with a multimeter, or with the board itself: wire the relay's middle terminal to `GND` and an outer one to pin `10`, open the Serial Monitor and type `CONTACT PC` (relay 1) or `CONTACT TV` (relay 2). It answers `CONTACT NO` (use that terminal) or `CONTACT NC` (use the other one).
+
+**TV sensing (recommended).** The TV's button is a toggle, so the receiver needs to know whether the TV is on. Without sensing it remembers what it last did, which goes wrong if someone uses the TV's own button. Many TVs power their USB port only while they're on: check by plugging in a phone, which should charge only while the TV is on. If yours does, cut open an old USB cable: its **red** wire (5 V) goes through a **2.2 kΩ** resistor to pin `10`, a **10 kΩ** resistor goes from pin `10` to the GND row, and its **black** wire goes to the GND row. Then type `SENSE ON` in the Serial Monitor (it's remembered).
+
+**In the BIOS:** set **ErP** to *Disabled*, so the USB ports, and the receiver, stay powered while the PC is off.
+
+**Serial Monitor commands** for testing: `STATE` (what the receiver thinks: PC on or off, TV on or off), `PRESS PC` and `PRESS TV` (one press, to check the wiring), `SENSE ON` / `SENSE OFF`, and `RELAY HIGH` for the rare module that switches on with a high input (most switch on low; `RELAY LOW` goes back).
 
 ## Getting clean, reliable reception
 
