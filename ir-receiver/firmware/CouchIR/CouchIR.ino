@@ -36,6 +36,11 @@
     until the PC is back (each is forgotten after 10 minutes, in case it never happened).
   - The PC's button is never held longer than 0.3 s (holding it 4 s would force the PC off), and a second Power
     press within 5 s is ignored, so a double tap can't undo itself.
+  - A relay's coil takes a gulp of current as it clicks. On the PC's standby USB power (PC off) that can dip the
+    voltage enough to restart the receiver mid-press. So each press is noted in EEPROM first: a receiver that starts
+    up to find the note knows its last press cut its power, counts it (DIED in STATE), and doesn't redo whatever it
+    was doing, instead of pressing again and again. The cure is steadier power for the relays: a 470 uF capacitor
+    across the relay module's VCC and GND.
   Most relay modules switch on when their input goes LOW; "RELAY HIGH" is for ones that switch on when it's HIGH.
 
   Nothing is ever sent to the PC while it sleeps: the board's USB code would wake it up to deliver it.
@@ -47,6 +52,7 @@
       WAKE SAVE      ->  store the list in EEPROM (only changed bytes are written)
       WAKE LIST      ->  print the list
       STATE          ->  STATE PC ON|OFF TV ON|OFF SENSE ON|OFF RELAY LOW|HIGH BOOTS <times started>
+                         DIED <times a press cut its power>
       OFF SOON       ->  the PC is about to shut down: switch the TV off once it's off (saved)
       RESTART SOON   ->  the PC is about to restart: leave the TV alone until it's back (saved)
       PRESS PC|TV    ->  press that power button once, to test the wiring
@@ -66,7 +72,7 @@ const uint8_t LED_PIN = 17;        // the board's RX LED (lit when LOW): blinks 
 const uint8_t TV_RELAY = 8;        // relay module IN1 (K1)
 const uint8_t PC_RELAY = 9;        // relay module IN2 (K2)
 const uint8_t TV_SENSE = 10;       // the TV's USB 5 V, through 2.2 kOhm, with 10 kOhm to GND
-const char VERSION[] = "5";
+const char VERSION[] = "5.1";
 
 const uint8_t MAX_WAKE = 16;
 const uint8_t EEPROM_MAGIC = 0xC7;
@@ -75,6 +81,8 @@ const uint8_t FLAG_SENSE = 1, FLAG_RELAY_HIGH = 2;
 const uint8_t PLAN_AT = SETTINGS_AT + 2;                  // what CouchTV said the PC is about to do
 const uint8_t PLAN_NONE = 0, PLAN_OFF = 0xA1, PLAN_RESTART = 0xA2;
 const uint8_t BOOTS_AT = SETTINGS_AT + 3;                 // 2 bytes: times the receiver has started
+const uint8_t PRESSING_AT = SETTINGS_AT + 5;              // 1 while a relay is pressing
+const uint8_t DIED_AT = SETTINGS_AT + 6;                  // 2 bytes: times the receiver restarted mid-press
 // The CouchTV phone remote's power button always wakes the PC, even before CouchTV has sent its list.
 const char PHONE_POWER[] = "NEC 00CE 0020";
 
@@ -110,6 +118,7 @@ unsigned long planSince = 0;
 uint16_t lastFrame = 0;            // the last USB frame number seen...
 unsigned long lastFrameAt = 0;     // ...and when it changed
 uint16_t boots = 0;
+uint16_t died = 0;
 
 uint32_t hashCode(const char *text) {
   uint32_t hash = 2166136261UL;                         // FNV-1a, same as CouchTV
@@ -153,10 +162,19 @@ void loadSettings() {
   flags = known ? EEPROM.read(SETTINGS_AT + 1) : 0;
   plan = known ? EEPROM.read(PLAN_AT) : PLAN_NONE;
   if (plan != PLAN_OFF && plan != PLAN_RESTART) plan = PLAN_NONE;
-  if (known) EEPROM.get(BOOTS_AT, boots);
+  if (known) {
+    EEPROM.get(BOOTS_AT, boots);
+    EEPROM.get(DIED_AT, died);
+    if (EEPROM.read(PRESSING_AT) == 1) {
+      died++;                      // the last press cut the power: don't redo what it was for
+      plan = PLAN_NONE;
+    }
+  }
   boots++;
   saveFlags();
   EEPROM.put(BOOTS_AT, boots);
+  EEPROM.put(DIED_AT, died);
+  EEPROM.update(PRESSING_AT, 0);
 }
 
 void saveWakeList() {
@@ -206,9 +224,11 @@ uint8_t relayOn() { return (flags & FLAG_RELAY_HIGH) ? HIGH : LOW; }
 uint8_t relayOff() { return (flags & FLAG_RELAY_HIGH) ? LOW : HIGH; }
 
 void press(uint8_t relay, unsigned long ms) {
+  EEPROM.update(PRESSING_AT, 1);   // cleared after: still there at start-up means this press cut the power
   digitalWrite(relay, relayOn());
   delay(ms);
   digitalWrite(relay, relayOff());
+  EEPROM.update(PRESSING_AT, 0);
 }
 
 bool sensing() { return flags & FLAG_SENSE; }
@@ -267,15 +287,15 @@ void watchPower() {
       // said the PC was about to go off or restart, the TV was on, and this start was the PC's USB power blinking.
       tvOn = awake || plan != PLAN_NONE;
       if (plan == PLAN_OFF && !awake) {
-        setTv(false);
         setPlan(PLAN_NONE);
+        setTv(false);
       }
       planSince = now;
     } else if (plan == PLAN_RESTART) {
       if (awake) setPlan(PLAN_NONE);       // back from the restart: the TV stayed as it was
     } else {
-      setTv(awake);                        // the TV follows the PC
       if (!awake && plan == PLAN_OFF) setPlan(PLAN_NONE);
+      setTv(awake);                        // the TV follows the PC
     }
     if (awake) wakeDeadline = 0;
   }
@@ -359,7 +379,9 @@ void runCommand(const char *text) {
     Serial.print(F(" RELAY "));
     Serial.print((flags & FLAG_RELAY_HIGH) ? F("HIGH") : F("LOW"));
     Serial.print(F(" BOOTS "));
-    Serial.println(boots);
+    Serial.print(boots);
+    Serial.print(F(" DIED "));
+    Serial.println(died);
   } else if (strcmp(text, "OFF SOON") == 0) {
     setPlan(PLAN_OFF);
     Serial.println(F("OK"));
