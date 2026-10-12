@@ -53,6 +53,8 @@
       WAKE LIST      ->  print the list
       STATE          ->  STATE PC ON|OFF TV ON|OFF SENSE ON|OFF RELAY LOW|HIGH BOOTS <times started>
                          DIED <times a press cut its power>
+      LOG            ->  the last 60 events, oldest first: LOG <start no.> <seconds since that start> <event>
+      LOG CLEAR      ->  empty the log
       OFF SOON       ->  the PC is about to shut down: switch the TV off once it's off (saved)
       RESTART SOON   ->  the PC is about to restart: leave the TV alone until it's back (saved)
       PRESS PC|TV    ->  press that power button once, to test the wiring
@@ -72,7 +74,7 @@ const uint8_t LED_PIN = 17;        // the board's RX LED (lit when LOW): blinks 
 const uint8_t TV_RELAY = 8;        // relay module IN1 (K1)
 const uint8_t PC_RELAY = 9;        // relay module IN2 (K2)
 const uint8_t TV_SENSE = 10;       // the TV's USB 5 V, through 2.2 kOhm, with 10 kOhm to GND
-const char VERSION[] = "5.1";
+const char VERSION[] = "5.2";
 
 const uint8_t MAX_WAKE = 16;
 const uint8_t EEPROM_MAGIC = 0xC7;
@@ -83,6 +85,13 @@ const uint8_t PLAN_NONE = 0, PLAN_OFF = 0xA1, PLAN_RESTART = 0xA2;
 const uint8_t BOOTS_AT = SETTINGS_AT + 3;                 // 2 bytes: times the receiver has started
 const uint8_t PRESSING_AT = SETTINGS_AT + 5;              // 1 while a relay is pressing
 const uint8_t DIED_AT = SETTINGS_AT + 6;                  // 2 bytes: times the receiver restarted mid-press
+// The event log (a flight recorder for finding power problems): LOG_SIZE entries of 4 bytes from LOG_AT.
+const uint16_t LOG_NEXT_AT = 199, LOG_AT = 200;
+const uint8_t LOG_SIZE = 60;
+const uint8_t EV_START = 1, EV_PC_ON = 2, EV_PC_OFF = 3, EV_PRESS_TV = 4, EV_PRESS_PC = 5, EV_POWER = 6,
+              EV_USB_WAKE = 7, EV_OFF_SOON = 8, EV_RESTART_SOON = 9, EV_PLAN_DONE = 10, EV_DIED = 11;
+const uint8_t EV_USB = 0x20;       // + configured (4) + suspended (2) + frames arriving (1): the PC's USB changed
+const uint8_t MAX_USB_EVENTS = 30; // per start, so a flapping line can't fill the log
 // The CouchTV phone remote's power button always wakes the PC, even before CouchTV has sent its list.
 const char PHONE_POWER[] = "NEC 00CE 0020";
 
@@ -119,6 +128,9 @@ uint16_t lastFrame = 0;            // the last USB frame number seen...
 unsigned long lastFrameAt = 0;     // ...and when it changed
 uint16_t boots = 0;
 uint16_t died = 0;
+uint8_t logNext = 0;
+uint8_t usbEvents = 0;
+uint8_t lastUsb = 0xFF;
 
 uint32_t hashCode(const char *text) {
   uint32_t hash = 2166136261UL;                         // FNV-1a, same as CouchTV
@@ -165,16 +177,22 @@ void loadSettings() {
   if (known) {
     EEPROM.get(BOOTS_AT, boots);
     EEPROM.get(DIED_AT, died);
+    if (died == 0xFFFF) died = 0;  // never written (before version 5.1)
     if (EEPROM.read(PRESSING_AT) == 1) {
       died++;                      // the last press cut the power: don't redo what it was for
       plan = PLAN_NONE;
     }
   }
+  bool diedPressing = known && EEPROM.read(PRESSING_AT) == 1;
   boots++;
   saveFlags();
   EEPROM.put(BOOTS_AT, boots);
   EEPROM.put(DIED_AT, died);
   EEPROM.update(PRESSING_AT, 0);
+  logNext = EEPROM.read(LOG_NEXT_AT);
+  if (logNext >= LOG_SIZE) logNext = 0;
+  note(EV_START);
+  if (diedPressing) note(EV_DIED);
 }
 
 void saveWakeList() {
@@ -190,9 +208,61 @@ void saveFlags() {
 }
 
 void setPlan(uint8_t value) {
+  if (value == PLAN_OFF) note(EV_OFF_SOON);
+  else if (value == PLAN_RESTART) note(EV_RESTART_SOON);
+  else if (plan != PLAN_NONE) note(EV_PLAN_DONE);
   plan = value;
   planSince = millis();
   saveFlags();
+}
+
+void note(uint8_t event) {
+  uint16_t at = LOG_AT + logNext * 4;
+  uint16_t seconds = millis() / 1000;
+  EEPROM.update(at, event);
+  EEPROM.update(at + 1, (uint8_t)boots);
+  EEPROM.put(at + 2, seconds);
+  logNext = (logNext + 1) % LOG_SIZE;
+  EEPROM.update(LOG_NEXT_AT, logNext);
+}
+
+void printLog() {
+  for (uint8_t i = 0; i < LOG_SIZE; i++) {
+    uint16_t at = LOG_AT + ((logNext + i) % LOG_SIZE) * 4;
+    uint8_t event = EEPROM.read(at);
+    if (event == 0 || event == 0xFF) continue;
+    uint16_t seconds;
+    EEPROM.get(at + 2, seconds);
+    Serial.print(F("LOG "));
+    Serial.print(EEPROM.read(at + 1));
+    Serial.print(' ');
+    Serial.print(seconds);
+    Serial.print(' ');
+    if (event >= EV_USB && event < EV_USB + 8) {
+      Serial.print(F("USB configured="));
+      Serial.print((event >> 2) & 1);
+      Serial.print(F(" suspended="));
+      Serial.print((event >> 1) & 1);
+      Serial.print(F(" frames="));
+      Serial.println(event & 1);
+      continue;
+    }
+    switch (event) {
+      case EV_START: Serial.println(F("START")); break;
+      case EV_PC_ON: Serial.println(F("PC ON")); break;
+      case EV_PC_OFF: Serial.println(F("PC OFF")); break;
+      case EV_PRESS_TV: Serial.println(F("PRESS TV")); break;
+      case EV_PRESS_PC: Serial.println(F("PRESS PC")); break;
+      case EV_POWER: Serial.println(F("POWER button")); break;
+      case EV_USB_WAKE: Serial.println(F("USB WAKE-UP sent")); break;
+      case EV_OFF_SOON: Serial.println(F("OFF SOON")); break;
+      case EV_RESTART_SOON: Serial.println(F("RESTART SOON")); break;
+      case EV_PLAN_DONE: Serial.println(F("plan done")); break;
+      case EV_DIED: Serial.println(F("STARTED AFTER A PRESS CUT THE POWER")); break;
+      default: Serial.println(event); break;
+    }
+  }
+  Serial.println(F("OK"));
 }
 
 void blink() {
@@ -224,6 +294,7 @@ uint8_t relayOn() { return (flags & FLAG_RELAY_HIGH) ? HIGH : LOW; }
 uint8_t relayOff() { return (flags & FLAG_RELAY_HIGH) ? LOW : HIGH; }
 
 void press(uint8_t relay, unsigned long ms) {
+  note(relay == TV_RELAY ? EV_PRESS_TV : EV_PRESS_PC);
   EEPROM.update(PRESSING_AT, 1);   // cleared after: still there at start-up means this press cut the power
   digitalWrite(relay, relayOn());
   delay(ms);
@@ -263,7 +334,9 @@ void powerOn() {
   if (powerUsed && now - lastPower < POWER_GAP_MS) return;
   powerUsed = true;
   lastPower = now;
+  note(EV_POWER);
   if (USBDevice.wakeupHost()) {
+    note(EV_USB_WAKE);
     wakeDeadline = now + WAKE_WAIT_MS;     // asleep, with Windows allowing USB wake-up: check it worked
     if (wakeDeadline == 0) wakeDeadline = 1;
   } else {
@@ -273,8 +346,17 @@ void powerOn() {
 }
 
 void watchPower() {
+  bool configured = USBDevice.configured(), suspended = USBDevice.isSuspended(), frames = framesArriving();
+  bool awake = configured && !suspended && frames;
   unsigned long now = millis();
-  bool awake = pcAwake();
+  uint8_t usb = EV_USB | (configured ? 4 : 0) | (suspended ? 2 : 0) | (frames ? 1 : 0);
+  if (usb != lastUsb) {
+    lastUsb = usb;
+    if (usbEvents < MAX_USB_EVENTS) {
+      usbEvents++;
+      note(usb);
+    }
+  }
   if (awake != rawAwake) {
     rawAwake = awake;
     rawSince = now;
@@ -282,6 +364,7 @@ void watchPower() {
   if (now - rawSince >= (awake ? AWAKE_STABLE_MS : ASLEEP_STABLE_MS) && pcOn != (awake ? 1 : 0)) {
     bool justStarted = pcOn < 0;
     pcOn = awake ? 1 : 0;
+    note(awake ? EV_PC_ON : EV_PC_OFF);
     if (justStarted) {
       // Just started. After a power cut the TV is off like the PC, so assume it matches the PC; but if CouchTV
       // said the PC was about to go off or restart, the TV was on, and this start was the PC's USB power blinking.
@@ -382,6 +465,11 @@ void runCommand(const char *text) {
     Serial.print(boots);
     Serial.print(F(" DIED "));
     Serial.println(died);
+  } else if (strcmp(text, "LOG") == 0) {
+    printLog();
+  } else if (strcmp(text, "LOG CLEAR") == 0) {
+    for (uint8_t i = 0; i < LOG_SIZE; i++) EEPROM.update(LOG_AT + i * 4, 0);
+    Serial.println(F("OK"));
   } else if (strcmp(text, "OFF SOON") == 0) {
     setPlan(PLAN_OFF);
     Serial.println(F("OK"));
