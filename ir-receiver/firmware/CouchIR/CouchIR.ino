@@ -38,7 +38,7 @@
     until the PC is back (each is forgotten after 10 minutes, in case it never happened).
   - The PC's button is never held longer than 0.3 s (holding it 4 s would force the PC off), and a second Power
     press within 5 s is ignored, so a double tap can't undo itself.
-  - The TV ignores its button for several seconds after switching on or off, so its presses are at least 10 s apart:
+  - The TV ignores its button for several seconds after switching on or off, so its presses are at least 15 s apart:
     one that comes sooner waits (and is dropped if, by then, the TV is already as wanted).
   - A relay's coil takes a gulp of current as it clicks. On the PC's standby USB power (PC off) that can dip the
     voltage enough to restart the receiver mid-press. So each press is noted in EEPROM first: a receiver that starts
@@ -78,7 +78,7 @@ const uint8_t LED_PIN = 17;        // the board's RX LED (lit when LOW): blinks 
 const uint8_t PC_RELAY = 8;        // relay module IN1: the PC's power button
 const uint8_t TV_RELAY = 9;        // relay module IN2: the TV's power button
 const uint8_t TV_SENSE = 10;       // the TV's USB 5 V, through 2.2 kOhm, with 10 kOhm to GND
-const char VERSION[] = "5.4";
+const char VERSION[] = "5.5";
 
 const uint8_t MAX_WAKE = 16;
 const uint8_t EEPROM_MAGIC = 0xC7;
@@ -105,8 +105,8 @@ const unsigned long AWAKE_STABLE_MS = 2000;   // how long the PC's USB must be u
 const unsigned long ASLEEP_STABLE_MS = 4000;  // ...or quiet before it counts as asleep or off
 const unsigned long POWER_GAP_MS = 5000;      // a second Power press within this is ignored
 const unsigned long WAKE_WAIT_MS = 8000;      // woken over USB but not up by then: press its button
-const unsigned long TV_GAP_MS = 10000;        // the TV ignores its button this long after switching
-const unsigned long TV_CHECK_MS = 12000;      // with sensing: pressed, but the TV hasn't changed by then: once more
+const unsigned long TV_GAP_MS = 15000;        // the TV ignores its button this long after switching (tested: 11 s too short)
+const unsigned long TV_CHECK_MS = 18000;      // with sensing: pressed, but the TV hasn't changed by then: once more
 const unsigned long FRAMES_GONE_MS = 50;      // no USB frame for this long: the PC isn't talking
 const unsigned long PLAN_MAX_MS = 600000UL;   // OFF SOON / RESTART SOON, but the PC still on (or not back) by then: forget it
 
