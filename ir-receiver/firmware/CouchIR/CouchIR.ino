@@ -38,6 +38,8 @@
     until the PC is back (each is forgotten after 10 minutes, in case it never happened).
   - The PC's button is never held longer than 0.3 s (holding it 4 s would force the PC off), and a second Power
     press within 5 s is ignored, so a double tap can't undo itself.
+  - The TV ignores its button for several seconds after switching on or off, so its presses are at least 10 s apart:
+    one that comes sooner waits (and is dropped if, by then, the TV is already as wanted).
   - A relay's coil takes a gulp of current as it clicks. On the PC's standby USB power (PC off) that can dip the
     voltage enough to restart the receiver mid-press. So each press is noted in EEPROM first: a receiver that starts
     up to find the note knows its last press cut its power, counts it (DIED in STATE), and doesn't redo whatever it
@@ -76,7 +78,7 @@ const uint8_t LED_PIN = 17;        // the board's RX LED (lit when LOW): blinks 
 const uint8_t PC_RELAY = 8;        // relay module IN1: the PC's power button
 const uint8_t TV_RELAY = 9;        // relay module IN2: the TV's power button
 const uint8_t TV_SENSE = 10;       // the TV's USB 5 V, through 2.2 kOhm, with 10 kOhm to GND
-const char VERSION[] = "5.3";
+const char VERSION[] = "5.4";
 
 const uint8_t MAX_WAKE = 16;
 const uint8_t EEPROM_MAGIC = 0xC7;
@@ -103,7 +105,8 @@ const unsigned long AWAKE_STABLE_MS = 2000;   // how long the PC's USB must be u
 const unsigned long ASLEEP_STABLE_MS = 4000;  // ...or quiet before it counts as asleep or off
 const unsigned long POWER_GAP_MS = 5000;      // a second Power press within this is ignored
 const unsigned long WAKE_WAIT_MS = 8000;      // woken over USB but not up by then: press its button
-const unsigned long TV_CHECK_MS = 6000;       // with sensing: pressed, but the TV hasn't changed by then: once more
+const unsigned long TV_GAP_MS = 10000;        // the TV ignores its button this long after switching
+const unsigned long TV_CHECK_MS = 12000;      // with sensing: pressed, but the TV hasn't changed by then: once more
 const unsigned long FRAMES_GONE_MS = 50;      // no USB frame for this long: the PC isn't talking
 const unsigned long PLAN_MAX_MS = 600000UL;   // OFF SOON / RESTART SOON, but the PC still on (or not back) by then: forget it
 
@@ -121,6 +124,9 @@ bool tvOn = false;                 // what the receiver believes, without sensin
 int8_t tvWant = -1;                // with sensing: the state a press is meant to reach, until it's checked
 unsigned long tvCheckAt = 0;
 uint8_t tvTries = 0;
+bool tvPressed = false;            // pressed since starting...
+unsigned long lastTvPress = 0;     // ...and when
+int8_t tvQueued = -1;              // a TV change waiting for TV_GAP_MS to pass
 bool powerUsed = false;
 unsigned long lastPower = 0;
 unsigned long wakeDeadline = 0;    // 0: no wake-up pending
@@ -302,7 +308,13 @@ void press(uint8_t relay, unsigned long ms) {
   delay(ms);
   digitalWrite(relay, relayOff());
   EEPROM.update(PRESSING_AT, 0);
+  if (relay == TV_RELAY) {
+    tvPressed = true;
+    lastTvPress = millis();
+  }
 }
+
+bool tvMayPress() { return !tvPressed || millis() - lastTvPress >= TV_GAP_MS; }
 
 bool sensing() { return flags & FLAG_SENSE; }
 bool tvSensed() { return digitalRead(TV_SENSE) == HIGH; }
@@ -321,8 +333,13 @@ void pressTv() {
 
 void setTv(bool on) {
   tvTries = 0;
+  tvQueued = -1;
   if (tvIsOn() == on) {
     tvWant = -1;
+    return;
+  }
+  if (!tvMayPress()) {
+    tvQueued = on ? 1 : 0;                 // too soon after the last press: it would be ignored
     return;
   }
   tvWant = on ? 1 : 0;
@@ -393,6 +410,8 @@ void watchPower() {
       press(PC_RELAY, PC_PRESS_MS);        // the USB wake-up didn't take
     }
   }
+
+  if (tvQueued >= 0 && tvMayPress()) setTv(tvQueued == 1);
 
   if (tvWant >= 0 && sensing() && (long)(now - tvCheckAt) >= 0) {
     if (tvSensed() == (tvWant == 1)) tvWant = -1;
