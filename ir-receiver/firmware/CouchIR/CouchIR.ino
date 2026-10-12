@@ -28,6 +28,12 @@
   - The TV's button is a toggle, so the receiver keeps track of whether the TV is on: from what it last did, or,
     with TV sensing (SENSE ON), from the TV's USB port, which only has 5 V while the TV is on. Wiring: the TV USB
     port's 5 V -> 2.2 kOhm -> pin 10, with 10 kOhm from pin 10 to GND, and the port's ground to GND.
+  - The PC counts as on while it sends USB frames (one a millisecond). Asleep it stops; shut down, its USB port can
+    look like anything (still "configured", never "suspended"), so the frames are what's watched.
+  - CouchTV says "OFF SOON" just before it shuts the PC down, and "RESTART SOON" before a restart. Both are saved,
+    because the PC's USB power can blink as it goes off and restart the receiver, which would otherwise forget the
+    TV was on: after OFF SOON the TV is switched off once the PC is off; after RESTART SOON the TV is left alone
+    until the PC is back (each is forgotten after 10 minutes, in case it never happened).
   - The PC's button is never held longer than 0.3 s (holding it 4 s would force the PC off), and a second Power
     press within 5 s is ignored, so a double tap can't undo itself.
   Most relay modules switch on when their input goes LOW; "RELAY HIGH" is for ones that switch on when it's HIGH.
@@ -40,7 +46,9 @@
       WAKE <hash>    ->  add a wake button: FNV-1a hash of its upper-cased code text, 8 hex digits
       WAKE SAVE      ->  store the list in EEPROM (only changed bytes are written)
       WAKE LIST      ->  print the list
-      STATE          ->  STATE PC ON|OFF TV ON|OFF SENSE ON|OFF RELAY LOW|HIGH
+      STATE          ->  STATE PC ON|OFF TV ON|OFF SENSE ON|OFF RELAY LOW|HIGH BOOTS <times started>
+      OFF SOON       ->  the PC is about to shut down: switch the TV off once it's off (saved)
+      RESTART SOON   ->  the PC is about to restart: leave the TV alone until it's back (saved)
       PRESS PC|TV    ->  press that power button once, to test the wiring
       SENSE ON|OFF   ->  TV sensing on or off (saved)
       RELAY LOW|HIGH ->  the input level that switches the relays on (saved)
@@ -58,12 +66,15 @@ const uint8_t LED_PIN = 17;        // the board's RX LED (lit when LOW): blinks 
 const uint8_t TV_RELAY = 8;        // relay module IN1 (K1)
 const uint8_t PC_RELAY = 9;        // relay module IN2 (K2)
 const uint8_t TV_SENSE = 10;       // the TV's USB 5 V, through 2.2 kOhm, with 10 kOhm to GND
-const char VERSION[] = "4";
+const char VERSION[] = "5";
 
 const uint8_t MAX_WAKE = 16;
 const uint8_t EEPROM_MAGIC = 0xC7;
 const uint8_t SETTINGS_AT = 100, SETTINGS_MAGIC = 0x5E;   // after the wake list (bytes 0 to 65)
 const uint8_t FLAG_SENSE = 1, FLAG_RELAY_HIGH = 2;
+const uint8_t PLAN_AT = SETTINGS_AT + 2;                  // what CouchTV said the PC is about to do
+const uint8_t PLAN_NONE = 0, PLAN_OFF = 0xA1, PLAN_RESTART = 0xA2;
+const uint8_t BOOTS_AT = SETTINGS_AT + 3;                 // 2 bytes: times the receiver has started
 // The CouchTV phone remote's power button always wakes the PC, even before CouchTV has sent its list.
 const char PHONE_POWER[] = "NEC 00CE 0020";
 
@@ -74,6 +85,8 @@ const unsigned long ASLEEP_STABLE_MS = 4000;  // ...or quiet before it counts as
 const unsigned long POWER_GAP_MS = 5000;      // a second Power press within this is ignored
 const unsigned long WAKE_WAIT_MS = 8000;      // woken over USB but not up by then: press its button
 const unsigned long TV_CHECK_MS = 6000;       // with sensing: pressed, but the TV hasn't changed by then: once more
+const unsigned long FRAMES_GONE_MS = 50;      // no USB frame for this long: the PC isn't talking
+const unsigned long PLAN_MAX_MS = 600000UL;   // OFF SOON / RESTART SOON, but the PC still on (or not back) by then: forget it
 
 uint32_t wakeHashes[MAX_WAKE];
 uint8_t wakeCount = 0;
@@ -92,6 +105,11 @@ uint8_t tvTries = 0;
 bool powerUsed = false;
 unsigned long lastPower = 0;
 unsigned long wakeDeadline = 0;    // 0: no wake-up pending
+uint8_t plan = PLAN_NONE;          // OFF SOON or RESTART SOON, until it's done
+unsigned long planSince = 0;
+uint16_t lastFrame = 0;            // the last USB frame number seen...
+unsigned long lastFrameAt = 0;     // ...and when it changed
+uint16_t boots = 0;
 
 uint32_t hashCode(const char *text) {
   uint32_t hash = 2166136261UL;                         // FNV-1a, same as CouchTV
@@ -131,7 +149,14 @@ void loadSettings() {
       wakeCount = count;
     }
   }
-  flags = EEPROM.read(SETTINGS_AT) == SETTINGS_MAGIC ? EEPROM.read(SETTINGS_AT + 1) : 0;
+  bool known = EEPROM.read(SETTINGS_AT) == SETTINGS_MAGIC;
+  flags = known ? EEPROM.read(SETTINGS_AT + 1) : 0;
+  plan = known ? EEPROM.read(PLAN_AT) : PLAN_NONE;
+  if (plan != PLAN_OFF && plan != PLAN_RESTART) plan = PLAN_NONE;
+  if (known) EEPROM.get(BOOTS_AT, boots);
+  boots++;
+  saveFlags();
+  EEPROM.put(BOOTS_AT, boots);
 }
 
 void saveWakeList() {
@@ -143,6 +168,13 @@ void saveWakeList() {
 void saveFlags() {
   EEPROM.update(SETTINGS_AT, SETTINGS_MAGIC);
   EEPROM.update(SETTINGS_AT + 1, flags);
+  EEPROM.update(PLAN_AT, plan);
+}
+
+void setPlan(uint8_t value) {
+  plan = value;
+  planSince = millis();
+  saveFlags();
 }
 
 void blink() {
@@ -152,7 +184,18 @@ void blink() {
 
 // ---------------------------------------------------------------- power
 
-bool pcAwake() { return USBDevice.configured() && !USBDevice.isSuspended(); }
+// The PC sends a USB frame every millisecond while it's on; the frame number stops when it sleeps or shuts down.
+bool framesArriving() {
+  uint16_t frame = UDFNUML | ((uint16_t)UDFNUMH << 8);
+  unsigned long now = millis();
+  if (frame != lastFrame) {
+    lastFrame = frame;
+    lastFrameAt = now;
+  }
+  return now - lastFrameAt < FRAMES_GONE_MS;
+}
+
+bool pcAwake() { return USBDevice.configured() && !USBDevice.isSuspended() && framesArriving(); }
 
 // Only while the PC is awake: sending anything while it sleeps would wake it.
 void report(const __FlashStringHelper *text) {
@@ -219,10 +262,24 @@ void watchPower() {
   if (now - rawSince >= (awake ? AWAKE_STABLE_MS : ASLEEP_STABLE_MS) && pcOn != (awake ? 1 : 0)) {
     bool justStarted = pcOn < 0;
     pcOn = awake ? 1 : 0;
-    if (justStarted) tvOn = awake;         // just powered up: assume the TV matches the PC
-    else setTv(awake);                     // the TV follows the PC
+    if (justStarted) {
+      // Just started. After a power cut the TV is off like the PC, so assume it matches the PC; but if CouchTV
+      // said the PC was about to go off or restart, the TV was on, and this start was the PC's USB power blinking.
+      tvOn = awake || plan != PLAN_NONE;
+      if (plan == PLAN_OFF && !awake) {
+        setTv(false);
+        setPlan(PLAN_NONE);
+      }
+      planSince = now;
+    } else if (plan == PLAN_RESTART) {
+      if (awake) setPlan(PLAN_NONE);       // back from the restart: the TV stayed as it was
+    } else {
+      setTv(awake);                        // the TV follows the PC
+      if (!awake && plan == PLAN_OFF) setPlan(PLAN_NONE);
+    }
     if (awake) wakeDeadline = 0;
   }
+  if (plan != PLAN_NONE && now - planSince > PLAN_MAX_MS) setPlan(PLAN_NONE);   // it didn't happen after all
 
   if (wakeDeadline != 0) {
     if (awake) wakeDeadline = 0;
@@ -300,7 +357,15 @@ void runCommand(const char *text) {
     Serial.print(F(" SENSE "));
     Serial.print(sensing() ? F("ON") : F("OFF"));
     Serial.print(F(" RELAY "));
-    Serial.println((flags & FLAG_RELAY_HIGH) ? F("HIGH") : F("LOW"));
+    Serial.print((flags & FLAG_RELAY_HIGH) ? F("HIGH") : F("LOW"));
+    Serial.print(F(" BOOTS "));
+    Serial.println(boots);
+  } else if (strcmp(text, "OFF SOON") == 0) {
+    setPlan(PLAN_OFF);
+    Serial.println(F("OK"));
+  } else if (strcmp(text, "RESTART SOON") == 0) {
+    setPlan(PLAN_RESTART);
+    Serial.println(F("OK"));
   } else if (strcmp(text, "PRESS PC") == 0 || strcmp(text, "PRESS TV") == 0) {
     bool pc = text[6] == 'P';
     press(pc ? PC_RELAY : TV_RELAY, pc ? PC_PRESS_MS : TV_PRESS_MS);

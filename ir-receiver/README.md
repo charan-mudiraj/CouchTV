@@ -78,6 +78,7 @@ With a **2-channel 5 V relay module** (the common blue one with optocouplers, ab
 - **Power while the PC is asleep or off**, even after a power cut: the PC and the TV both come on. (Asleep, the PC is woken over USB; if that doesn't work within 8 seconds, or it was shut down, its power button is pressed.)
 - **The TV follows the PC.** When the PC sleeps or shuts down, whatever did it (Power, the sleep timer, idle, Windows' menu), the TV goes off a few seconds later; when the PC wakes or starts, the TV comes on.
 - **Power while the PC is on** is still CouchTV's: it puts the PC to sleep, and the TV follows.
+- **CouchTV's Turn off and Restart** tell the receiver first, so the TV goes off once the PC has shut down, and stays on through a restart, even if the PC's USB power blinks and restarts the receiver as the PC goes off.
 - **Your own buttons keep working**, because the relays are wired alongside them.
 
 **Wiring.** The board has one 5 V socket, so a mini breadboard shares it between the sensor and the relay module:
@@ -97,7 +98,7 @@ Leave the module's **JD-VCC jumper** on. Then each relay's screw terminals take 
 
 **In the BIOS:** set **ErP** to *Disabled*, so the USB ports, and the receiver, stay powered while the PC is off.
 
-**Serial Monitor commands** for testing: `STATE` (what the receiver thinks: PC on or off, TV on or off), `PRESS PC` and `PRESS TV` (one press, to check the wiring), `SENSE ON` / `SENSE OFF`, and `RELAY HIGH` for the rare module that switches on with a high input (most switch on low; `RELAY LOW` goes back).
+**Serial Monitor commands** for testing: `STATE` (what the receiver thinks: PC on or off, TV on or off, and how many times it has started; CouchTV also writes this line into its log when it connects), `PRESS PC` and `PRESS TV` (one press, to check the wiring), `SENSE ON` / `SENSE OFF`, and `RELAY HIGH` for the rare module that switches on with a high input (most switch on low; `RELAY LOW` goes back).
 
 ## Getting clean, reliable reception
 

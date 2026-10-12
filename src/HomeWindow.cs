@@ -806,10 +806,10 @@ namespace CouchTV
                     CycleSleepTimer();
                     break;
                 case "restart":
-                    Confirm("Restart the TV?", "It will come back to this screen in about a minute.", "Restart", () => Shell.Shutdown(true));
+                    Confirm("Restart the TV?", "It will come back to this screen in about a minute.", "Restart", () => ShutDown(true));
                     break;
                 case "shutdown":
-                    Confirm("Turn off the TV?", "To turn it on again, press the power button on the PC. Sleep (the moon) is faster: it wakes up in a couple of seconds.", "Turn off", () => Shell.Shutdown(false));
+                    Confirm("Turn off the TV?", "To turn it on again, press the power button on the PC. Sleep (the moon) is faster: it wakes up in a couple of seconds.", "Turn off", () => ShutDown(false));
                     break;
                 case "desktop":
                     GoDesktop();
@@ -1337,6 +1337,22 @@ namespace CouchTV
         }
 
         // ================================================================ lifetime
+
+        /// <summary>
+        /// Shuts down or restarts, telling the receiver first: with the relay, it switches the TV off once the PC is off,
+        /// or leaves it on through a restart, even if the PC's USB power blinks and restarts the receiver meanwhile.
+        /// </summary>
+        void ShutDown(bool restart)
+        {
+            if (_ir != null) _ir.Send(restart ? "RESTART SOON" : "OFF SOON");
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };   // time to send it
+            timer.Tick += (s, e) =>
+            {
+                timer.Stop();
+                Shell.Shutdown(restart);
+            };
+            timer.Start();
+        }
 
         protected override void OnClosing(CancelEventArgs e)
         {

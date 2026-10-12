@@ -92,6 +92,7 @@ namespace CouchTV
                             var pending = new StringBuilder();
                             if (handle == null || !Handshake(handle, pending)) continue;
                             SetPort(port);
+                            _outbox.Enqueue("STATE");   // into the log: PC and TV as the receiver sees them, times started
                             Pump(handle, pending);
                             SetPort(null);
                         }
@@ -141,6 +142,7 @@ namespace CouchTV
 
         void Handle(string line)
         {
+            if (line.StartsWith("STATE ") || line.StartsWith("POWER ")) Log.Info("IR receiver: " + line);
             IrSignal signal = ParseLine(line);
             if (signal == null) return;
             _ui.BeginInvoke(new Action(() =>
