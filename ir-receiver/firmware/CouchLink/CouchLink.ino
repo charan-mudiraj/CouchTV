@@ -37,6 +37,7 @@
 const char VERSION[] = "1";
 const char HOST_NAME[] = "couchtv-board";
 const char SETUP_NAME[] = "CouchTV-Setup";
+const char HTML[] = "text/html; charset=utf-8";   // Wi-Fi names can have emoji in them
 const uint16_t UDP_PORT = 47710;
 const int LEONARDO_RX = 16, LEONARDO_TX = 17;   // Serial2
 const int BOOT_BUTTON = 0;
@@ -123,7 +124,7 @@ void handleUdp() {
 
 // ---------------------------------------------------------------- web pages
 
-const char STYLE[] PROGMEM = "<meta name=viewport content='width=device-width,initial-scale=1'>"
+const char STYLE[] PROGMEM = "<meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
   "<style>body{font-family:sans-serif;background:#0b0e14;color:#f4f6fa;margin:0;padding:24px;max-width:480px}"
   "h1{font-size:22px}p,label{color:#a3acbc}input,select,button{font-size:18px;width:100%;box-sizing:border-box;"
   "margin:6px 0 14px;padding:12px;border-radius:12px;border:1px solid #3a4458;background:#1c222d;color:#f4f6fa}"
@@ -154,7 +155,7 @@ void pageHome() {
   page += "<form method=post action=/power><button>Power</button></form>";
   page += "<p>Wi-Fi: " + escape(WiFi.SSID()) + " &middot; " + WiFi.localIP().toString() + " &middot; MAC " + WiFi.macAddress() + "</p>";
   page += "<p><a style='color:#3ddc84' href=/setup>Change Wi-Fi</a></p>";
-  web.send(200, "text/html", page);
+  web.send(200, HTML, page);
 }
 
 void pagePower() {
@@ -166,7 +167,7 @@ void pagePower() {
 void pageSetup() {
   int found = WiFi.scanNetworks();
   String page = String(FPSTR(STYLE)) + "<title>CouchTV board setup</title><h1>Connect the CouchTV board to your Wi-Fi</h1>";
-  page += "<form method=post action=/save><label>Wi-Fi</label><select name=ssid>";
+  page += "<form method=post action=/save accept-charset=utf-8><label>Wi-Fi</label><select name=ssid>";
   for (int i = 0; i < found; i++) {
     String name = WiFi.SSID(i);
     if (name.length() == 0) continue;
@@ -175,18 +176,18 @@ void pageSetup() {
   page += "</select><label>Password</label><input name=password type=password autocomplete=off>";
   page += "<button style='background:#3ddc84;color:#0b0e14'>Save and connect</button></form>";
   page += "<p>It only works with 2.4 GHz Wi-Fi. The password stays on this board.</p>";
-  web.send(200, "text/html", page);
+  web.send(200, HTML, page);
 }
 
 void pageSave() {
   String newSsid = web.arg("ssid"), newPassword = web.arg("password");
   if (newSsid.length() == 0) {
-    web.send(400, "text/html", String(FPSTR(STYLE)) + "<p>Pick a Wi-Fi network.</p>");
+    web.send(400, HTML, String(FPSTR(STYLE)) + "<p>Pick a Wi-Fi network.</p>");
     return;
   }
   prefs.putString("ssid", newSsid);
   prefs.putString("password", newPassword);
-  web.send(200, "text/html", String(FPSTR(STYLE)) + "<h1>Saved</h1><p>The board is joining " + escape(newSsid) +
+  web.send(200, HTML, String(FPSTR(STYLE)) + "<h1>Saved</h1><p>The board is joining " + escape(newSsid) +
     ". Reconnect this phone to your Wi-Fi. If the board can't join, CouchTV-Setup comes back so you can try again.</p>");
   delay(1500);
   ESP.restart();
