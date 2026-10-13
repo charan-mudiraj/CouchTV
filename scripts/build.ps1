@@ -24,6 +24,8 @@ $references = @(
     (Join-Path $framework 'System.IO.Compression.dll'),
     (Join-Path $framework 'System.IO.Compression.FileSystem.dll'),
     (Join-Path $framework 'System.Security.dll'),
+    (Join-Path $framework 'WPF\UIAutomationClient.dll'),
+    (Join-Path $framework 'WPF\UIAutomationTypes.dll'),
     'System.dll'
 )
 $cscArgs = @('/nologo', '/target:winexe', '/platform:anycpu', '/optimize+', '/codepage:65001', "/out:$exe",

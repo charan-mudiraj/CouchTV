@@ -410,7 +410,59 @@
                 </LinearLayout>
             </LinearLayout>
 
-            <!-- 4. Your own buttons, and the app's version -->
+            <!-- 4. A PC keyboard, and typing with this phone's own -->
+            <LinearLayout
+                style="@style/Page"
+                android:paddingStart="6dp"
+                android:paddingEnd="6dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="4dp">
+
+                    <TextView
+                        style="@style/PageTitle"
+                        android:layout_width="0dp"
+                        android:layout_marginBottom="0dp"
+                        android:layout_weight="1"
+                        android:text="@string/keyboard" />
+
+                    <!-- Type into the TV with this phone's own keyboard -->
+                    <TextView
+                        android:id="@+id/keyboard_type"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="sans-serif-medium"
+                        android:padding="10dp"
+                        android:text="@string/keyboard_type"
+                        android:textColor="@color/good"
+                        android:textSize="15sp" />
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="14dp"
+                    android:text="@string/keyboard_help"
+                    android:textColor="@color/muted"
+                    android:textSize="13sp" />
+
+                <com.couchtv.remote.KeyboardView
+                    android:id="@+id/keyboard"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_marginTop="8dp"
+                    android:layout_marginBottom="6dp"
+                    android:layout_weight="1"
+                    android:contentDescription="@string/keyboard" />
+            </LinearLayout>
+
+            <!-- 5. Your own buttons, and the app's version -->
             <LinearLayout style="@style/Page">
 
                 <LinearLayout

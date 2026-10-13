@@ -740,6 +740,85 @@ namespace CouchTV
             return 0;
         }
 
+        static string TypingLine(string kind, string name, string value)
+        {
+            return "INPUT " + kind + " " + Convert.ToBase64String(Encoding.UTF8.GetBytes(name)) + " " + Convert.ToBase64String(Encoding.UTF8.GetBytes(value));
+        }
+
+        /// <summary>
+        /// CouchTV.exe --typingtest report.txt: shows a small window with a text box, a password box, a read-only box and
+        /// a button (another CouchTV.exe, without taking the focus or typing anything), and checks which of them
+        /// TypingWatch would pop the phone's keyboard up for, through UI Automation as with any app.
+        /// </summary>
+        public static int TypingTest(string path)
+        {
+            var report = new StringBuilder();
+            int failures = 0;
+            Action<string, bool> check = (name, ok) =>
+            {
+                report.AppendLine((ok ? "PASS  " : "FAIL  ") + name);
+                if (!ok) failures++;
+            };
+            System.Diagnostics.Process target = null;
+            try
+            {
+                target = System.Diagnostics.Process.Start(System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName, "--typingtarget");
+                var titled = new System.Windows.Automation.PropertyCondition(System.Windows.Automation.AutomationElement.NameProperty, "CouchTV typing test");
+                System.Windows.Automation.AutomationElement root = null;
+                for (int i = 0; i < 100 && root == null; i++)
+                {
+                    System.Threading.Thread.Sleep(100);
+                    root = System.Windows.Automation.AutomationElement.RootElement.FindFirst(System.Windows.Automation.TreeScope.Children, titled);
+                }
+                if (root == null) throw new Exception("the test window didn't appear");
+                var watch = new TypingWatch();
+                Func<string, TypingField> describe = name =>
+                {
+                    var element = root.FindFirst(System.Windows.Automation.TreeScope.Descendants,
+                        new System.Windows.Automation.PropertyCondition(System.Windows.Automation.AutomationElement.NameProperty, name));
+                    return element == null ? null : watch.Describe(element);
+                };
+                TypingField box = describe("Test box"), password = describe("Test password"), readOnly = describe("Test read-only"), button = describe("Test button");
+                check("typing: a text box pops the keyboard up, with what's in it", box != null && !box.Password && box.Name == "Test box" && box.Value == "hello");
+                check("typing: a password box too, without its value", password != null && password.Password && password.Value == "");
+                check("typing: not a read-only box", readOnly == null);
+                check("typing: not a button", button == null);
+            }
+            catch (Exception ex) { check("typing: " + ex.Message, false); }
+            finally
+            {
+                try { if (target != null && !target.HasExited) target.Kill(); } catch (Exception) { }
+            }
+            report.AppendLine(failures == 0 ? "All passed" : failures + " failed");
+            File.WriteAllText(path, report.ToString());
+            return failures == 0 ? 0 : 1;
+        }
+
+        /// <summary>The window --typingtest looks at: shown without taking the focus, gone after 20 s at the latest.</summary>
+        public static int TypingTarget()
+        {
+            var panel = new System.Windows.Controls.StackPanel { Margin = new Thickness(10) };
+            var box = new System.Windows.Controls.TextBox { Text = "hello" };
+            System.Windows.Automation.AutomationProperties.SetName(box, "Test box");
+            var password = new System.Windows.Controls.PasswordBox { Password = "secret" };
+            System.Windows.Automation.AutomationProperties.SetName(password, "Test password");
+            var readOnly = new System.Windows.Controls.TextBox { Text = "fixed", IsReadOnly = true };
+            System.Windows.Automation.AutomationProperties.SetName(readOnly, "Test read-only");
+            var button = new System.Windows.Controls.Button { Content = "Button" };
+            System.Windows.Automation.AutomationProperties.SetName(button, "Test button");
+            foreach (UIElement e in new UIElement[] { box, password, readOnly, button }) panel.Children.Add(e);
+            var window = new Window
+            {
+                Title = "CouchTV typing test", Content = panel, Width = 240, Height = 200, Left = 0, Top = 0,
+                ShowActivated = false, ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual,
+            };
+            var app = new Application();
+            var quit = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(20) };
+            quit.Tick += (s, e) => app.Shutdown();
+            quit.Start();
+            return app.Run(window);
+        }
+
         static string BoardTag(byte[] key, string message)
         {
             return Secure.Hex(Secure.Take(Secure.Hmac(key, Encoding.ASCII.GetBytes(message)), 0, Secure.TagBytes));
@@ -861,6 +940,8 @@ namespace CouchTV
             var words = new List<string>();
             var pointer = new List<string>();
             var pairing = new List<string>();
+            var typed = new List<string>();
+            var phonesNow = new List<int>();
             string shown = null;
             PhoneStore phones = PhoneStore.InMemory();
             var server = new RemoteServer(null, phones, 47790, 47791, System.Net.IPAddress.Loopback);
@@ -870,6 +951,9 @@ namespace CouchTV
             server.MouseButton = (r, d) => { lock (pointer) pointer.Add((r ? "right " : "left ") + (d ? "down" : "up")); };
             server.PointerLook += (st, sz, co) => { lock (pointer) pointer.Add("look " + st + " " + sz + " " + co); };
             server.Text += t => { lock (words) words.Add(t); };
+            server.KeyChange = (vk, down) => { lock (typed) typed.Add("key " + vk.ToString("X2") + (down ? " down" : " up")); };
+            server.TypeText = (back, text) => { lock (typed) typed.Add("edit " + back + " " + text); };
+            server.PhonesChanged += count => { lock (phonesNow) phonesNow.Add(count); };
             server.PairingCode += (name, digits) => { lock (pairing) { shown = digits; pairing.Add(name + " shown"); } };
             server.PairingEnded += (name, outcome) => { lock (pairing) pairing.Add(name + " " + outcome); };
             Func<string> code = () => { lock (pairing) return shown; };
@@ -931,6 +1015,20 @@ namespace CouchTV
                     check("Wi-Fi: PING gets PONG", a.Receive() == "PONG");
                     a.Send("SOUND");
                     check("Wi-Fi: SOUND gets the sound session (for the phone's sound service)", a.Receive() == "AUDIO " + session);
+                    server.ShowTyping(new TypingField { Name = "Search", Value = "abc" });
+                    check("Wi-Fi: a text box getting the focus on the TV is told to the phone", a.Receive() == TypingLine("TEXT", "Search", "abc"));
+                    server.ShowTyping(new TypingField { Name = "Password", Password = true });
+                    check("Wi-Fi: ...a password box too (its value never sent)", a.Receive() == TypingLine("PASSWORD", "Password", ""));
+                    server.ShowTyping(null);
+                    check("Wi-Fi: ...and when it loses it", a.Receive() == "INPUT OFF");
+                    a.Send("KEY A2 D");      // Ctrl, still held when the phone leaves
+                    a.Send("KEY 43 D");
+                    a.Send("KEY 43 U");
+                    a.Send("KEY ZZ D");      // ignored
+                    a.Send("KEY 00 D");      // ignored
+                    a.Send("EDIT 2 " + Convert.ToBase64String(Encoding.UTF8.GetBytes("नमस्ते 👋")));
+                    a.Send("EDIT 0");
+                    a.Send("EDIT 9999 eA==");   // ignored: too many backspaces
                     a.Send("BTN CE 05 N");
                     a.Send("BTN CE 06 R");
                     a.Send("BTN ZZ 06 N");   // ignored
@@ -951,10 +1049,23 @@ namespace CouchTV
                 lock (words) check("Wi-Fi: words arrive whole, Hindi included", words.Count == 1 && words[0] == "पंचायत season 3");
                 lock (pointer) check("Wi-Fi: the trackpad moves, scrolls and drags; a phone that leaves mid-drag lets go",
                     string.Join(", ", pointer) == "move 12 -7, wheel -240, hwheel 36, left down, move 3 4, look dot 96 yellow, left up");
+                lock (typed) check("Wi-Fi: the keyboard's keys and typed words arrive; a phone that leaves lets go of its keys (" + string.Join(", ", typed) + ")",
+                    string.Join(", ", typed) == "key A2 down, key 43 down, key 43 up, edit 2 नमस्ते 👋, edit 0 , key A2 up");
+                lock (phonesNow) check("Wi-Fi: the TV knows when a phone is connected as a remote (it watches for text boxes meanwhile)",
+                    string.Join(",", phonesNow) == "1,0");
+
+                server.ShowTyping(new TypingField { Name = "Search", Value = "" });   // no phone to tell yet
 
                 using (var a = new TestPhone(idA))
                 {
                     check("Wi-Fi: the paired phone comes back without pairing again", a.Hello(47791) == "KNOWN" && a.Auth(pairKey));
+                    a.Send("HELLO CouchTV-Remote test");
+                    a.Receive();
+                    a.Receive();
+                    a.Receive();
+                    check("Wi-Fi: a phone that connects while a text box has the focus is told", a.Receive() == TypingLine("TEXT", "Search", ""));
+                    server.ShowTyping(null);
+                    a.Receive();
                     string ping = a.Channel.Seal("PING");
                     a.Write(ping);
                     check("Wi-Fi: ...and works", a.Receive() == "PONG");

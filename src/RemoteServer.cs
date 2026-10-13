@@ -29,6 +29,10 @@ namespace CouchTV
     ///     WHEEL &lt;dy&gt; [&lt;dx&gt;]         scroll (120 = a mouse wheel notch; up/right when positive)
     ///     MOUSE L|R D|U             a mouse button down or up (a phone that drops lets go of what it held)
     ///     POINTER &lt;style&gt; &lt;size&gt; &lt;colour&gt;   the pointer's look, e.g. "POINTER arrow 64 white"
+    ///     KEY &lt;vk&gt; D|U             the keyboard page: a PC key down or up (Windows virtual-key code, hex)
+    ///     EDIT &lt;backspaces&gt; &lt;base64 UTF-8&gt;   the phone's own keyboard: delete that many, then type the text
+    ///                  →  INPUT TEXT|PASSWORD &lt;name&gt; &lt;value&gt;, INPUT OFF   a text box got (or lost) the focus on the
+    ///                               TV, so the phone pops up its keyboard: told to the phone used last
     /// Buttons go through the same remote.ini mapping as infrared ones, so both remotes behave the same.
     /// </summary>
     internal sealed class RemoteServer
@@ -46,6 +50,7 @@ namespace CouchTV
         public event Action<string, int, string> PointerLook;   // the phone chose a pointer: style, size, colour (UI thread)
         public event Action<string, string> PairingCode;    // a phone asked to pair: its name and the code to show (UI thread)
         public event Action<string, string> PairingEnded;   // its name and "paired", "wrong", "failed" or "cancelled" (UI thread)
+        public event Action<int> PhonesChanged;              // how many phones are connected as remotes now (UI thread)
 
         /// <summary>The pointer's look now ("arrow 64 white"), told to each phone as it connects.</summary>
         internal Func<string> CurrentPointer;
@@ -55,6 +60,8 @@ namespace CouchTV
         internal Action<int, int> Move = Input.MoveBy;
         internal Action<int, bool> Wheel = Input.WheelBy;           // delta, horizontal
         internal Action<bool, bool> MouseButton = Input.Button;     // right, down
+        internal Action<int, bool> KeyChange = (vk, down) => Input.KeyChange((uint)vk, down);
+        internal Action<int, string> TypeText = Input.Edit;         // backspaces, then text
 
         readonly Dispatcher _ui;
         readonly PhoneStore _phones;
@@ -64,6 +71,9 @@ namespace CouchTV
         readonly object _pairLock = new object();
         readonly List<DateTime> _pairStarts = new List<DateTime>(), _wrongCodes = new List<DateTime>();
         bool _pairingNow;
+        readonly object _typingLock = new object();
+        TypingField _typing;          // the text box with the focus on the TV, if any...
+        RemoteSession _typingTold;    // ...and the phone told about it
         volatile bool _stop;
         UdpClient _udp;
         TcpListener _tcp;
@@ -193,6 +203,7 @@ namespace CouchTV
         {
             string who = "?";
             var held = new bool[2];   // the left and right mouse buttons this phone holds down
+            var keys = new HashSet<int>();   // and the keys
             RemoteSession session = null;
             Channel channel = null;
             try
@@ -213,6 +224,8 @@ namespace CouchTV
                 }
                 channel = Handshake(client, stream, lines, hello, who, out session);
                 if (channel == null) return;
+                session.Stream = stream;
+                session.Channel = channel;
                 lock (_sessions) _sessions[session.Id] = session;
                 string line;
                 while (!_stop && (line = lines.Read()) != null)
@@ -223,9 +236,9 @@ namespace CouchTV
                         Log.Info("Wi-Fi remote " + who + ": a line that wasn't from the paired phone; disconnected");
                         break;
                     }
-                    string reply = Handle(plain.Trim(), who, held, session);
+                    string reply = Handle(plain.Trim(), who, held, session, keys);
                     if (reply != null)
-                        foreach (string r in reply.Split('\n')) Send(stream, channel.Seal(r));
+                        foreach (string r in reply.Split('\n')) session.Send(r);
                 }
             }
             catch (IOException) { }   // timed out or dropped: the phone went away
@@ -237,11 +250,13 @@ namespace CouchTV
                 {
                     session.Closed = true;
                     lock (_sessions) _sessions.Remove(session.Id);
+                    if (session.Remote) Raise(() => { if (PhonesChanged != null) PhonesChanged(Phones()); });
                 }
-                if (channel != null) channel.Dispose();
+                if (channel != null) lock (session.SendLock) channel.Dispose();
                 client.Close();
-                // A phone that went away mid-drag mustn't leave a mouse button stuck down.
+                // A phone that went away mid-drag mustn't leave a mouse button (or Ctrl, say) stuck down.
                 for (int i = 0; i < held.Length; i++) if (held[i]) MouseButton(i == 1, false);
+                foreach (int vk in keys) KeyChange(vk, false);
             }
         }
 
@@ -443,18 +458,34 @@ namespace CouchTV
         // ---------------------------------------------------------------- what a paired phone says
 
         /// <summary>One line from a phone; returns the answer, if any (lines split by \n). held: the mouse buttons it holds down.</summary>
-        internal string Handle(string line, string who, bool[] held = null, RemoteSession session = null)
+        internal string Handle(string line, string who, bool[] held = null, RemoteSession session = null, HashSet<int> keys = null)
         {
             string[] parts = line.Split(' ');
             int dx, dy;
+            if (session != null && parts[0] != "PING" && parts[0] != "SOUND") session.LastUsed = DateTime.UtcNow;
             switch (parts[0])
             {
                 case "HELLO":
                     Log.Info("Wi-Fi remote connected: " + who + (session != null ? ", " + session.Name : "") + " (" + line + ")");
                     Raise(() => { if (Connected != null) Connected(who); });
                     Func<string> pointer = CurrentPointer;
-                    return "WELCOME " + TvName + (pointer != null ? "\nPOINTER " + pointer() : "") +
-                           (session != null ? "\nBOARD " + Secure.Hex(_phones.BoardKey) + "\nAUDIO " + session.Id : "");
+                    string welcome = "WELCOME " + TvName + (pointer != null ? "\nPOINTER " + pointer() : "") +
+                                     (session != null ? "\nBOARD " + Secure.Hex(_phones.BoardKey) + "\nAUDIO " + session.Id : "");
+                    if (session != null && !session.Remote)
+                    {
+                        session.Remote = true;
+                        Raise(() => { if (PhonesChanged != null) PhonesChanged(Phones()); });
+                        lock (_typingLock)
+                        {
+                            // A text box already has the focus, and no phone knows: this one does now.
+                            if (_typing != null && (_typingTold == null || _typingTold.Closed))
+                            {
+                                _typingTold = session;
+                                welcome += "\n" + TypingLine(_typing);
+                            }
+                        }
+                    }
+                    return welcome;
                 case "PING":
                     return "PONG";
                 case "SOUND":   // the phone's sound service, on a connection of its own: just its session id
@@ -501,9 +532,77 @@ namespace CouchTV
                         MouseButton(right, down);
                     }
                     return null;
+                case "KEY":
+                    int vk;
+                    if (parts.Length >= 3 && TryHex(parts[1], out vk) && vk > 0 && vk < 0xFF && (parts[2] == "D" || parts[2] == "U"))
+                    {
+                        bool down = parts[2] == "D";
+                        if (keys != null)
+                        {
+                            if (down) keys.Add(vk);
+                            else keys.Remove(vk);
+                        }
+                        KeyChange(vk, down);
+                    }
+                    return null;
+                case "EDIT":
+                    int backspaces;
+                    if (parts.Length >= 2 && TryInt(parts[1], 1000, out backspaces) && backspaces >= 0)
+                    {
+                        string typed = "";
+                        if (parts.Length >= 3)
+                        {
+                            try { typed = new UTF8Encoding(false, true).GetString(Convert.FromBase64String(parts[2])); }
+                            catch (FormatException) { return null; }
+                            catch (ArgumentException) { return null; }
+                        }
+                        if (typed.Length <= 2000) TypeText(backspaces, typed);
+                    }
+                    return null;
                 default:
                     return null;
             }
+        }
+
+        int Phones()
+        {
+            int count = 0;
+            lock (_sessions)
+                foreach (RemoteSession s in _sessions.Values)
+                    if (s.Remote && !s.Closed) count++;
+            return count;
+        }
+
+        /// <summary>
+        /// A text box got the focus on the TV (or none has it now: null): tells the phone used last, so it pops up its
+        /// keyboard (and tells one that was told before that it's gone). From any thread.
+        /// </summary>
+        public void ShowTyping(TypingField field)
+        {
+            lock (_typingLock)
+            {
+                _typing = field;
+                RemoteSession target = null;
+                if (field != null)
+                    lock (_sessions)
+                        foreach (RemoteSession s in _sessions.Values)
+                            if (s.Remote && !s.Closed && (target == null || s.LastUsed > target.LastUsed)) target = s;
+                if (_typingTold != null && _typingTold != target && !_typingTold.Closed) TrySend(_typingTold, "INPUT OFF");
+                _typingTold = target;
+                if (target != null) TrySend(target, TypingLine(field));
+            }
+        }
+
+        static string TypingLine(TypingField field)
+        {
+            return "INPUT " + (field.Password ? "PASSWORD " : "TEXT ") + Convert.ToBase64String(Secure.Utf8(field.Name)) + " " +
+                   Convert.ToBase64String(Secure.Utf8(field.Value));
+        }
+
+        static void TrySend(RemoteSession session, string line)
+        {
+            try { session.Send(line); }
+            catch (Exception) { }   // it's going away; its own thread tidies up
         }
 
         static bool TryInt(string s, int most, out int value)
@@ -586,6 +685,21 @@ namespace CouchTV
         public byte[] AudioEnc, AudioMac;
         public long LastListen;        // the number of its last sound request: each must be higher (no replays)
         public volatile bool Closed;
+        public volatile bool Remote;   // said HELLO: the remote itself (not the phone's sound service)
+        public DateTime LastUsed;      // when it last sent a button, words, a pointer move... (to tell it about text boxes)
         internal TcpClient Client;
+        internal Stream Stream;
+        internal Channel Channel;
+        internal readonly object SendLock = new object();
+
+        /// <summary>Encrypts and sends one line; from any thread (one at a time, in order).</summary>
+        internal void Send(string line)
+        {
+            lock (SendLock)
+            {
+                byte[] bytes = Secure.Utf8(Channel.Seal(line) + "\n");
+                Stream.Write(bytes, 0, bytes.Length);
+            }
+        }
     }
 }

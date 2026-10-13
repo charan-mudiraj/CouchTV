@@ -49,6 +49,7 @@ namespace CouchTV
         public bool Updates = true;
         public string UpdateRepo = "charan-mudiraj/CouchTV", UpdateBranch = "main";
         public bool SmartSearch = true;                       // AI search, when a Gemini key is set
+        public bool TypeOnPhone = true;                       // a text box gets focus: the phone's keyboard pops up
         public string AiModel = "gemini-flash-lite-latest";
         public string PointerStyle = "arrow", PointerColor = "white";   // see Pointer.cs
         public int PointerSize = Pointer.DefaultSize;
@@ -168,6 +169,7 @@ namespace CouchTV
             UpdateRepo = Get(v, "UpdateRepo", UpdateRepo);
             UpdateBranch = Get(v, "UpdateBranch", UpdateBranch);
             SmartSearch = GetBool(v, "SmartSearch", true);
+            TypeOnPhone = GetBool(v, "TypeOnPhone", true);
             AiModel = Get(v, "AiModel", AiModel);
             PointerStyle = Get(v, "PointerStyle", PointerStyle);
             PointerColor = Get(v, "PointerColor", PointerColor);

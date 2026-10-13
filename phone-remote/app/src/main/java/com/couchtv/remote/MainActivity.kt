@@ -42,6 +42,10 @@ class MainActivity : Activity() {
     private lateinit var store: CustomButtons
     private lateinit var myButtons: MutableList<CustomButton>
     private var editing = false
+    private lateinit var keyboard: KeyboardView
+    private lateinit var typingBox: TypingBox
+    private var resumed = false
+    private var pendingTyping: WifiLink.TypingField? = null   // a text box got the focus while this was in the background
 
     // Updates from GitHub
     private lateinit var updater: AppUpdater
@@ -83,6 +87,27 @@ class MainActivity : Activity() {
             override fun onStop() = remote.pointerStop()
         }
         findViewById<View>(R.id.pointer_look).setOnClickListener { choosePointer() }
+
+        // The PC keyboard page, and typing into the TV's text boxes with this phone's own keyboard.
+        keyboard = findViewById(R.id.keyboard)
+        keyboard.listener = KeyboardView.Listener { vk, down -> if (remote.wifi.connected) remote.wifi.key(vk, down) }
+        keyboard.hint = if (remote.wifi.tvName == null) getString(R.string.keyboard_offline) else null
+        typingBox = TypingBox(this, remote.wifi)
+        findViewById<View>(R.id.keyboard_type).setOnClickListener {
+            if (remote.wifi.connected) typingBox.show(null) else toast(getString(R.string.keyboard_offline))
+        }
+        remote.wifi.onTyping = { field ->
+            when {
+                field == null -> {
+                    pendingTyping = null
+                    typingBox.close()
+                }
+                resumed -> typingBox.show(field)
+                else -> {
+                    pendingTyping = field
+                }
+            }
+        }
         // The trackpad's buttons, held down for as long as the finger is (to drag with another finger on the pad).
         bindHold(findViewById<View>(R.id.left_click), { remote.pointerButton(false, true) }, { remote.pointerButton(false, false) })
         bindHold(findViewById<View>(R.id.right_click), { remote.pointerButton(true, true) }, { remote.pointerButton(true, false) })
@@ -130,7 +155,10 @@ class MainActivity : Activity() {
         val dots = findViewById<PageDots>(R.id.dots)
         dots.count = pager.pageCount
         dots.current = pager.page
-        pager.onPageChanged = { dots.current = it }
+        pager.onPageChanged = {
+            dots.current = it
+            keyboard.releaseAll()   // nothing stays held down on the TV after leaving the keyboard
+        }
         dots.onPick = { pager.go(it) }
         InstallReceiver.onFailure = { message ->
             updating = false
@@ -182,6 +210,8 @@ class MainActivity : Activity() {
 
     override fun onPause() {
         voice.stop()
+        keyboard.releaseAll()
+        resumed = false
         super.onPause()
     }
 
@@ -255,6 +285,11 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        resumed = true
+        pendingTyping?.let {
+            pendingTyping = null
+            typingBox.show(it)
+        }
         if (installStarted) {
             // Back from Android's install screen without updating (if it had updated, this app would have restarted).
             installStarted = false
@@ -363,6 +398,7 @@ class MainActivity : Activity() {
         status.setOnClickListener { if (remote.wifi.unpairedTv != null) showPairing() else editTvAddress() }
         findViewById<TrackpadView>(R.id.trackpad).hint =
             if (tv == null && !remote.ir.available) getString(R.string.trackpad_offline) else null
+        if (::keyboard.isInitialized) keyboard.hint = if (tv == null) getString(R.string.keyboard_offline) else null
     }
 
     private fun onOff(on: Boolean) = getString(if (on) R.string.state_on else R.string.state_off)

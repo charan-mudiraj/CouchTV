@@ -14,7 +14,8 @@ Everything fits the screen; nothing scrolls up or down. The top stays put (the c
 1. **Remote:** search, the D-pad, Back / Home / Menu, volume and Play-Pause.
 2. **Apps:** big tiles for Netflix, YouTube, Prime Video, JioHotstar and Web, plus the TV's Exit, Full screen, Sleep timer and Delete.
 3. **Trackpad:** like a laptop's, with Left and Right click buttons below it.
-4. **My buttons:** your own buttons, and the app's version.
+4. **Keyboard:** a full PC keyboard, function keys and all.
+5. **My buttons:** your own buttons, and the app's version.
 
 The D-pad, trackpad and grids size themselves to the phone's screen. The keys look and feel like a real remote's: raised, with their sides showing, they sink when pressed and click under your finger (a short vibration going down, and a lighter one coming up on phones with a precise vibration motor).
 
@@ -27,6 +28,8 @@ The D-pad, trackpad and grids size themselves to the phone's screen. The keys lo
 - **App shortcuts:** Netflix, YouTube, Prime Video, JioHotstar, Web.
 - **The TV's sound on this phone:** the headphones button at the top (green while it plays).
 - **A trackpad** for sites that need a mouse, like a laptop's: slide to move the pointer (a quicker slide goes further), tap to click, tap twice and slide to drag; slide two fingers to scroll (a flick glides on) or tap with two to right-click. Over Wi-Fi it follows your finger exactly; over infrared the pointer moves in steps. Swipe to other pages from outside the pad. **Pointer** (top right of the page) changes how the TV's pointer looks: an arrow, a dot or a ring; Medium to Giant; white, yellow, blue, green or pink. The TV changes as you pick.
+- **A PC keyboard:** Esc and F1–F12, numbers and symbols, letters, Tab, Caps, Enter, Backspace, Shift, Ctrl, Win, Alt, the arrows, Insert / Delete / Home / End / Page Up / Page Down, Print Screen and the menu key, laid out like a real one. Shift, Ctrl, Alt and Win stay on (lit) for the next key, so one finger does Ctrl+C; tap one twice to keep it on (a bar shows) until you tap it again, for Alt then Tab, Tab… Two fingers work too: hold Ctrl and tap C. Held keys repeat. Over Wi-Fi only.
+- **Typing with this phone's own keyboard:** when a text box on the TV gets the focus (a search box, a login form), a box pops up at the top of the phone with its keyboard, already holding what the TV's box holds. What you type appears on the TV as you type it, in any language, with swipe or voice typing; **Enter** is Enter on the TV, **Clear** empties both, **Done** closes it. A password box shows dots. **Type** on the keyboard page opens it any time, to type wherever the TV's cursor is. Over Wi-Fi only (`TypeOnPhone` in the TV's couchtv.ini turns the pop-up off).
 - **My buttons:** add buttons with your own codes, then teach the TV what they do.
 
 All the codes match CouchTV's default `remote.ini`, so the app works with the TV as soon as the receiver is plugged in, with no setup.
@@ -116,6 +119,8 @@ Each button sends an NEC frame (38 kHz, address `0xCE`), then a "still held" fra
 | `MainActivity.kt` | The screen, and your own buttons |
 | `Haptics.kt`, `PressGesture.kt` | The click under the finger, and telling a press from a swipe |
 | `TrackpadView.kt` | The trackpad: moving, clicking, dragging and scrolling |
+| `KeyboardView.kt` | The PC keyboard page |
+| `TypingBox.kt` | Typing into the TV's text boxes with the phone's own keyboard |
 | `PagerView.kt`, `PageDots.kt`, `FitGrid.kt` | The sideways pages, their dots, and button grids that shrink to fit |
 | `CustomButtons.kt` | Saves your own buttons |
 

@@ -24,6 +24,7 @@ namespace CouchTV
         IrLink _ir;
         RemoteServer _wifi;
         PhoneStore _phones;
+        TypingWatch _typing;
         AudioShare _sound;
         RemoteMap _remote;
 
@@ -85,6 +86,17 @@ namespace CouchTV
             _wifi = new RemoteServer(Dispatcher, _phones);
             _wifi.PairingCode += ShowPairingCode;
             _wifi.PairingEnded += PairingEnded;
+            // A text box getting the focus pops up the phone's keyboard: watched only while a phone is connected.
+            if (_cfg.TypeOnPhone)
+            {
+                _typing = new TypingWatch();
+                _typing.Changed += _wifi.ShowTyping;
+                _wifi.PhonesChanged += count =>
+                {
+                    if (count > 0) _typing.Start();
+                    else _typing.Stop();
+                };
+            }
             _wifi.Button += OnIrSignal;
             _wifi.Text += ReceiveSearchText;
             _wifi.Connected += who => { if (IsActive && !SearchOpen) Toast("Phone remote connected over Wi-Fi"); };

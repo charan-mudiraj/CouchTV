@@ -47,6 +47,9 @@ class WifiLink(context: Context) {
     /** How a connection attempt went. */
     private enum class Outcome { NONE, CONNECTED, UNPAIRED, TOO_OLD }
 
+    /** A text box on the TV with the keyboard focus ("INPUT"): what this phone's keyboard pops up for. */
+    class TypingField(val password: Boolean, val name: String, val value: String)
+
     /** Pairing, step by step; all called on the main thread. */
     interface PairListener {
         /** The TV shows a code now: ask for it, then [typeCode]. */
@@ -77,6 +80,9 @@ class WifiLink(context: Context) {
 
     /** Called on a background thread with the key the receiver box checks Power with; the TV gives it to each paired phone. */
     var onBoardKey: ((ByteArray) -> Unit)? = null
+
+    /** Called on the main thread when a text box on the TV gets the focus, or (null) loses it, or the link drops. */
+    var onTyping: ((TypingField?) -> Unit)? = null
 
     private val app = context.applicationContext
     private val connectivity = app.getSystemService(ConnectivityManager::class.java)
@@ -154,6 +160,15 @@ class WifiLink(context: Context) {
 
     /** The trackpad: a mouse button down or up. */
     fun mouse(right: Boolean, down: Boolean) = send("MOUSE ${if (right) "R" else "L"} ${if (down) "D" else "U"}")
+
+    /** The keyboard page: a PC key (Windows virtual-key code) down or up. */
+    fun key(vk: Int, down: Boolean) = send(String.format(Locale.ROOT, "KEY %02X %s", vk and 0xFF, if (down) "D" else "U"))
+
+    /** Typing on this phone's keyboard into the TV's text box: [backspaces], then [text]. */
+    fun edit(backspaces: Int, text: String) {
+        if (backspaces == 0 && text.isEmpty()) return
+        send(if (text.isEmpty()) "EDIT $backspaces" else "EDIT $backspaces " + Base64.encodeToString(text.toByteArray(Charsets.UTF_8), Base64.NO_WRAP))
+    }
 
     /** Words for search. */
     fun text(words: String) {
@@ -397,9 +412,18 @@ class WifiLink(context: Context) {
                 }
                 line.startsWith("POINTER ") -> pointerLook = line.removePrefix("POINTER ").trim()
                 line.startsWith("BOARD ") -> Secure.fromHex(line.removePrefix("BOARD ").trim())?.takeIf { it.size == 32 }?.let { onBoardKey?.invoke(it) }
+                line.startsWith("INPUT ") -> typing(line.removePrefix("INPUT "))
             }
         }
         return Outcome.CONNECTED
+    }
+
+    /** "TEXT|PASSWORD <name> <value>" (base64), or "OFF". */
+    private fun typing(what: String) {
+        val p = what.split(" ")
+        fun decoded(i: Int) = p.getOrNull(i)?.let { runCatching { String(Base64.decode(it, Base64.DEFAULT), Charsets.UTF_8) }.getOrNull() } ?: ""
+        val field = if (p[0] == "TEXT" || p[0] == "PASSWORD") TypingField(p[0] == "PASSWORD", decoded(1), decoded(2)) else null
+        main.post { onTyping?.invoke(field) }
     }
 
     private fun send(line: String) {
@@ -416,6 +440,7 @@ class WifiLink(context: Context) {
     private fun close() {
         val s = socket
         socket = null
+        if (link != null) main.post { onTyping?.invoke(null) }   // no TV to type into
         link = null
         runCatching { s?.close() }
     }

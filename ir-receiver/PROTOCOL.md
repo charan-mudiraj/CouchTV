@@ -118,6 +118,9 @@ The same remote also works over the home network, with no pointing, and on phone
 | `MOUSE L\|R D\|U` | | the trackpad: left or right mouse button down or up; if the phone drops while holding one, CouchTV lets go of it |
 | `POINTER <style> <size> <colour>` | | the pointer's look: `arrow`, `dot` or `ring`; 32–128 pixels; `white`, `yellow`, `blue`, `green` or `pink`. CouchTV shows it at once and keeps it in couchtv.ini |
 | | `POINTER arrow 64 white` (after `WELCOME`) | the pointer's look now, so the phone can show it |
+| `KEY <vk> D\|U` | | the keyboard page: a PC key down or up, as its Windows virtual-key code in hex (`A2` left Ctrl, `43` C, `70` F1…). Sent down again every 45 ms while held, since Windows only repeats real keyboards' keys. CouchTV lets go of keys a phone still held when it drops |
+| `EDIT <backspaces> [<base64 of UTF-8>]` | | typing with the phone's own keyboard: that many Backspaces, then the text, typed as characters (any language, emoji), whatever the PC's keyboard layout; a line break is Enter |
+| | `INPUT TEXT\|PASSWORD <name> <value>`, or `INPUT OFF` | a text box got the keyboard focus on the TV (its name and what's in it, base64; a password box's value is never sent), or none has it now. Told to the phone that sent something last, which pops up its keyboard. CouchTV watches the focus with UI Automation (Windows' accessibility interface) while a phone is connected; `TypeOnPhone = off` in couchtv.ini stops it |
 
 Windows Firewall has to allow CouchTV in: the installer adds the rule *CouchTV phone remote* (CouchTV.exe, local network only). On a PC installed before Wi-Fi mode, CouchTV asks once and Windows shows its permission prompt; press F7 on the home screen to ask again. The code is `src/RemoteServer.cs` and `phone-remote/.../WifiLink.kt`.
 

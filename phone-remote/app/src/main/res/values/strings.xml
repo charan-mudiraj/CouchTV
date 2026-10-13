@@ -113,6 +113,14 @@
     <string name="pointer_help">It changes on the TV as you pick. Over a link it turns blue (yellow, if the pointer is blue).</string>
     <string name="pointer_needs_wifi">Connect to the TV over Wi-Fi to change its pointer</string>
     <string name="tv_keys">TV</string>
+    <string name="keyboard">Keyboard</string>
+    <string name="keyboard_type">Type</string>
+    <string name="keyboard_help">Shift, Ctrl, Alt and Win stay on for the next key: tap twice to keep them on. Type uses this phone\'s own keyboard.</string>
+    <string name="keyboard_offline">Connect to the TV over Wi-Fi first</string>
+    <string name="typing_title">Typing on the TV</string>
+    <string name="typing_into">Typing into “%1$s” on the TV</string>
+    <string name="typing_enter">Enter</string>
+    <string name="typing_clear">Clear</string>
     <string name="page_of">Page %1$d of %2$d</string>
     <string name="right_click">Right click</string>
 

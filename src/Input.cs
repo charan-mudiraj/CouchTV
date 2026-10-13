@@ -10,7 +10,7 @@ namespace CouchTV
         public static readonly IntPtr Marker = (IntPtr)0x43545631;   // "CTV1"
 
         const uint INPUT_MOUSE = 0, INPUT_KEYBOARD = 1;
-        const uint KEYEVENTF_EXTENDEDKEY = 0x1, KEYEVENTF_KEYUP = 0x2;
+        const uint KEYEVENTF_EXTENDEDKEY = 0x1, KEYEVENTF_KEYUP = 0x2, KEYEVENTF_UNICODE = 0x4;
         const uint MOUSEEVENTF_MOVE = 0x1, MOUSEEVENTF_LEFTDOWN = 0x2, MOUSEEVENTF_LEFTUP = 0x4;
         const uint MOUSEEVENTF_RIGHTDOWN = 0x8, MOUSEEVENTF_RIGHTUP = 0x10, MOUSEEVENTF_WHEEL = 0x800;
         const uint MOUSEEVENTF_HWHEEL = 0x1000, MOUSEEVENTF_VIRTUALDESK = 0x4000, MOUSEEVENTF_ABSOLUTE = 0x8000;
@@ -33,6 +33,42 @@ namespace CouchTV
         }
 
         public static void MouseMove(int dx, int dy) { Send(MouseEvent(MOUSEEVENTF_MOVE, dx, dy, 0)); }
+
+        // ---------------------------------------------------------------- the phone's keyboards
+
+        /// <summary>
+        /// A key down or up from the phone's keyboard page, as a real keyboard's (not marked as CouchTV's own, so a tap
+        /// of Win is Home in TV mode, just as on a real keyboard). Held, it's sent down again and again: Windows'
+        /// own key repeat only comes from real keyboards.
+        /// </summary>
+        public static void KeyChange(uint vk, bool down) { Send(KeyEvent(vk, !down, false)); }
+
+        /// <summary>
+        /// What was typed on the phone's own keyboard into the field in front: backspaces, then the text, as characters
+        /// (any language, emoji too), whatever the PC's keyboard layout. A line break is Enter.
+        /// </summary>
+        public static void Edit(int backspaces, string text)
+        {
+            var events = new System.Collections.Generic.List<INPUT>();
+            for (int i = 0; i < backspaces; i++)
+            {
+                events.Add(KeyEvent(0x08, false));
+                events.Add(KeyEvent(0x08, true));
+            }
+            foreach (char c in text)
+            {
+                if (c == '\r') continue;
+                if (c == '\n')
+                {
+                    events.Add(KeyEvent(0x0D, false));
+                    events.Add(KeyEvent(0x0D, true));
+                    continue;
+                }
+                events.Add(CharEvent(c, false));
+                events.Add(CharEvent(c, true));
+            }
+            if (events.Count > 0) Send(events.ToArray());
+        }
 
         public static void Click(bool right)
         {
@@ -105,12 +141,22 @@ namespace CouchTV
         [DllImport("user32.dll")] static extern bool GetCursorPos(out POINT point);
         [DllImport("user32.dll")] static extern int GetSystemMetrics(int index);
 
-        static INPUT KeyEvent(uint vk, bool up)
+        static INPUT KeyEvent(uint vk, bool up, bool ours = true)
         {
             var input = new INPUT { type = INPUT_KEYBOARD };
             input.u.ki.wVk = (ushort)vk;
             input.u.ki.wScan = (ushort)MapVirtualKey(vk, 0);
             input.u.ki.dwFlags = (up ? KEYEVENTF_KEYUP : 0) | (IsExtended(vk) ? KEYEVENTF_EXTENDEDKEY : 0);
+            input.u.ki.dwExtraInfo = ours ? Marker : IntPtr.Zero;
+            return input;
+        }
+
+        /// <summary>One UTF-16 unit as a character (an emoji is two), not a key: lands as typed text in any app.</summary>
+        static INPUT CharEvent(char c, bool up)
+        {
+            var input = new INPUT { type = INPUT_KEYBOARD };
+            input.u.ki.wScan = c;
+            input.u.ki.dwFlags = KEYEVENTF_UNICODE | (up ? KEYEVENTF_KEYUP : 0);
             input.u.ki.dwExtraInfo = Marker;
             return input;
         }
@@ -126,11 +172,12 @@ namespace CouchTV
             return input;
         }
 
-        // Arrows, Page Up/Down, Home/End, Insert/Delete, the menu key and the browser/media keys are "extended" keys.
+        // Arrows, Page Up/Down, Home/End, Insert/Delete, Print Screen, Win, the menu key, the right Ctrl and Alt, and
+        // the browser/media keys are "extended" keys.
         static bool IsExtended(uint vk)
         {
-            return (vk >= 0x21 && vk <= 0x28) || vk == 0x2D || vk == 0x2E || vk == 0x5B || vk == 0x5C || vk == 0x5D
-                || (vk >= 0xA6 && vk <= 0xB7);
+            return (vk >= 0x21 && vk <= 0x28) || vk == 0x2C || vk == 0x2D || vk == 0x2E || vk == 0x5B || vk == 0x5C || vk == 0x5D
+                || vk == 0xA3 || vk == 0xA5 || (vk >= 0xA6 && vk <= 0xB7);
         }
 
         static void Send(params INPUT[] inputs)
