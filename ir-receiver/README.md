@@ -100,7 +100,26 @@ Leave the module's **JD-VCC jumper** on. Then each relay's screw terminals take 
 
 **Serial Monitor commands** for testing: `STATE` (what the receiver thinks: PC on or off, TV on or off, and how many times it has started; CouchTV also writes this line into its log when it connects), `PRESS PC` and `PRESS TV` (one press, to check the wiring), `SENSE ON` / `SENSE OFF`, and `RELAY HIGH` for the rare module that switches on with a high input (most switch on low; `RELAY LOW` goes back).
 
-## Getting clean, reliable reception
+## Wi-Fi for the box (optional: an ESP32)
+
+With the relays in, an **ESP32 dev board** (the 30-pin one, about ₹375) gives the box its own Wi-Fi, so **any** phone can switch the PC and the TV on, even one without an IR blaster, and the phone app shows whether they're on. The ESP32 just passes Power to the Leonardo, which does the rest as for Power by infrared.
+
+**Wiring.** The ESP32's pins are too wide for the mini breadboard, so use female-to-male jumpers from its pins:
+
+| ESP32 pin | To |
+|---|---|
+| `VIN` | the breadboard's 5 V column |
+| `GND` | the breadboard's GND column |
+| `TX2` | Leonardo pin `0` (RX), directly |
+| `RX2` | the middle of a divider: Leonardo pin `1` (TX) → 2.2 kΩ → *middle* → two 2.2 kΩ in a row → GND |
+
+The divider turns the Leonardo's 5 V signal into the 3.3 V the ESP32 takes. A **470 µF capacitor** across the 5 V and GND columns (long leg to 5 V, the striped side to GND) smooths the ESP32's Wi-Fi current bursts. If the PC's standby USB power isn't enough for it all (the board keeps restarting), power the box from a phone charger instead.
+
+**Firmware.** Flash `firmware/CouchLink/CouchLink.ino` to the ESP32 (Arduino IDE: install the *esp32* boards by Espressif, then **ESP32 Dev Module**), and version 6 or later of `CouchIR` to the Leonardo.
+
+**Joining your Wi-Fi.** On its first start the ESP32 opens a Wi-Fi network called **CouchTV-Setup**. Join it from a phone: a page opens (or go to `http://192.168.4.1`) where you pick your Wi-Fi and type its password, which stays on the ESP32. It then joins your Wi-Fi as `couchtv-board`. To change networks later, hold the ESP32's **BOOT** button while it starts. If it can't join for 3 minutes (the router's off), CouchTV-Setup comes back meanwhile, and goes again once it joins. Reserving it an address in the router is optional: the phone finds it by itself.
+
+
 
 - **The sensor must see the sofa.** The PC sits behind the monitor, so put the board on the USB extension and tape the sensor at the bottom edge of the monitor, dome facing the room. Longer [30 cm jumpers](https://quartzcomponents.com/products/male-to-female-connecting-wires-jumper-wires-30cm-set-of-40) (₹49) also help.
 - **Keep it out of direct sunlight and away from bright lamps right next to it.** Both are infrared noise.

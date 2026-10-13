@@ -57,7 +57,11 @@
     <string name="app_web">Web</string>
 
     <string name="power">Power</string>
-    <string name="power_needs_ir">Power works by infrared for now, and this phone has no IR blaster.</string>
+    <string name="power_needs_ir">Can't reach the TV's receiver box on the Wi-Fi, and this phone has no IR blaster.</string>
+    <string name="board_state">PC %1$s · TV %2$s</string>
+    <string name="board_pc_off">The TV PC is asleep or off (the TV is %1$s). Press Power to switch both on.</string>
+    <string name="state_on">on</string>
+    <string name="state_off">off</string>
     <string name="back">Back (hold for Home)</string>
     <string name="home">Home</string>
     <string name="menu">Menu</string>

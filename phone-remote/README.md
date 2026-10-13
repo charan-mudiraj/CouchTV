@@ -2,7 +2,7 @@
 
 A remote control app for CouchTV. It works two ways, and picks by itself:
 
-- **Over Wi-Fi**, when the phone is on the same Wi-Fi as the TV: it finds the TV and connects as soon as you open it, with no list to choose from. No pointing needed, and it works on **any** Android phone. The top line says *Connected to … over Wi-Fi*. **Power is the exception: it always goes by infrared**, because the receiver handles it whether the PC is on or asleep. On a phone without an IR blaster, Power doesn't work for now.
+- **Over Wi-Fi**, when the phone is on the same Wi-Fi as the TV: it finds the TV and connects as soon as you open it, with no list to choose from. No pointing needed, and it works on **any** Android phone. The top line says *Connected to … over Wi-Fi*. **Power is the exception: it goes to the receiver box behind the TV**, which handles it whether the PC is on, asleep or off: by the box's own Wi-Fi when it has one (an ESP32, see the receiver's README), from any phone, or else by infrared. Then the top line also says whether the PC and the TV are on, even while the PC is off.
 - **By infrared**, on phones with an **IR blaster** (most Xiaomi / Redmi / POCO phones), when the TV isn't on Wi-Fi, for example while the PC is asleep. Point the phone at the TV; CouchTV's [CouchIR receiver](../ir-receiver/README.md) picks it up. This is also what wakes the PC.
 
 **What's on it**
@@ -106,6 +106,7 @@ Each button sends an NEC frame (38 kHz, address `0xCE`), then a "still held" fra
 | `AudioListener.kt`, `ListenService.kt` | *Listen on this phone*: plays the TV's sound here, with the screen off too |
 | `Resampler.kt`, `Concealer.kt` | Keeping pace with the TV's clock inaudibly, and filling in sound lost on the Wi-Fi |
 | `BluetoothGuard.kt` | Keeps Bluetooth off while the app is in use |
+| `BoardLink.kt` | The receiver box's Wi-Fi: Power, and whether the PC and TV are on |
 | `VoiceSearch.kt` | Listens, turns speech into text, and sends it; typing too |
 | `Codes.kt` | The button codes |
 | `DpadView.kt` | The round D-pad |

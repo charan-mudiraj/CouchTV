@@ -54,6 +54,7 @@ class MainActivity : Activity() {
         setContentView(R.layout.activity_main)
         remote = Remote(this)
         remote.wifi.onChange = { showStatus() }
+        remote.board.onChange = { showStatus() }
         remote.onPowerNeedsIr = { toast(getString(R.string.power_needs_ir)) }
         store = CustomButtons(this)
         myButtons = store.load()
@@ -187,12 +188,14 @@ class MainActivity : Activity() {
     override fun onStart() {
         super.onStart()
         remote.wifi.start()
+        remote.board.start()
         BluetoothGuard.askUser = { askToTurnOffBluetooth() }
         BluetoothGuard.hold(this, "screen")
     }
 
     override fun onStop() {
         remote.wifi.stop()
+        remote.board.stop()
         BluetoothGuard.askUser = null
         BluetoothGuard.release("screen")
         super.onStop()
@@ -339,8 +342,14 @@ class MainActivity : Activity() {
         val tv = remote.wifi.tvName
         val address = remote.wifi.manualAddress
         status.setTextColor(getColor(if (tv != null) R.color.good else R.color.muted))
+        val board = remote.board
+        val pcOn = board.pcOn
+        val tvOn = board.tvOn
+        val boardLine = if (board.connected && pcOn != null && tvOn != null)
+            getString(R.string.board_state, onOff(pcOn), onOff(tvOn)) else null
         status.text = when {
-            tv != null -> getString(R.string.wifi_connected, tv)
+            tv != null -> getString(R.string.wifi_connected, tv) + (boardLine?.let { " · $it" } ?: "")
+            board.connected && pcOn == false -> getString(R.string.board_pc_off, onOff(tvOn == true))
             address != null -> getString(if (remote.ir.available) R.string.wifi_trying_ir else R.string.wifi_trying, address)
             !remote.ir.available -> getString(R.string.wifi_looking_no_ir)
             !remote.ir.supports38kHz -> getString(R.string.no_38khz)
@@ -350,6 +359,8 @@ class MainActivity : Activity() {
         findViewById<TrackpadView>(R.id.trackpad).hint =
             if (tv == null && !remote.ir.available) getString(R.string.trackpad_offline) else null
     }
+
+    private fun onOff(on: Boolean) = getString(if (on) R.string.state_on else R.string.state_off)
 
     /** The TV's address on the Wi-Fi (reserved for it in the router), or empty to find it automatically. */
     private fun editTvAddress() {

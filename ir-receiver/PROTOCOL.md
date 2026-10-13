@@ -101,7 +101,7 @@ The app's version is `phone-remote/app/src/main/java/com/couchtv/remote/Nec.kt`.
 
 ## Wi-Fi
 
-The same remote also works over the home network, with no pointing, and on phones without an IR blaster. It uses the same button codes, so `remote.ini` applies to both. The phone prefers Wi-Fi while the TV answers, and falls back to infrared when it doesn't, for example when the PC is asleep. **Power always goes by infrared**, even while connected: the receiver handles it whether the PC is on (it passes it to CouchTV) or asleep (it wakes it), whereas over Wi-Fi it raced the link, which drops as the PC sleeps and comes back as it wakes.
+The same remote also works over the home network, with no pointing, and on phones without an IR blaster. It uses the same button codes, so `remote.ini` applies to both. The phone prefers Wi-Fi while the TV answers, and falls back to infrared when it doesn't, for example when the PC is asleep. **Power never goes to the PC directly**, even while connected: it goes to the receiver box (by its own Wi-Fi, below, or else by infrared), which handles it whether the PC is on (it passes it to CouchTV) or asleep or off (it wakes it). Sent to the PC over Wi-Fi it raced the link, which drops as the PC sleeps and comes back as it wakes.
 
 1. **Finding the TV.** The phone sends the text `COUCHTV?` by UDP to port **47700**, both as a broadcast (the subnet's, like `192.168.1.255`, and `255.255.255.255`) and directly to the address that answered last time. CouchTV replies `COUCHTV 1 47701 <PC name>`: protocol 1, TCP port 47701.
 2. **Connecting.** The phone opens TCP port **47701**. Both sides send lines of UTF-8 text ending in `\n`:
@@ -119,6 +119,20 @@ The same remote also works over the home network, with no pointing, and on phone
 | | `POINTER arrow 64 white` (after `WELCOME`) | the pointer's look now, so the phone can show it |
 
 Windows Firewall has to allow CouchTV in: the installer adds the rule *CouchTV phone remote* (CouchTV.exe, local network only). On a PC installed before Wi-Fi mode, CouchTV asks once and Windows shows its permission prompt; press F7 on the home screen to ask again. The code is `src/RemoteServer.cs` and `phone-remote/.../WifiLink.kt`.
+
+## Receiver box Wi-Fi
+
+With an ESP32 wired to the receiver (firmware `firmware/CouchLink`), the box has Wi-Fi of its own. It's on while the PC is asleep or off, so any phone can switch the PC and the TV on, and see whether they're on. Its first start opens the network *CouchTV-Setup*, whose page takes your Wi-Fi's name and password (kept on the ESP32 only); after that it's `couchtv-board` on your Wi-Fi, with a page showing the PC and the TV and a Power button.
+
+Phones send it one line per UDP packet on port **47710**, and it answers the sender:
+
+| Phone sends | Box answers | Meaning |
+|---|---|---|
+| `COUCHBOARD?` (broadcast) | `COUCHBOARD 1 couchtv-board` | finding it |
+| `STATE` (every 2.5 s) | `STATE PC ON TV OFF SENSE OFF ...`, or `STATE ?` | the PC and TV as the receiver sees them; `?` if the receiver isn't answering |
+| `POWER <id>` | `OK <id>` | the Power button; resent until `OK`, and a repeat of the same id is ignored |
+
+The ESP32 passes Power to the receiver as `POWER BUTTON` over a serial link (Leonardo pins 0 and 1, 115200 baud), and the receiver treats it exactly like Power by infrared. It asks the receiver `STATE` every 2 s.
 
 ## Sound on phones
 

@@ -51,6 +51,11 @@
     across the relay module's VCC and GND.
   Most relay modules switch on when their input goes LOW; "RELAY HIGH" is for ones that switch on when it's HIGH.
 
+  Wi-Fi (version 6): an ESP32 running CouchLink (../CouchLink) on pins 0 (RX) and 1 (TX), 115200 baud, lets phones
+  without an IR blaster switch things on and off. It sends "POWER BUTTON", handled exactly like the remote's Power by
+  infrared (wake or start the PC if it's asleep or off, else pass it to CouchTV, which puts it to sleep), and asks
+  "STATE" every 2 s; any command works on either port, answered on the one it came from.
+
   Nothing is ever sent to the PC while it sleeps: the board's USB code would wake it up to deliver it.
 
   Commands from the PC, one per line:
@@ -63,6 +68,7 @@
                          DIED <times a press cut its power>
       LOG            ->  the last 60 events, oldest first: LOG <start no.> <seconds since that start> <event>
       LOG CLEAR      ->  empty the log
+      POWER BUTTON   ->  the Power button, from the ESP32 (or a test): like Power by infrared
       SLEEP SOON     ->  the PC is going to sleep: switch the TV off now
       OFF SOON       ->  the PC is about to shut down: switch the TV off once it's off (saved)
       RESTART SOON   ->  the PC is about to restart: leave the TV alone until it's back (saved)
@@ -83,7 +89,7 @@ const uint8_t LED_PIN = 17;        // the board's RX LED (lit when LOW): blinks 
 const uint8_t PC_RELAY = 8;        // relay module IN1: the PC's power button
 const uint8_t TV_RELAY = 9;        // relay module IN2: the TV's power button
 const uint8_t TV_SENSE = 10;       // the TV's USB 5 V, through 2.2 kOhm, with 10 kOhm to GND
-const char VERSION[] = "5.6";
+const char VERSION[] = "6";
 
 const uint8_t MAX_WAKE = 16;
 const uint8_t EEPROM_MAGIC = 0xC7;
@@ -121,8 +127,10 @@ const unsigned long PLAN_MAX_MS = 600000UL;   // OFF SOON / RESTART SOON, but th
 uint32_t wakeHashes[MAX_WAKE];
 uint8_t wakeCount = 0;
 uint8_t flags = 0;
-char command[40];
+char command[40];                  // a line from the PC...
 uint8_t commandLength = 0;
+char linkCommand[40];              // ...and from the ESP32
+uint8_t linkCommandLength = 0;
 unsigned long ledOffAt = 0;
 
 int8_t pcOn = -1;                  // -1 not known yet (just started), 0 asleep or off, 1 on
@@ -458,6 +466,17 @@ void checkContact(uint8_t relay) {
 
 // ---------------------------------------------------------------- infrared and commands
 
+// The Power button, by Wi-Fi through the ESP32: the same as Power by infrared.
+void powerButton() {
+  if (!pcAwake()) {
+    powerOn();
+    return;
+  }
+  Serial.print(F("IR,"));                  // the PC is on: CouchTV puts it to sleep, as for the remote's Power
+  Serial.print(PHONE_POWER);
+  Serial.println(F(",N"));
+}
+
 void handleSignal(const IRData &ir) {
   if (ir.protocol == UNKNOWN) return;                                        // noise, or not a remote signal
   if (ir.flags & (IRDATA_FLAGS_PARITY_FAILED | IRDATA_FLAGS_WAS_OVERFLOW)) return;   // garbled frame
@@ -475,87 +494,91 @@ void handleSignal(const IRData &ir) {
   Serial.println(repeat ? F(",R") : F(",N"));
 }
 
-void runCommand(const char *text) {
+void runCommand(const char *text, Print &out) {
   if (strcmp(text, "?") == 0) {
-    Serial.print(F("COUCHIR "));
-    Serial.print(VERSION);
-    Serial.print(' ');
-    Serial.println(wakeCount);
+    out.print(F("COUCHIR "));
+    out.print(VERSION);
+    out.print(' ');
+    out.println(wakeCount);
   } else if (strcmp(text, "WAKE CLEAR") == 0) {
     wakeCount = 0;
-    Serial.println(F("OK"));
+    out.println(F("OK"));
   } else if (strcmp(text, "WAKE SAVE") == 0) {
     saveWakeList();
-    Serial.println(F("OK"));
+    out.println(F("OK"));
   } else if (strcmp(text, "WAKE LIST") == 0) {
-    for (uint8_t i = 0; i < wakeCount; i++) Serial.println(wakeHashes[i], HEX);
-    Serial.println(F("OK"));
+    for (uint8_t i = 0; i < wakeCount; i++) out.println(wakeHashes[i], HEX);
+    out.println(F("OK"));
   } else if (strncmp(text, "WAKE ", 5) == 0) {
     if (wakeCount < MAX_WAKE) wakeHashes[wakeCount++] = strtoul(text + 5, NULL, 16);
-    Serial.println(F("OK"));
+    out.println(F("OK"));
   } else if (strcmp(text, "STATE") == 0) {
-    Serial.print(F("STATE PC "));
-    Serial.print(pcOn == 1 ? F("ON") : F("OFF"));
-    Serial.print(F(" TV "));
-    Serial.print(tvIsOn() ? F("ON") : F("OFF"));
-    Serial.print(F(" SENSE "));
-    Serial.print(sensing() ? F("ON") : F("OFF"));
-    Serial.print(F(" RELAY "));
-    Serial.print((flags & FLAG_RELAY_HIGH) ? F("HIGH") : F("LOW"));
-    Serial.print(F(" BOOTS "));
-    Serial.print(boots);
-    Serial.print(F(" DIED "));
-    Serial.println(died);
+    out.print(F("STATE PC "));
+    out.print(pcOn == 1 ? F("ON") : F("OFF"));
+    out.print(F(" TV "));
+    out.print(tvIsOn() ? F("ON") : F("OFF"));
+    out.print(F(" SENSE "));
+    out.print(sensing() ? F("ON") : F("OFF"));
+    out.print(F(" RELAY "));
+    out.print((flags & FLAG_RELAY_HIGH) ? F("HIGH") : F("LOW"));
+    out.print(F(" BOOTS "));
+    out.print(boots);
+    out.print(F(" DIED "));
+    out.println(died);
   } else if (strcmp(text, "LOG") == 0) {
     printLog();
   } else if (strcmp(text, "LOG CLEAR") == 0) {
     for (uint8_t i = 0; i < LOG_SIZE; i++) EEPROM.update(LOG_AT + i * 4, 0);
-    Serial.println(F("OK"));
+    out.println(F("OK"));
+  } else if (strcmp(text, "POWER BUTTON") == 0) {
+    out.println(F("OK"));
+    powerButton();
   } else if (strcmp(text, "SLEEP SOON") == 0) {
     note(EV_SLEEP_SOON);
     sleepSoon = true;
     sleepSoonAt = millis();
-    Serial.println(F("OK"));               // before pressing, so CouchTV isn't kept waiting
+    out.println(F("OK"));               // before pressing, so CouchTV isn't kept waiting
     setTv(false);
   } else if (strcmp(text, "OFF SOON") == 0) {
     setPlan(PLAN_OFF);
-    Serial.println(F("OK"));
+    out.println(F("OK"));
   } else if (strcmp(text, "RESTART SOON") == 0) {
     setPlan(PLAN_RESTART);
-    Serial.println(F("OK"));
+    out.println(F("OK"));
   } else if (strcmp(text, "PRESS PC") == 0 || strcmp(text, "PRESS TV") == 0) {
     bool pc = text[6] == 'P';
     press(pc ? PC_RELAY : TV_RELAY, pc ? PC_PRESS_MS : TV_PRESS_MS);
     if (!pc && !sensing()) tvOn = !tvOn;
-    Serial.println(F("OK"));
+    out.println(F("OK"));
   } else if (strcmp(text, "SENSE ON") == 0 || strcmp(text, "SENSE OFF") == 0) {
     flags = text[7] == 'N' ? (flags | FLAG_SENSE) : (flags & ~FLAG_SENSE);
     saveFlags();
-    Serial.println(F("OK"));
+    out.println(F("OK"));
   } else if (strcmp(text, "RELAY LOW") == 0 || strcmp(text, "RELAY HIGH") == 0) {
     flags = text[6] == 'H' ? (flags | FLAG_RELAY_HIGH) : (flags & ~FLAG_RELAY_HIGH);
     saveFlags();
     digitalWrite(PC_RELAY, relayOff());
     digitalWrite(TV_RELAY, relayOff());
-    Serial.println(F("OK"));
+    out.println(F("OK"));
   } else if (strcmp(text, "CONTACT PC") == 0 || strcmp(text, "CONTACT TV") == 0) {
     checkContact(text[8] == 'P' ? PC_RELAY : TV_RELAY);
   } else if (text[0] != 0) {
-    Serial.println(F("ERR"));
+    out.println(F("ERR"));
   }
 }
 
-void readCommands() {
-  while (Serial.available() > 0) {
-    char c = Serial.read();
+// Reads one port's lines into its buffer, and runs each, answering on that port.
+void readCommands(Stream &port, char *buffer, uint8_t &length) {
+  while (port.available() > 0) {
+    char c = port.read();
     if (c == '\r') continue;
     if (c != '\n') {
-      if (commandLength < sizeof(command) - 1) command[commandLength++] = c;
+      if (length < 39) buffer[length++] = c;
       continue;
     }
-    command[commandLength] = 0;
-    commandLength = 0;
-    runCommand(command);
+    buffer[length] = 0;
+    length = 0;
+    runCommand(buffer, port);
   }
 }
 
@@ -570,6 +593,8 @@ void setup() {
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, HIGH);
   Serial.begin(115200);
+  Serial1.begin(115200);                   // the ESP32
+  pinMode(0, INPUT_PULLUP);                // RX: no stray characters while no ESP32 is wired
   Keyboard.begin();
   IrReceiver.begin(IR_PIN, DISABLE_LED_FEEDBACK);
 }
@@ -579,7 +604,8 @@ void loop() {
     handleSignal(IrReceiver.decodedIRData);
     IrReceiver.resume();
   }
-  readCommands();
+  readCommands(Serial, command, commandLength);
+  readCommands(Serial1, linkCommand, linkCommandLength);
   watchPower();
   if (ledOffAt != 0 && (long)(millis() - ledOffAt) >= 0) {
     digitalWrite(LED_PIN, HIGH);

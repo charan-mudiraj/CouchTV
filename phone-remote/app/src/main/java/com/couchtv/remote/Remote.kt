@@ -12,6 +12,7 @@ import kotlin.math.abs
 class Remote(context: Context) {
     val ir = IrRemote(context)
     val wifi = WifiLink(context)
+    val board = BoardLink(context)
 
     private val worker = Executors.newSingleThreadExecutor()
     @Volatile private var heldPress = 0
@@ -21,17 +22,20 @@ class Remote(context: Context) {
     /** Presses go over Wi-Fi right now. */
     val viaWifi: Boolean get() = wifi.connected
 
-    /** Called on the main thread when Power can't be sent: this phone has no IR blaster. */
+    /** Called on the main thread when Power can't be sent: no receiver box on the Wi-Fi, and no IR blaster. */
     var onPowerNeedsIr: (() -> Unit)? = null
 
     /** Starts a press and returns its id for [release]. With [hold] false, it's a single press. */
     fun press(address: Int, command: Int, hold: Boolean = true): Int {
         val id = ++lastPress
         if (address == Codes.ADDRESS && command == Codes.POWER) {
-            // Power goes by infrared only, for now: the receiver handles it whether the PC is on (it tells CouchTV)
-            // or asleep (it wakes it). Over Wi-Fi it raced the link, which drops as the PC sleeps and comes back as
-            // it wakes, so a press at the wrong moment went to a PC that was no longer listening.
-            if (ir.available) irPresses[id] = ir.press(address, command, hold) else onPowerNeedsIr?.invoke()
+            // Power always goes to the receiver box, never to the PC itself: the box handles it whether the PC is on
+            // (it tells CouchTV, which puts it to sleep) or asleep or off (it wakes it and switches the TV on). By the
+            // box's own Wi-Fi when it answers, from any phone; else by infrared.
+            when {
+                board.connected -> board.power { ok -> if (!ok) powerByIr(address, command) }
+                else -> powerByIr(address, command)
+            }
             return id
         }
         if (wifi.connected) {
@@ -47,6 +51,10 @@ class Remote(context: Context) {
             irPresses[id] = ir.press(address, command, hold)
         }
         return id
+    }
+
+    private fun powerByIr(address: Int, command: Int) {
+        if (ir.available) ir.press(address, command, hold = false) else onPowerNeedsIr?.invoke()
     }
 
     fun release(id: Int) {
