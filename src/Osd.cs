@@ -11,7 +11,7 @@ namespace CouchTV
     internal sealed class OsdPanel : Border
     {
         const double TrackWidth = 300;
-        readonly TextBlock _glyph, _text;
+        readonly TextBlock _glyph, _text, _code;
         readonly Border _track, _fill;
 
         public OsdPanel()
@@ -24,6 +24,9 @@ namespace CouchTV
 
             _glyph = new TextBlock { FontFamily = Theme.Icons, FontSize = 32, Foreground = Brushes.White, Width = 44, VerticalAlignment = VerticalAlignment.Center };
             _text = Theme.Text("", 22, Theme.Ink, FontWeights.SemiBold);
+            _code = Theme.Text("", 64, Theme.Ink, FontWeights.Bold);
+            _code.Margin = new Thickness(0, 6, 0, 0);
+            _code.Visibility = Visibility.Collapsed;
             _fill = new Border { CornerRadius = new CornerRadius(4), Background = Brushes.White, HorizontalAlignment = HorizontalAlignment.Left };
             _track = new Border
             {
@@ -34,6 +37,7 @@ namespace CouchTV
 
             var column = new StackPanel { Margin = new Thickness(14, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
             column.Children.Add(_text);
+            column.Children.Add(_code);
             column.Children.Add(_track);
             var row = new StackPanel { Orientation = Orientation.Horizontal };
             row.Children.Add(_glyph);
@@ -47,6 +51,7 @@ namespace CouchTV
             _glyph.Text = muted ? "" : level < 0.01f ? "" : level < 0.34f ? "" : level < 0.67f ? "" : "";
             _text.Text = muted ? "Muted" : "Volume " + Math.Round(level * 100);
             _track.Visibility = Visibility.Visible;
+            _code.Visibility = Visibility.Collapsed;
             _track.MinWidth = TrackWidth;
             _fill.Width = muted ? 0 : TrackWidth * level;
         }
@@ -56,6 +61,15 @@ namespace CouchTV
             _glyph.Text = glyph.ToString();
             _text.Text = text;
             _track.Visibility = Visibility.Collapsed;
+            _code.Visibility = Visibility.Collapsed;
+        }
+
+        /// <summary>A message with a big code under it (pairing a phone).</summary>
+        public void SetCode(char glyph, string text, string code)
+        {
+            SetMessage(glyph, text);
+            _code.Text = code;
+            _code.Visibility = Visibility.Visible;
         }
     }
 
@@ -102,6 +116,18 @@ namespace CouchTV
         {
             _panel.SetMessage(glyph, text);
             Pop(seconds);
+        }
+
+        public void ShowCode(char glyph, string text, string code, double seconds)
+        {
+            _panel.SetCode(glyph, text, code);
+            Pop(seconds);
+        }
+
+        public void HideNow()
+        {
+            _hide.Stop();
+            Hide();
         }
 
         void Pop(double seconds)

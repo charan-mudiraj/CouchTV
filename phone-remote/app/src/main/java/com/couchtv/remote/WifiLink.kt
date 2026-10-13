@@ -4,14 +4,13 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Base64
 import android.util.Log
-import java.io.BufferedReader
-import java.io.InputStreamReader
-import java.io.OutputStreamWriter
+import java.io.IOException
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.Inet4Address
@@ -21,12 +20,16 @@ import java.net.Socket
 import java.net.SocketTimeoutException
 import java.util.Locale
 import java.util.concurrent.Executors
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
 
 /**
  * The remote over Wi-Fi. Finds CouchTV on the phone's Wi-Fi by itself (a broadcast the TV answers) and keeps a
  * connection to it, so buttons work without pointing, and on phones without an IR blaster. If the TV goes away
  * (asleep, or off the network) it keeps looking, and Remote falls back to infrared meanwhile.
- * The format is "Wi-Fi" in ir-receiver/PROTOCOL.md in the CouchTV repo.
+ * Only a phone paired with the TV gets in: it pairs once, with a code the TV shows ([pair]), and after that every
+ * connection proves it's this phone and is encrypted (Handshake, Channel), so others on a shared Wi-Fi can't use the
+ * TV or read what's sent. The format is "Wi-Fi" and "Security" in ir-receiver/PROTOCOL.md in the CouchTV repo.
  */
 class WifiLink(context: Context) {
     companion object {
@@ -38,29 +41,59 @@ class WifiLink(context: Context) {
 
     private class Tv(val address: InetAddress, val port: Int, val name: String)
 
-    /** The TV's name while connected, else null. */
+    /** A connection to the TV once it's proven: its lines and their encryption. */
+    private class Link(val socket: Socket, val io: LineIo, val channel: Channel)
+
+    /** How a connection attempt went. */
+    private enum class Outcome { NONE, CONNECTED, UNPAIRED, TOO_OLD }
+
+    /** Pairing, step by step; all called on the main thread. */
+    interface PairListener {
+        /** The TV shows a code now: ask for it, then [typeCode]. */
+        fun codeShown()
+        /** The TV won't pair now: [waitSeconds] 0 means another phone is pairing, else too many wrong codes. */
+        fun refused(waitSeconds: Int)
+        fun finished(result: Handshake.PairResult)
+    }
+
     /** The TV's address while connected, e.g. for sending its sound to this phone. */
     @Volatile var tvAddress: InetAddress? = null
         private set
 
+    /** The TV's name while connected, else null. */
     @Volatile var tvName: String? = null
         private set
 
-    /** Called on the main thread when the TV connects or goes away. */
+    /** A TV on this Wi-Fi this phone isn't paired with yet (its name), so the app offers to pair; else null. */
+    @Volatile var unpairedTv: String? = null
+        private set
+
+    /** A TV answered, but its CouchTV is from before pairing, so it needs updating first. */
+    @Volatile var tvTooOld = false
+        private set
+
+    /** Called on the main thread when the TV connects or goes away, or pairing is needed. */
     var onChange: (() -> Unit)? = null
+
+    /** Called on a background thread with the key the receiver box checks Power with; the TV gives it to each paired phone. */
+    var onBoardKey: ((ByteArray) -> Unit)? = null
 
     private val app = context.applicationContext
     private val connectivity = app.getSystemService(ConnectivityManager::class.java)
     private val main = Handler(Looper.getMainLooper())
     private val prefs = app.getSharedPreferences("wifi", Context.MODE_PRIVATE)
+    private val pairings = Pairings(app)
     private val io = Executors.newSingleThreadExecutor()    // finding, connecting, reading
     private val out = Executors.newSingleThreadExecutor()   // writing, in order
     @Volatile private var running = false
     @Volatile private var generation = 0
     @Volatile private var socket: Socket? = null
-    @Volatile private var writer: OutputStreamWriter? = null
+    @Volatile private var link: Link? = null
     @Volatile private var lastHeard = 0L
     @Volatile private var welcomed = false
+    @Volatile private var pairAddress: InetAddress? = null   // where the unpaired TV answered
+    @Volatile private var pairSocket: Socket? = null
+    private val typed = LinkedBlockingQueue<String>()
 
     /**
      * The TV's address (reserved for the TV PC in the router): it's tried first, with no searching. If it doesn't
@@ -71,10 +104,7 @@ class WifiLink(context: Context) {
         get() = prefs.getString("manual_ip", DEFAULT_ADDRESS)?.takeIf { it.isNotBlank() }
         set(value) {
             prefs.edit().putString("manual_ip", value?.trim() ?: "").apply()
-            if (running) {
-                stop()
-                start()
-            }
+            restart()
         }
 
     /** Connected, and the TV answered recently (it answers a ping every second), so it's really there. */
@@ -95,12 +125,17 @@ class WifiLink(context: Context) {
         setTv(null)
     }
 
+    private fun restart() {
+        if (!running) return
+        stop()
+        start()
+    }
+
     /** A button, exactly like an infrared frame: N for a new press, R while it's held. */
     fun button(address: Int, command: Int, repeat: Boolean) {
         send(String.format(Locale.ROOT, "BTN %02X %02X %s", address and 0xFF, command and 0xFF, if (repeat) "R" else "N"))
     }
 
-    /** Words for search. */
     /** The trackpad: move the TV's pointer by pixels. */
     fun move(dx: Int, dy: Int) = send("MOVE $dx $dy")
 
@@ -120,44 +155,142 @@ class WifiLink(context: Context) {
     /** The trackpad: a mouse button down or up. */
     fun mouse(right: Boolean, down: Boolean) = send("MOUSE ${if (right) "R" else "L"} ${if (down) "D" else "U"}")
 
+    /** Words for search. */
     fun text(words: String) {
         send("TEXT " + Base64.encodeToString(words.toByteArray(Charsets.UTF_8), Base64.NO_WRAP))
+    }
+
+    // ---------------------------------------------------------------- pairing
+
+    /**
+     * Pairs with the TV that asked ([unpairedTv]): it shows a code, which the person types here ([typeCode]). On
+     * its own connection, so the search goes on meanwhile; once paired, the link connects again straight away.
+     */
+    fun pair(listener: PairListener) {
+        typed.clear()
+        Thread({
+            val result = try {
+                pairNow(listener)
+            } catch (e: Exception) {
+                Log.i(TAG, "Pairing: ${e.message}")
+                Handshake.PairResult.FAILED
+            } finally {
+                pairSocket = null
+            }
+            if (result != null) main.post { listener.finished(result) }
+        }, "CouchTV pairing").start()
+    }
+
+    /** The code the person typed, once [PairListener.codeShown] asked for it. */
+    fun typeCode(code: String) {
+        typed.offer(code)
+    }
+
+    fun cancelPairing() {
+        typed.offer("")
+        runCatching { pairSocket?.close() }
+    }
+
+    /** Null when it ended without a result to show (refused, or cancelled). */
+    private fun pairNow(listener: PairListener): Handshake.PairResult? {
+        val address = pairAddress ?: return Handshake.PairResult.FAILED
+        val network = wifiNetwork() ?: return Handshake.PairResult.FAILED
+        network.socketFactory.createSocket().use { s ->
+            pairSocket = s
+            s.connect(InetSocketAddress(address, CONTROL_PORT), 3000)
+            s.tcpNoDelay = true
+            s.soTimeout = 5000
+            val lines = LineIo(s.getInputStream(), s.getOutputStream())
+            val hs = Handshake.start(lines, pairings.phoneId, BuildConfig.VERSION_NAME) ?: return Handshake.PairResult.FAILED
+            if (hs.known && pairings.key(hs.tvId) != null) {
+                setUnpaired(null)
+                restart()
+                return Handshake.PairResult.PAIRED
+            }
+            lines.write("PAIR " + Secure.base64(Secure.utf8(phoneName())))
+            val answer = lines.read() ?: return Handshake.PairResult.FAILED
+            when {
+                answer == "CODE" -> main.post { listener.codeShown() }
+                answer == "BUSY" -> {
+                    main.post { listener.refused(0) }
+                    return null
+                }
+                answer.startsWith("WAIT ") -> {
+                    val seconds = answer.removePrefix("WAIT ").trim().toIntOrNull() ?: 600
+                    main.post { listener.refused(maxOf(1, seconds)) }
+                    return null
+                }
+                else -> return Handshake.PairResult.FAILED
+            }
+            val code = typed.poll(120, TimeUnit.SECONDS)
+            if (code.isNullOrEmpty()) return null   // cancelled, or nobody typed it
+            s.soTimeout = 10000
+            val result = hs.pair(lines, code)
+            if (result != Handshake.PairResult.PAIRED) return result
+            val key = hs.pairKey ?: return Handshake.PairResult.FAILED
+            hs.auth(lines, key) ?: return Handshake.PairResult.NOT_SAFE
+            pairings.save(hs.tvId, key)
+            Log.i(TAG, "Paired with ${hs.tvName}")
+        }
+        setUnpaired(null)
+        restart()
+        return Handshake.PairResult.PAIRED
+    }
+
+    /** How the TV shows this phone while pairing, e.g. "OPPO CPH2591". */
+    private fun phoneName(): String {
+        val maker = Build.MANUFACTURER.replaceFirstChar { it.uppercase() }
+        val model = Build.MODEL ?: ""
+        return if (model.startsWith(maker, ignoreCase = true)) model else "$maker $model".trim()
     }
 
     // ---------------------------------------------------------------- finding and keeping the TV
 
     private fun loop(gen: Int) {
         while (running && gen == generation) {
-            var found = false
+            var outcome = Outcome.NONE
             val network = wifiNetwork()
             if (network != null) {
                 // The address you entered first; then a search of the network, in case it changed.
                 val manual = manualAddress
                 if (manual != null) {
                     val tv = runCatching { Tv(InetAddress.getByName(manual), CONTROL_PORT, manual) }.getOrNull()
-                    if (tv != null) found = attempt(network, tv, gen)
+                    if (tv != null) outcome = attempt(network, tv, gen)
                 }
-                if (!found && running && gen == generation) {
+                if (outcome == Outcome.NONE && running && gen == generation) {
                     val tv = runCatching { find(network) }.getOrNull()
-                    if (tv != null) found = attempt(network, tv, gen)
+                    if (tv != null) outcome = attempt(network, tv, gen)
                 }
             }
-            if (running && gen == generation) SystemClock.sleep(if (found) 500 else 2000)
+            if (outcome != Outcome.UNPAIRED) setUnpaired(null)
+            if (outcome != Outcome.TOO_OLD) setTooOld(false)
+            // Connected and dropped: straight back. A TV that needs pairing or updating: ask it again now and then.
+            pause(when (outcome) {
+                Outcome.CONNECTED -> 500L
+                Outcome.NONE -> 2000L
+                else -> 5000L
+            }, gen)
         }
     }
 
-    /** Connects and stays connected while the TV answers. True if the TV said hello (it was really there). */
-    private fun attempt(network: Network, tv: Tv, gen: Int): Boolean {
-        if (!running || gen != generation) return false
+    private fun pause(ms: Long, gen: Int) {
+        val until = SystemClock.elapsedRealtime() + ms
+        while (running && gen == generation && SystemClock.elapsedRealtime() < until) SystemClock.sleep(100)
+    }
+
+    /** Connects and stays connected while the TV answers. */
+    private fun attempt(network: Network, tv: Tv, gen: Int): Outcome {
+        if (!running || gen != generation) return Outcome.NONE
         welcomed = false
+        var outcome = Outcome.NONE
         try {
-            session(network, tv)
+            outcome = session(network, tv)
         } catch (e: Exception) {
             Log.i(TAG, "Wi-Fi remote ${tv.address.hostAddress}: ${e.message}")
         }
         close()
         setTv(null)
-        return welcomed
+        return if (welcomed) Outcome.CONNECTED else outcome
     }
 
     /** The Wi-Fi network (not mobile data, even when the phone sends internet traffic that way). */
@@ -189,7 +322,7 @@ class WifiLink(context: Context) {
                     } catch (e: SocketTimeoutException) {
                         continue
                     }
-                    // "COUCHTV 1 <port> <name>"
+                    // "COUCHTV <version> <port> <name>"
                     val parts = String(packet.data, 0, packet.length, Charsets.UTF_8).trim().split(" ", limit = 4)
                     if (parts.size < 3 || parts[0] != "COUCHTV") continue
                     val port = parts[2].toIntOrNull() ?: continue
@@ -211,42 +344,69 @@ class WifiLink(context: Context) {
         return InetAddress.getByAddress(byteArrayOf((b ushr 24).toByte(), (b ushr 16).toByte(), (b ushr 8).toByte(), b.toByte()))
     }
 
-    /** Connected: say hello, ping every second, and read the answers until the TV goes quiet for 3 seconds. */
-    private fun session(network: Network, tv: Tv) {
+    /**
+     * Connected: prove who's who, say hello, ping every second, and read the answers until the TV goes quiet for
+     * 3 seconds. A TV that doesn't know this phone is left for the person to pair with ([unpairedTv]).
+     */
+    private fun session(network: Network, tv: Tv): Outcome {
         val s = network.socketFactory.createSocket()
         socket = s
         s.connect(InetSocketAddress(tv.address, tv.port), 2000)
         s.tcpNoDelay = true
         s.soTimeout = 3000
-        writer = OutputStreamWriter(s.getOutputStream(), Charsets.UTF_8)
-        val reader = BufferedReader(InputStreamReader(s.getInputStream(), Charsets.UTF_8))
+        val lines = LineIo(s.getInputStream(), s.getOutputStream())
+        val hs = try {
+            Handshake.start(lines, pairings.phoneId, BuildConfig.VERSION_NAME)
+        } catch (e: SocketTimeoutException) {
+            null
+        }
+        if (hs == null) {
+            // Something's there, but it said nothing sensible back: a CouchTV from before pairing ignores HELLO2.
+            setTooOld(true)
+            return Outcome.TOO_OLD
+        }
+        setTooOld(false)
+        val key = pairings.key(hs.tvId)
+        if (!hs.known || key == null) {
+            if (!hs.known && key != null) pairings.forget(hs.tvId)   // the TV forgot this phone: pair again
+            pairAddress = tv.address
+            setUnpaired(hs.tvName)
+            return Outcome.UNPAIRED
+        }
+        val keys = hs.auth(lines, key) ?: throw IOException("the TV didn't prove it's the one this phone paired with")
+        setUnpaired(null)
+        val current = Link(s, lines, Channel(keys.phoneEnc, keys.phoneMac, keys.tvEnc, keys.tvMac))
+        link = current
         send("HELLO CouchTV-Remote ${BuildConfig.VERSION_NAME}")
         Thread {
-            while (socket === s) {
+            while (link === current) {
                 send("PING")
                 SystemClock.sleep(1000)
             }
         }.apply { isDaemon = true }.start()
         while (true) {
-            val line = reader.readLine() ?: break   // a timeout throws instead, which ends the session too
+            val sealed = lines.read() ?: break   // a timeout throws instead, which ends the session too
+            val line = current.channel.open(sealed) ?: throw IOException("a line that didn't come from the TV")
             lastHeard = SystemClock.elapsedRealtime()
-            if (line.startsWith("WELCOME")) {
-                welcomed = true
-                prefs.edit().putString("last_ip", tv.address.hostAddress).apply()
-                tvAddress = tv.address
-                setTv(line.removePrefix("WELCOME").trim().ifEmpty { tv.name })
-            } else if (line.startsWith("POINTER ")) {
-                pointerLook = line.removePrefix("POINTER ").trim()
+            when {
+                line.startsWith("WELCOME") -> {
+                    welcomed = true
+                    prefs.edit().putString("last_ip", tv.address.hostAddress).apply()
+                    tvAddress = tv.address
+                    setTv(line.removePrefix("WELCOME").trim().ifEmpty { hs.tvName })
+                }
+                line.startsWith("POINTER ") -> pointerLook = line.removePrefix("POINTER ").trim()
+                line.startsWith("BOARD ") -> Secure.fromHex(line.removePrefix("BOARD ").trim())?.takeIf { it.size == 32 }?.let { onBoardKey?.invoke(it) }
             }
         }
+        return Outcome.CONNECTED
     }
 
     private fun send(line: String) {
         out.execute {
-            val w = writer ?: return@execute
+            val current = link ?: return@execute
             try {
-                w.write(line + "\n")
-                w.flush()
+                current.io.write(current.channel.seal(line))
             } catch (e: Exception) {
                 close()
             }
@@ -256,7 +416,7 @@ class WifiLink(context: Context) {
     private fun close() {
         val s = socket
         socket = null
-        writer = null
+        link = null
         runCatching { s?.close() }
     }
 
@@ -264,6 +424,18 @@ class WifiLink(context: Context) {
         if (name == null) tvAddress = null
         if (tvName == name) return
         tvName = name
+        main.post { onChange?.invoke() }
+    }
+
+    private fun setUnpaired(name: String?) {
+        if (unpairedTv == name) return
+        unpairedTv = name
+        main.post { onChange?.invoke() }
+    }
+
+    private fun setTooOld(old: Boolean) {
+        if (tvTooOld == old) return
+        tvTooOld = old
         main.post { onChange?.invoke() }
     }
 }

@@ -5,6 +5,8 @@ A remote control app for CouchTV. It works two ways, and picks by itself:
 - **Over Wi-Fi**, when the phone is on the same Wi-Fi as the TV: it finds the TV and connects as soon as you open it, with no list to choose from. No pointing needed, and it works on **any** Android phone. The top line says *Connected to … over Wi-Fi*. **Power is the exception: it goes to the receiver box behind the TV**, which handles it whether the PC is on, asleep or off: by the box's own Wi-Fi when it has one (an ESP32, see the receiver's README), from any phone, or else by infrared. Then the top line also says whether the PC and the TV are on, even while the PC is off.
 - **By infrared**, on phones with an **IR blaster** (most Xiaomi / Redmi / POCO phones), when the TV isn't on Wi-Fi, for example while the PC is asleep. Point the phone at the TV; CouchTV's [CouchIR receiver](../ir-receiver/README.md) picks it up. This is also what wakes the PC.
 
+**Pairing, once.** Over Wi-Fi the TV only listens to phones paired with it, so neighbours sharing your Wi-Fi can't use it, hear it, or switch it on and off. The first time the app finds the TV, its top line turns yellow: *… is on this Wi-Fi. Tap here to pair*. Tap it, and the TV shows a 6-digit code; type it in the app. That's all: from then on it connects by itself, encrypted. A wrong code just asks the TV for a new one. To unpair every phone (say, one was lost), press F8 on the TV's Remote screen (*Forget phones*). Infrared needs no pairing: it only works in the room.
+
 **What's on it**
 
 Everything fits the screen; nothing scrolls up or down. The top stays put (the connection status, the headphones button for the TV's sound, and **Power**), and underneath, pages swipe sideways like a phone's home screen. The dots at the bottom show which page you're on; tap one to jump there, and Back returns to the first page.
@@ -101,7 +103,8 @@ Each button sends an NEC frame (38 kHz, address `0xCE`), then a "still held" fra
 |---|---|
 | `Nec.kt` | Builds the infrared timing patterns, including text for voice search |
 | `IrRemote.kt` | Sends them through the IR blaster on a background thread, with hold-to-repeat |
-| `WifiLink.kt` | Finds the TV on the Wi-Fi and keeps a connection to it |
+| `WifiLink.kt` | Finds the TV on the Wi-Fi and keeps a connection to it; pairing |
+| `Secure.kt`, `Handshake.kt` | The encryption, and proving who's who (pairing with the TV's code, then each connection); checked by `SecureTest.kt` against CouchTV's numbers |
 | `Remote.kt` | Sends each press over Wi-Fi when connected, otherwise by infrared |
 | `AudioListener.kt`, `ListenService.kt` | *Listen on this phone*: plays the TV's sound here, with the screen off too |
 | `Resampler.kt`, `Concealer.kt` | Keeping pace with the TV's clock inaudibly, and filling in sound lost on the Wi-Fi |

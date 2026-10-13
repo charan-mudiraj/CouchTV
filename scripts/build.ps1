@@ -23,6 +23,7 @@ $references = @(
     (Join-Path $framework 'System.Web.Extensions.dll'),
     (Join-Path $framework 'System.IO.Compression.dll'),
     (Join-Path $framework 'System.IO.Compression.FileSystem.dll'),
+    (Join-Path $framework 'System.Security.dll'),
     'System.dll'
 )
 $cscArgs = @('/nologo', '/target:winexe', '/platform:anycpu', '/optimize+', '/codepage:65001', "/out:$exe",

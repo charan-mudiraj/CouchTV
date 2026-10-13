@@ -11,30 +11,41 @@ using System.Windows.Threading;
 namespace CouchTV
 {
     /// <summary>
-    /// The phone remote over Wi-Fi, for when pointing is a bother or the phone has no IR blaster. See "Wi-Fi" in
-    /// ir-receiver/PROTOCOL.md.
-    ///   Finding the TV: the phone broadcasts "COUCHTV?" to UDP port 47700; this answers "COUCHTV 1 47701 &lt;name&gt;".
-    ///   Then a TCP connection to port 47701 carries lines of text:
-    ///     HELLO &lt;app&gt; &lt;version&gt;  →  WELCOME &lt;name&gt;
+    /// The phone remote over Wi-Fi, for when pointing is a bother or the phone has no IR blaster. See "Wi-Fi" and
+    /// "Security" in ir-receiver/PROTOCOL.md.
+    ///   Finding the TV: the phone broadcasts "COUCHTV?" to UDP port 47700; this answers "COUCHTV 2 47701 &lt;name&gt;".
+    ///   Then a TCP connection to port 47701. Only phones paired with this TV get any further: a phone pairs once, by
+    ///   typing a code the TV shows, and every connection after that proves it's that phone and is encrypted (keys
+    ///   from ECDH, see Secure.cs), so others on a shared Wi-Fi can neither use the TV nor read what's sent.
+    ///     HELLO2 &lt;app&gt; &lt;version&gt; &lt;phone id&gt; &lt;phone key&gt;  →  HELLO2 &lt;TV id&gt; &lt;TV key&gt; KNOWN|PAIR &lt;name&gt;
+    ///     (pairing: PAIR &lt;name&gt;  →  CODE, then 20 rounds of commitments to the code's bits)
+    ///     AUTH &lt;proof&gt;           →  AUTH &lt;proof&gt;   and from here on every line is encrypted:
+    ///     HELLO &lt;app&gt; &lt;version&gt; →  WELCOME &lt;name&gt;, POINTER &lt;look&gt;, BOARD &lt;receiver box key&gt;, AUDIO &lt;session id&gt;
     ///     PING                     →  PONG          (every second, so both sides notice a dead link quickly)
+    ///     SOUND                    →  AUDIO &lt;session id&gt;   (the phone's sound service has a connection of its own)
     ///     BTN &lt;address&gt; &lt;command&gt; N|R   a button, exactly like the IR receiver's "NEC 00CE 00xx" codes
     ///     TEXT &lt;base64 UTF-8&gt;       words for search (voice search)
     ///     MOVE &lt;dx&gt; &lt;dy&gt;            the phone's trackpad: move the pointer by that many pixels
     ///     WHEEL &lt;dy&gt; [&lt;dx&gt;]         scroll (120 = a mouse wheel notch; up/right when positive)
     ///     MOUSE L|R D|U             a mouse button down or up (a phone that drops lets go of what it held)
-    ///     POINTER &lt;style&gt; &lt;size&gt; &lt;colour&gt;   the pointer's look, e.g. "POINTER arrow 64 white"; CouchTV
-    ///                               also tells a phone the current one, after WELCOME
+    ///     POINTER &lt;style&gt; &lt;size&gt; &lt;colour&gt;   the pointer's look, e.g. "POINTER arrow 64 white"
     /// Buttons go through the same remote.ini mapping as infrared ones, so both remotes behave the same.
     /// </summary>
     internal sealed class RemoteServer
     {
         public const int DiscoveryPort = 47700, ControlPort = 47701;
         public const string RuleName = "CouchTV phone remote";
+        public const int CodeBits = 20;                           // a 6-digit pairing code fits in 20 bits
+        public const int MostWrongCodes = 5, MostPairings = 15;   // in 10 minutes, then pairing waits
+        const int MostClients = 16, MostLine = 8192;
+        static readonly TimeSpan PairWindow = TimeSpan.FromMinutes(10);
 
         public event Action<IrSignal> Button;      // raised on the UI thread
         public event Action<string> Text;          // raised on the UI thread
         public event Action<string> Connected;     // a phone connected (its address), on the UI thread
         public event Action<string, int, string> PointerLook;   // the phone chose a pointer: style, size, colour (UI thread)
+        public event Action<string, string> PairingCode;    // a phone asked to pair: its name and the code to show (UI thread)
+        public event Action<string, string> PairingEnded;   // its name and "paired", "wrong", "failed" or "cancelled" (UI thread)
 
         /// <summary>The pointer's look now ("arrow 64 white"), told to each phone as it connects.</summary>
         internal Func<string> CurrentPointer;
@@ -46,19 +57,25 @@ namespace CouchTV
         internal Action<bool, bool> MouseButton = Input.Button;     // right, down
 
         readonly Dispatcher _ui;
+        readonly PhoneStore _phones;
         readonly int _discoveryPort, _controlPort;
         readonly IPAddress _bind;
+        readonly Dictionary<string, RemoteSession> _sessions = new Dictionary<string, RemoteSession>();
+        readonly object _pairLock = new object();
+        readonly List<DateTime> _pairStarts = new List<DateTime>(), _wrongCodes = new List<DateTime>();
+        bool _pairingNow;
         volatile bool _stop;
         UdpClient _udp;
         TcpListener _tcp;
         int _clients;
 
-        public RemoteServer(Dispatcher ui) : this(ui, DiscoveryPort, ControlPort, IPAddress.Any) { }
+        public RemoteServer(Dispatcher ui, PhoneStore phones) : this(ui, phones, DiscoveryPort, ControlPort, IPAddress.Any) { }
 
         /// <summary>bind: IPAddress.Loopback for the self-test, so Windows doesn't ask about the firewall.</summary>
-        public RemoteServer(Dispatcher ui, int discoveryPort, int controlPort, IPAddress bind)
+        public RemoteServer(Dispatcher ui, PhoneStore phones, int discoveryPort, int controlPort, IPAddress bind)
         {
             _ui = ui;
+            _phones = phones;
             _discoveryPort = discoveryPort;
             _controlPort = controlPort;
             _bind = bind;
@@ -66,7 +83,29 @@ namespace CouchTV
 
         public int Clients { get { return _clients; } }
 
+        public int PairedPhones { get { return _phones.Count; } }
+
         public static string TvName { get { return Environment.MachineName; } }
+
+        /// <summary>A paired phone's connection by the id it was given (for its sound requests); null if it's gone.</summary>
+        public RemoteSession FindSession(string id)
+        {
+            RemoteSession session;
+            lock (_sessions) return id != null && _sessions.TryGetValue(id, out session) ? session : null;
+        }
+
+        /// <summary>Forgets every paired phone (and changes the receiver box's key), and drops their connections.</summary>
+        public void ForgetPhones()
+        {
+            _phones.ForgetAll();
+            List<RemoteSession> open;
+            lock (_sessions) open = new List<RemoteSession>(_sessions.Values);
+            foreach (RemoteSession s in open)
+            {
+                try { s.Client.Close(); } catch (Exception) { }
+            }
+            Log.Info("Wi-Fi remote: forgot the paired phones");
+        }
 
         /// <summary>This PC's IPv4 address on the home network (the adapter with a router), for the phone's settings.</summary>
         public static string LocalAddress()
@@ -114,7 +153,7 @@ namespace CouchTV
                     _udp.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
                     _udp.Client.Bind(new IPEndPoint(_bind, _discoveryPort));
                     _udp.EnableBroadcast = true;
-                    byte[] answer = Encoding.UTF8.GetBytes("COUCHTV 1 " + _controlPort + " " + TvName);
+                    byte[] answer = Encoding.UTF8.GetBytes("COUCHTV 2 " + _controlPort + " " + TvName);
                     while (!_stop)
                     {
                         var from = new IPEndPoint(IPAddress.Any, 0);
@@ -154,22 +193,39 @@ namespace CouchTV
         {
             string who = "?";
             var held = new bool[2];   // the left and right mouse buttons this phone holds down
+            RemoteSession session = null;
+            Channel channel = null;
             try
             {
                 who = ((IPEndPoint)client.Client.RemoteEndPoint).Address.ToString();
+                if (Interlocked.Increment(ref _clients) > MostClients) return;
                 client.NoDelay = true;
                 client.ReceiveTimeout = 5000;   // the phone pings every second; silence means it's gone
-                using (NetworkStream stream = client.GetStream())
-                using (var reader = new StreamReader(stream, new UTF8Encoding(false)))
-                using (var writer = new StreamWriter(stream, new UTF8Encoding(false)) { NewLine = "\n", AutoFlush = true })
+                NetworkStream stream = client.GetStream();
+                var lines = new LineReader(stream, MostLine);
+                string hello = lines.Read();
+                if (hello == null) return;
+                if (!hello.StartsWith("HELLO2 "))
                 {
-                    Interlocked.Increment(ref _clients);
-                    string line;
-                    while (!_stop && (line = reader.ReadLine()) != null)
+                    // An app from before pairing: told to update, it keeps using infrared meanwhile.
+                    if (hello.StartsWith("HELLO")) Send(stream, "UPDATE");
+                    return;
+                }
+                channel = Handshake(client, stream, lines, hello, who, out session);
+                if (channel == null) return;
+                lock (_sessions) _sessions[session.Id] = session;
+                string line;
+                while (!_stop && (line = lines.Read()) != null)
+                {
+                    string plain = channel.Open(line);
+                    if (plain == null)
                     {
-                        string reply = Handle(line.Trim(), who, held);
-                        if (reply != null) writer.WriteLine(reply);
+                        Log.Info("Wi-Fi remote " + who + ": a line that wasn't from the paired phone; disconnected");
+                        break;
                     }
+                    string reply = Handle(plain.Trim(), who, held, session);
+                    if (reply != null)
+                        foreach (string r in reply.Split('\n')) Send(stream, channel.Seal(r));
                 }
             }
             catch (IOException) { }   // timed out or dropped: the phone went away
@@ -177,26 +233,232 @@ namespace CouchTV
             finally
             {
                 Interlocked.Decrement(ref _clients);
+                if (session != null)
+                {
+                    session.Closed = true;
+                    lock (_sessions) _sessions.Remove(session.Id);
+                }
+                if (channel != null) channel.Dispose();
                 client.Close();
                 // A phone that went away mid-drag mustn't leave a mouse button stuck down.
                 for (int i = 0; i < held.Length; i++) if (held[i]) MouseButton(i == 1, false);
             }
         }
 
-        /// <summary>One line from a phone; returns the answer, if any. held: the mouse buttons it holds down.</summary>
-        internal string Handle(string line, string who, bool[] held = null)
+        static void Send(Stream stream, string line)
+        {
+            byte[] bytes = Secure.Utf8(line + "\n");
+            stream.Write(bytes, 0, bytes.Length);
+        }
+
+        // ---------------------------------------------------------------- pairing and proving who's who
+
+        /// <summary>
+        /// Agrees fresh keys with the phone (ECDH), pairs it first if it's new, and checks it holds its pairing key.
+        /// Returns the encrypted channel, or null if it isn't a paired phone (nothing more is said to it).
+        /// </summary>
+        Channel Handshake(TcpClient client, Stream stream, LineReader lines, string hello, string who, out RemoteSession session)
+        {
+            session = null;
+            // HELLO2 <app> <version> <phone id> <phone's ECDH key>
+            string[] p = hello.Split(' ');
+            if (p.Length < 5) return null;
+            string phoneId = p[3].ToLowerInvariant();
+            byte[] id = Secure.FromHex(phoneId), phonePoint = Secure.FromBase64(p[4]);
+            if (id == null || id.Length != 16 || phonePoint == null) return null;
+            using (var mine = new EcdhKey())
+            {
+                byte[] shared;
+                try { shared = mine.Agree(phonePoint); }
+                catch (System.Security.Cryptography.CryptographicException) { return null; }   // not a key on the curve
+                PhoneStore.Phone known = _phones.Find(phoneId);
+                byte[] tvPoint = mine.PublicPoint;
+                string answer = "HELLO2 " + _phones.TvId + " " + Convert.ToBase64String(tvPoint) + " " + (known != null ? "KNOWN" : "PAIR") + " " + TvName;
+                Send(stream, answer);
+                byte[] transcript = Secure.Sha256(Secure.Utf8(hello + "\n" + answer));
+
+                byte[] pairKey;
+                string name;
+                if (known != null)
+                {
+                    pairKey = known.Key;
+                    name = known.Name;
+                }
+                else
+                {
+                    // A new phone only goes on when you asked it to pair ("PAIR <its name>"); otherwise it was just looking.
+                    string ask = lines.Read();
+                    if (ask == null || !ask.StartsWith("PAIR ")) return null;
+                    name = PhoneName(ask.Substring(5));
+                    string code;
+                    if (!Pair(client, stream, lines, name, phonePoint, tvPoint, who, out code)) return null;
+                    pairKey = SessionKeys.PairKey(shared, code, transcript);
+                }
+
+                SessionKeys keys = SessionKeys.Derive(shared, pairKey, transcript);
+                string auth = lines.Read();
+                if (auth == null || !auth.StartsWith("AUTH ") || !Secure.Same(Secure.FromBase64(auth.Substring(5)), keys.PhoneProof))
+                {
+                    Log.Info("Wi-Fi remote " + who + ": didn't prove it's " + name + "; disconnected");
+                    if (known == null) Ended(name, "failed");
+                    return null;
+                }
+                if (known == null)   // kept before the phone hears it's paired
+                {
+                    _phones.Add(new PhoneStore.Phone { Id = phoneId, Name = name, Key = pairKey, Paired = DateTime.UtcNow });
+                    Log.Info("Wi-Fi remote: paired " + name + " (" + who + ")");
+                    Ended(name, "paired");
+                }
+                Send(stream, "AUTH " + Convert.ToBase64String(keys.TvProof));
+                session = new RemoteSession
+                {
+                    Id = Secure.Hex(Secure.Random(8)), Phone = ((IPEndPoint)client.Client.RemoteEndPoint).Address, Name = name,
+                    AudioEnc = keys.AudioEnc, AudioMac = keys.AudioMac, Client = client,
+                };
+                return new Channel(keys.TvEnc, keys.TvMac, keys.PhoneEnc, keys.PhoneMac);
+            }
+        }
+
+        /// <summary>
+        /// Shows a code on the TV, and checks the phone typed the same one without either side saying it: for each of
+        /// its 20 bits, the phone commits to its bit (bound to both keys), the TV commits to its own, then the phone
+        /// reveals, then the TV. Someone between the two can't get the code from one side to fool the other: each round
+        /// they must guess a bit, and the code's never used again. A wrong code is caught by the TV in the first round
+        /// where they differ.
+        /// </summary>
+        bool Pair(TcpClient client, Stream stream, LineReader lines, string name, byte[] phonePoint, byte[] tvPoint, string who, out string code)
+        {
+            code = null;
+            string refusal = StartPairing();
+            if (refusal != null)
+            {
+                Log.Info("Wi-Fi remote " + who + ": pairing " + name + " refused for now (" + refusal + ")");
+                Send(stream, refusal);
+                return false;
+            }
+            int number = Secure.RandomCode();
+            string digits = number.ToString("D6");
+            string outcome = "cancelled";
+            try
+            {
+                Log.Info("Wi-Fi remote " + who + ": pairing " + name);
+                Raise(() => { if (PairingCode != null) PairingCode(name, digits); });
+                Send(stream, "CODE");
+                client.ReceiveTimeout = 125000;   // while you read the code off the TV and type it
+                for (int i = 0; i < CodeBits; i++)
+                {
+                    byte[] phoneCommit = Field(lines.Read(), "C", i, 32);
+                    if (phoneCommit == null) return false;
+                    client.ReceiveTimeout = 10000;
+                    int bit = (number >> i) & 1;
+                    byte[] nonce = Secure.Random(16);
+                    Send(stream, "C " + i + " " + Convert.ToBase64String(Secure.Commit(nonce, 'T', tvPoint, phonePoint, bit)));
+                    byte[] phoneNonce = Field(lines.Read(), "R", i, 16);
+                    if (phoneNonce == null) return false;
+                    if (!Secure.Same(Secure.Commit(phoneNonce, 'P', phonePoint, tvPoint, bit), phoneCommit))
+                    {
+                        Log.Info("Wi-Fi remote " + who + ": wrong pairing code typed on " + name);
+                        outcome = null;
+                        EndPairing(name, "wrong");   // before the phone hears, so it can try again at once
+                        Send(stream, "WRONG");
+                        // Let the phone read it before hanging up (it may have sent its next commitment already).
+                        client.Client.Shutdown(SocketShutdown.Send);
+                        client.ReceiveTimeout = 2000;
+                        while (lines.Read() != null) { }
+                        return false;
+                    }
+                    Send(stream, "R " + i + " " + Convert.ToBase64String(nonce));
+                }
+                client.ReceiveTimeout = 5000;
+                outcome = null;
+                lock (_pairLock) _pairingNow = false;   // "paired" is said once the phone proves it has the key
+                code = digits;
+                return true;
+            }
+            finally
+            {
+                if (outcome != null) EndPairing(name, outcome);
+            }
+        }
+
+        void EndPairing(string name, string outcome)
+        {
+            lock (_pairLock)
+            {
+                _pairingNow = false;
+                if (outcome == "wrong") _wrongCodes.Add(DateTime.UtcNow);
+            }
+            Ended(name, outcome);
+        }
+
+        /// <summary>Null if a pairing may start now; else what to tell the phone: "BUSY", or "WAIT &lt;seconds&gt;".</summary>
+        string StartPairing()
+        {
+            lock (_pairLock)
+            {
+                DateTime now = DateTime.UtcNow;
+                _pairStarts.RemoveAll(t => now - t > PairWindow);
+                _wrongCodes.RemoveAll(t => now - t > PairWindow);
+                if (_pairingNow) return "BUSY";
+                List<DateTime> limit = _wrongCodes.Count >= MostWrongCodes ? _wrongCodes : _pairStarts.Count >= MostPairings ? _pairStarts : null;
+                if (limit != null) return "WAIT " + Math.Max(1, (int)Math.Ceiling((limit[0] + PairWindow - now).TotalSeconds));
+                _pairingNow = true;
+                _pairStarts.Add(now);
+                return null;
+            }
+        }
+
+        void Ended(string name, string outcome)
+        {
+            Raise(() => { if (PairingEnded != null) PairingEnded(name, outcome); });
+        }
+
+        /// <summary>"C|R &lt;round&gt; &lt;base64&gt;" for this round, with that many bytes; else null.</summary>
+        static byte[] Field(string line, string kind, int round, int length)
+        {
+            if (line == null) return null;
+            string[] p = line.Split(' ');
+            if (p.Length != 3 || p[0] != kind || p[1] != round.ToString()) return null;
+            byte[] value = Secure.FromBase64(p[2]);
+            return value != null && value.Length == length ? value : null;
+        }
+
+        /// <summary>The name a phone gave (base64 UTF-8), tidied for showing on the TV.</summary>
+        static string PhoneName(string encoded)
+        {
+            string name = "";
+            byte[] bytes = Secure.FromBase64(encoded);
+            if (bytes != null)
+            {
+                try { name = new UTF8Encoding(false, true).GetString(bytes); }
+                catch (ArgumentException) { }
+            }
+            var tidy = new StringBuilder();
+            foreach (char c in name) if (!char.IsControl(c)) tidy.Append(c);
+            name = tidy.ToString().Trim();
+            if (name.Length > 40) name = name.Substring(0, 40);
+            return name.Length > 0 ? name : "a phone";
+        }
+
+        // ---------------------------------------------------------------- what a paired phone says
+
+        /// <summary>One line from a phone; returns the answer, if any (lines split by \n). held: the mouse buttons it holds down.</summary>
+        internal string Handle(string line, string who, bool[] held = null, RemoteSession session = null)
         {
             string[] parts = line.Split(' ');
             int dx, dy;
             switch (parts[0])
             {
                 case "HELLO":
-                    Log.Info("Wi-Fi remote connected: " + who + " (" + line + ")");
+                    Log.Info("Wi-Fi remote connected: " + who + (session != null ? ", " + session.Name : "") + " (" + line + ")");
                     Raise(() => { if (Connected != null) Connected(who); });
                     Func<string> pointer = CurrentPointer;
-                    return "WELCOME " + TvName + (pointer != null ? "\nPOINTER " + pointer() : "");
+                    return "WELCOME " + TvName + (pointer != null ? "\nPOINTER " + pointer() : "") +
+                           (session != null ? "\nBOARD " + Secure.Hex(_phones.BoardKey) + "\nAUDIO " + session.Id : "");
                 case "PING":
                     return "PONG";
+                case "SOUND":   // the phone's sound service, on a connection of its own: just its session id
+                    return session != null ? "AUDIO " + session.Id : null;
                 case "BTN":
                     int address, command;
                     if (parts.Length >= 3 && TryHex(parts[1], out address) && TryHex(parts[2], out command))
@@ -313,5 +575,17 @@ namespace CouchTV
                 return false;
             }
         }
+    }
+
+    /// <summary>A paired phone's connection: what its sound requests are checked with, and where the sound goes.</summary>
+    internal sealed class RemoteSession
+    {
+        public string Id;              // 16 hex digits, told to the phone for its sound requests
+        public IPAddress Phone;
+        public string Name;
+        public byte[] AudioEnc, AudioMac;
+        public long LastListen;        // the number of its last sound request: each must be higher (no replays)
+        public volatile bool Closed;
+        internal TcpClient Client;
     }
 }

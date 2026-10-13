@@ -56,6 +56,8 @@
   without an IR blaster switch things on and off. It sends "POWER BUTTON", handled exactly like the remote's Power by
   infrared (wake or start the PC if it's asleep or off, else pass it to CouchTV, which puts it to sleep), and asks
   "STATE" every 2 s; any command works on either port, answered on the one it came from.
+  Version 7: CouchTV gives the ESP32 the key it checks phones' requests with ("LINKKEY", USB only), which this
+  passes on as "KEY <key>"; the ESP32 keeps it. Paired phones get the same key from CouchTV.
 
   Nothing is ever sent to the PC while it sleeps: the board's USB code would wake it up to deliver it.
 
@@ -70,6 +72,7 @@
       LOG            ->  the last 60 events, oldest first: LOG <start no.> <seconds since that start> <event>
       LOG CLEAR      ->  empty the log
       POWER BUTTON   ->  the Power button, from the ESP32 (or a test): like Power by infrared
+      LINKKEY <hex>  ->  64 hex digits for the ESP32 (from the PC's USB only): passed on as KEY <hex>
       SLEEP SOON     ->  the PC is going to sleep: switch the TV off now
       OFF SOON       ->  the PC is about to shut down: switch the TV off once it's off (saved)
       RESTART SOON   ->  the PC is about to restart: leave the TV alone until it's back (saved)
@@ -90,7 +93,7 @@ const uint8_t LED_PIN = 17;        // the board's RX LED (lit when LOW): blinks 
 const uint8_t PC_RELAY = 8;        // relay module IN1: the PC's power button
 const uint8_t TV_RELAY = 9;        // relay module IN2: the TV's power button
 const uint8_t TV_SENSE = 10;       // the TV's USB 5 V, through 2.2 kOhm, with 10 kOhm to GND
-const char VERSION[] = "6";
+const char VERSION[] = "7";
 
 const uint8_t MAX_WAKE = 16;
 const uint8_t EEPROM_MAGIC = 0xC7;
@@ -129,7 +132,7 @@ const unsigned long PLAN_MAX_MS = 600000UL;   // OFF SOON / RESTART SOON, but th
 uint32_t wakeHashes[MAX_WAKE];
 uint8_t wakeCount = 0;
 uint8_t flags = 0;
-char command[40];                  // a line from the PC...
+char command[80];                  // a line from the PC (LINKKEY is 72 characters)...
 uint8_t commandLength = 0;
 char linkCommand[40];              // ...and from the ESP32
 uint8_t linkCommandLength = 0;
@@ -539,6 +542,14 @@ void runCommand(const char *text, Print &out) {
   } else if (strcmp(text, "POWER BUTTON") == 0) {
     out.println(F("OK"));
     powerButton();
+  } else if (strncmp(text, "LINKKEY ", 8) == 0 && &out == &Serial) {
+    bool hex = strlen(text + 8) == 64;
+    for (const char *c = text + 8; hex && *c; c++) hex = isxdigit(*c);
+    if (hex) {
+      Serial1.print(F("KEY "));
+      Serial1.println(text + 8);
+    }
+    out.println(hex ? F("OK") : F("ERR"));
   } else if (strcmp(text, "SLEEP SOON") == 0) {
     if (wokeAt != 0 && millis() - wokeAt < LATE_SLEEP_MS) {
       note(EV_LATE_SLEEP);
@@ -578,13 +589,13 @@ void runCommand(const char *text, Print &out) {
   }
 }
 
-// Reads one port's lines into its buffer, and runs each, answering on that port.
-void readCommands(Stream &port, char *buffer, uint8_t &length) {
+// Reads one port's lines into its buffer (size bytes), and runs each, answering on that port.
+void readCommands(Stream &port, char *buffer, uint8_t size, uint8_t &length) {
   while (port.available() > 0) {
     char c = port.read();
     if (c == '\r') continue;
     if (c != '\n') {
-      if (length < 39) buffer[length++] = c;
+      if (length < size - 1) buffer[length++] = c;
       continue;
     }
     buffer[length] = 0;
@@ -615,8 +626,8 @@ void loop() {
     handleSignal(IrReceiver.decodedIRData);
     IrReceiver.resume();
   }
-  readCommands(Serial, command, commandLength);
-  readCommands(Serial1, linkCommand, linkCommandLength);
+  readCommands(Serial, command, sizeof(command), commandLength);
+  readCommands(Serial1, linkCommand, sizeof(linkCommand), linkCommandLength);
   watchPower();
   if (ledOffAt != 0 && (long)(millis() - ledOffAt) >= 0) {
     digitalWrite(LED_PIN, HIGH);

@@ -14,6 +14,10 @@ class Remote(context: Context) {
     val wifi = WifiLink(context)
     val board = BoardLink(context)
 
+    init {
+        wifi.onBoardKey = { board.setKey(it) }   // the TV gives paired phones the receiver box's key
+    }
+
     private val worker = Executors.newSingleThreadExecutor()
     @Volatile private var heldPress = 0
     private var lastPress = 0                       // only touched on the main thread

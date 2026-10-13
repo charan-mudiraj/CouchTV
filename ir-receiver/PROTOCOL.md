@@ -103,13 +103,14 @@ The app's version is `phone-remote/app/src/main/java/com/couchtv/remote/Nec.kt`.
 
 The same remote also works over the home network, with no pointing, and on phones without an IR blaster. It uses the same button codes, so `remote.ini` applies to both. The phone prefers Wi-Fi while the TV answers, and falls back to infrared when it doesn't, for example when the PC is asleep. **Power never goes to the PC directly**, even while connected: it goes to the receiver box (by its own Wi-Fi, below, or else by infrared), which handles it whether the PC is on (it passes it to CouchTV) or asleep or off (it wakes it). Sent to the PC over Wi-Fi it raced the link, which drops as the PC sleeps and comes back as it wakes.
 
-1. **Finding the TV.** The phone sends the text `COUCHTV?` by UDP to port **47700**, both as a broadcast (the subnet's, like `192.168.1.255`, and `255.255.255.255`) and directly to the address that answered last time. CouchTV replies `COUCHTV 1 47701 <PC name>`: protocol 1, TCP port 47701.
-2. **Connecting.** The phone opens TCP port **47701**. Both sides send lines of UTF-8 text ending in `\n`:
+1. **Finding the TV.** The phone sends the text `COUCHTV?` by UDP to port **47700**, both as a broadcast (the subnet's, like `192.168.1.255`, and `255.255.255.255`) and directly to the address that answered last time. CouchTV replies `COUCHTV 2 47701 <PC name>`: protocol 2, TCP port 47701.
+2. **Connecting.** The phone opens TCP port **47701**. Both sides send lines of UTF-8 text ending in `\n`. Only a phone paired with the TV gets past the first lines, and everything after them is encrypted: see *Security* below. Inside the encryption:
 
 | Phone sends | CouchTV answers | Meaning |
 |---|---|---|
-| `HELLO CouchTV-Remote <version>` | `WELCOME <PC name>` | connected |
+| `HELLO CouchTV-Remote <version>` | `WELCOME <PC name>`, `POINTER <look>`, `BOARD <key>`, `AUDIO <session>` | connected; `BOARD` is the receiver box's key (below), `AUDIO` the id for this connection's sound requests |
 | `PING` (every second) | `PONG` | keeps it alive; either side drops the link after 3–5 s without one |
+| `SOUND` | `AUDIO <session>` | the phone's sound service, which keeps a connection of its own (it plays on with the screen off) |
 | `BTN CE 05 N`, then `BTN CE 05 R` every 108 ms while held | | a button: address and command in hex, like an NEC frame; CouchTV treats it exactly like the receiver's `NEC 00CE 0005` |
 | `TEXT <base64 of UTF-8>` | | words for search, all at once (no frames or CRC needed) |
 | `MOVE <dx> <dy>` | | the trackpad: move the pointer by that many pixels (up to ±2000); the phone does the acceleration, so CouchTV skips Windows' |
@@ -120,17 +121,51 @@ The same remote also works over the home network, with no pointing, and on phone
 
 Windows Firewall has to allow CouchTV in: the installer adds the rule *CouchTV phone remote* (CouchTV.exe, local network only). On a PC installed before Wi-Fi mode, CouchTV asks once and Windows shows its permission prompt; press F7 on the home screen to ask again. The code is `src/RemoteServer.cs` and `phone-remote/.../WifiLink.kt`.
 
+An app from before pairing that says `HELLO` straight away is answered `UPDATE` and nothing else, and keeps using infrared.
+
+## Security
+
+A Wi-Fi shared with neighbours (or a router without a guest network) puts everyone's devices on the same network, so without this anyone on it could press the TV's buttons, type into its search, hear its sound, or switch the PC and TV on and off through the receiver box. So only **paired** phones get any of that, and what they send is encrypted.
+
+**Pairing, once per phone.** When the app finds a TV it isn't paired with, its top line says so; tapping it asks the TV for a code. The TV shows a fresh 6-digit code on screen (for 2 minutes, or until the phone gives up), and you type it on the phone. Seeing the code means being in the room. Neither side ever sends the code: for each of its 20 bits, the phone commits to its bit (an HMAC keyed with a random nonce, over the bit and both sides' ECDH keys), the TV commits to its own, then the phone reveals its nonce, then the TV. A wrong code is caught by the TV in the first bit where they differ (`WRONG`). Someone sitting between the two (on a shared Wi-Fi that's possible) can't take the code from one side to fool the other: in every round they'd have to guess a bit before seeing it, and each code works once (as in Bluetooth's passkey pairing). The TV pairs one phone at a time (`BUSY`), and after 5 wrong codes, or 15 pairings, in 10 minutes it waits (`WAIT <seconds>`). The TV keeps up to 20 phones. *Forget phones* on the TV's Remote screen (F8) forgets them all, drops their connections and changes the receiver box's key.
+
+**Every connection.** Each side makes a fresh ECDH key on the P-256 curve; the shared secret is SHA-256 of the x coordinate. Then:
+
+| Phone sends | CouchTV answers |
+|---|---|
+| `HELLO2 CouchTV-Remote <version> <phone id> <phone key>` | `HELLO2 <TV id> <TV key> KNOWN\|PAIR <PC name>` |
+| (if `PAIR`, only when you asked to pair) `PAIR <phone name, base64>` | `CODE` (it's on the TV now), `BUSY` or `WAIT <seconds>` |
+| `C <i> <commitment>` | `C <i> <commitment>` |
+| `R <i> <nonce>` | `R <i> <nonce>`, or `WRONG` |
+| `AUTH <phone proof>` | `AUTH <TV proof>` |
+
+Keys are 65-byte points (`04`, x, y) and binary values are base64; the phone id is 32 hex digits it made up once. The *transcript* is SHA-256 of the two `HELLO2` lines (joined by `\n`). Pairing ends with the **pairing key** = HKDF-SHA256(secret, salt: the 6 digits, info: `CouchTV pair 1` + transcript), 32 bytes, which both keep. Each connection then derives 224 bytes = HKDF-SHA256(secret, salt: pairing key, info: `CouchTV session 1` + transcript): a confirmation key, then encryption and MAC keys for what the phone sends, for what the TV sends, and for the sound (32 bytes each). The proofs are HMAC(confirmation key, `phone`) and HMAC(confirmation key, `tv`); the TV checks the phone's before it answers with its own, and the phone checks the TV's before it sends anything that matters. A phone without the pairing key gets nothing more, nor does a stranger posing as the TV.
+
+**Encrypted lines.** From then on each line is base64 of: the text encrypted with AES-256 in counter mode (the 16-byte counter block is the line's number, 8 bytes big-endian, then the block number, 8 bytes big-endian from 0), then 16 bytes of HMAC-SHA256(MAC key, line number as 8 bytes big-endian + ciphertext). Line numbers count from 0 each way and aren't sent, so a line replayed, dropped, reordered or changed fails, and CouchTV hangs up. CouchTV refuses lines over 8 KB, and more than 16 connections at once.
+
+**Sound.** See *Sound on phones*: requests carry an HMAC with the connection's sound key, and each phone's packets are encrypted with its own.
+
+**The receiver box.** CouchTV makes the box's key (32 random bytes) and sends it to the receiver over USB on every connect (`LINKKEY <hex>`), which passes it to the ESP32 (`KEY <hex>`), which keeps it; paired phones get it in `BOARD`. See *Receiver box Wi-Fi*. The box's setup network only opens when its BOOT button is held (or before it has a Wi-Fi), so nobody on the Wi-Fi can move it to another network.
+
+The pairing keys live in `%LOCALAPPDATA%\CouchTV\phones.dat`, encrypted by Windows for that user (DPAPI), and on the phone in its app storage, left out of backups. The code: `src/Secure.cs`, `src/Phones.cs` and `src/RemoteServer.cs`; `phone-remote/.../Secure.kt` and `Handshake.kt`; `firmware/CouchLink`. `CouchTV.exe --remotetest` checks the cryptography against published test vectors and runs pairing, wrong codes, forged proofs, replayed and changed lines; `CouchTV.exe --securityvectors` writes the numbers the phone app's unit test (`SecureTest.kt`, run by every build) checks its own against.
+
+Also worth doing on a shared Wi-Fi: set the TV PC's network to **Public** (Settings > Network & internet > Wi-Fi or Ethernet > the network > Public network), which turns off file and printer sharing and network discovery; the phone remote keeps working, since its firewall rule covers both. Your own router behind the shared one (a network only your devices join) keeps neighbours off it altogether.
+
 ## Receiver box Wi-Fi
 
-With an ESP32 wired to the receiver (firmware `firmware/CouchLink`), the box has Wi-Fi of its own. It's on while the PC is asleep or off, so any phone can switch the PC and the TV on, and see whether they're on. Its first start opens the network *CouchTV-Setup*, whose page takes your Wi-Fi's name and password (kept on the ESP32 only); after that it's `couchtv-board` on your Wi-Fi, with a page showing the PC and the TV and a Power button.
+With an ESP32 wired to the receiver (firmware `firmware/CouchLink`), the box has Wi-Fi of its own. It's on while the PC is asleep or off, so any phone paired with the TV can switch the PC and the TV on, and see whether they're on. Its first start opens the network *CouchTV-Setup*, whose page takes your Wi-Fi's name and password (kept on the ESP32 only); after that it's `couchtv-board` on your Wi-Fi. To change networks, hold its BOOT button for 3 seconds: its blue light blinks and CouchTV-Setup opens for 10 minutes. Its page on the home Wi-Fi only shows its version and whether it has its key.
 
-Phones send it one line per UDP packet on port **47710**, and it answers the sender:
+It only obeys requests tagged with its key (*Security*): `tag(text)` is the first 16 bytes of HMAC-SHA256(key, text) as 32 hex digits. The box has a **challenge**, 32 random hex digits, that it changes every minute and after each Power, so a request can't be replayed; every tagged answer brings the current one, and the previous one still works for a moment. Phones send it one line per UDP packet on port **47710**, and it answers the sender:
 
 | Phone sends | Box answers | Meaning |
 |---|---|---|
-| `COUCHBOARD?` (broadcast) | `COUCHBOARD 1 couchtv-board` | finding it |
-| `STATE` (every 2.5 s) | `STATE PC ON TV OFF SENSE OFF ...`, or `STATE ?` | the PC and TV as the receiver sees them; `?` if the receiver isn't answering |
-| `POWER <id>` | `OK <id>` | the Power button; resent until `OK`, and a repeat of the same id is ignored |
+| `COUCHBOARD?` (broadcast) | `COUCHBOARD 2 couchtv-board` | finding it |
+| `NONCE` | `NONCE <challenge>` | a challenge to start with |
+| `STATE <c> <tag("STATE <c>")>` (every 2.5 s) | `STATE PC ON TV OFF SENSE OFF ... <next> <tag>`, or `STATE ? <next> <tag>` | the PC and TV as the receiver sees them; `?` if the receiver isn't answering |
+| `POWER <id> <c> <tag("POWER <id> <c>")>` | `OK <id> <next> <tag>` | the Power button; resent until `OK`, and the same id again within 10 s is answered without pressing |
+| anything it can't check | `NONCE <challenge>` (or `NOKEY` before CouchTV gave it a key) | the phone asks again with that challenge |
+
+An answer's tag is `tag("R <c> <answer> <next>")`, with the challenge the request used, so the phone knows it's the real box, now.
 
 The ESP32 passes Power to the receiver as `POWER BUTTON` over a serial link (Leonardo pins 0 and 1, 115200 baud), and the receiver treats it exactly like Power by infrared. It asks the receiver `STATE` every 2 s.
 
@@ -138,8 +173,8 @@ The ESP32 passes Power to the receiver as `POWER BUTTON` over a serial link (Leo
 
 *Listen on this phone* in the app plays the TV's sound in that phone's headphones, so several people can listen at once, each with their own. CouchTV captures whatever Windows plays (WASAPI loopback, so every app works) and sends it over Wi-Fi.
 
-- The phone sends `LISTEN` to UDP port **47702** every second while it wants sound, and `STOP` when done. CouchTV drops a phone that's been quiet for 3 seconds, and only captures while someone listens. When nothing plays (a paused video), Windows produces no sound data, so CouchTV sends silence at the real pace after 20 ms; phones never run dry.
-- Each packet is a chunk of 180 frames (3.75 ms at 48 kHz) of uncompressed 16-bit stereo: `CTA1`, a sequence number (uint32), the sample rate (uint32), the channel count (1 byte, 2), flags (1 byte), 2 zero bytes, then the samples, little-endian. A phone that sends `LISTEN 2` gets `CTA2` packets instead, which also carry the previous chunk after the current one (flags bit 1): a packet lost on the Wi-Fi is repaired from the next, and two chunks plus the header (1456 bytes) still fit one Wi-Fi frame. 5.1 and 7.1 are folded into stereo, keeping the centre (dialogue). Sound outputs without a volume control of their own (HDMI usually) have Windows' volume applied before the loopback hears it, so CouchTV undoes it there (up to 40 dB): phones get full-quality sound at any TV volume and set their own. Peaks that would clip are turned down briefly instead, and the conversion to 16 bits is rounded and dithered.
+- Only paired phones get it. The phone's sound service keeps a paired connection of its own to the TV (*Security*), which gives it a session id and sound keys. It sends `LISTEN 3 <session> <n> <tag>` to UDP port **47702** every second while it wants sound, and `STOP 3 <session> <n> <tag>` when done: `n` goes up each time (CouchTV ignores one that doesn't, so requests can't be replayed), and the tag is the first 16 bytes of HMAC-SHA256(sound MAC key, `LISTEN <session> <n>`) in hex. It must come from the connection's address, and stops counting when the connection ends. CouchTV drops a phone that's been quiet for 3 seconds, and only captures while someone listens. When nothing plays (a paused video), Windows produces no sound data, so CouchTV sends silence at the real pace after 20 ms; phones never run dry.
+- Each packet is a chunk of 180 frames (3.75 ms at 48 kHz) of uncompressed 16-bit stereo: `CTA3`, a sequence number (uint32), the sample rate (uint32), the channel count (1 byte, 2), flags (1 byte), 2 zero bytes, then the samples, little-endian, then the previous chunk (flags bit 1), so a packet lost on the Wi-Fi is repaired from the next. The samples are encrypted for that phone alone with AES-256-CTR (sound encryption key; the counter block is the sequence number as 8 bytes big-endian, then the block number), then 16 bytes of HMAC-SHA256(sound MAC key, header + ciphertext) follow: 1472 bytes, exactly one Wi-Fi frame. The sequence never starts again while CouchTV runs, so no counter block repeats under a key. 5.1 and 7.1 are folded into stereo, keeping the centre (dialogue). Sound outputs without a volume control of their own (HDMI usually) have Windows' volume applied before the loopback hears it, so CouchTV undoes it there (up to 40 dB): phones get full-quality sound at any TV volume and set their own. Peaks that would clip are turned down briefly instead, and the conversion to 16 bits is rounded and dithered.
 - The phone lets its own audio system set the pace and keeps a cushion of 60 ms (speaker, wired) or 160 ms (Bluetooth, which takes sound in big, irregular gulps and shares the phone's radio with 2.4 GHz Wi-Fi), growing by 20 ms whenever sound runs out, up to 300 ms. The TV's and phone's clocks differ slightly, so when packets slowly pile up or the cushion runs low the sound plays up to 0.6% faster or slower, easing in and out, instead of dropping or padding sound; it's resampled with a 16-tap windowed-sinc filter (flat to 18 kHz) whose position carries across chunks, and at normal speed it's bit-exact. If two or more packets in a row are lost, the phone fills in up to 3 chunks by repeating the stretch of recent sound (4–15 ms) that best continues the waveform, then blends back into the real sound over 2 ms (like G.711 Appendix I), instead of repeating the last chunk, which clicked. It holds the Wi-Fi in low-latency mode. The notification shows the cushion and counts of lost and repaired packets, gaps and smooth corrections. The phone plays it on wired earphones (or USB, or line out), else its speaker, never on Bluetooth (`setPreferredDevice`), and keeps the phone's Bluetooth off while the app is in use, so the Wi-Fi has the 2.4 GHz radio to itself (Android 12 and older: the app switches it off; 13 and newer: Android's *Turn off Bluetooth?* question, unless the app is device owner). The Bluetooth cushion stays for phones that ignore the routing; on Bluetooth the low delay came with an occasional tiny break, and a bigger reserve removed the breaks but added noticeable delay.
 
-`CouchTV.exe --audiotest report.txt` plays a quiet tone and checks it arrives intact over this PC's loopback. The code is `src/AudioShare.cs` and `phone-remote/.../AudioListener.kt` (with `Resampler.kt`, `Concealer.kt` and `BluetoothGuard.kt`).
+`CouchTV.exe --audiotest report.txt` plays a quiet tone and checks it arrives intact over this PC's loopback, and that requests without the key, or replayed, get nothing. The code is `src/AudioShare.cs` and `phone-remote/.../AudioListener.kt` (with `Resampler.kt`, `Concealer.kt` and `BluetoothGuard.kt`).

@@ -8,6 +8,7 @@
     <color name="ink">#F4F6FA</color>
     <color name="muted">#A3ACBC</color>
     <color name="good">#3DDC84</color>
+    <color name="warn">#FFD43B</color>
     <color name="power">#E5484D</color>
     <color name="power_pressed">#B8353A</color>
     <color name="voice">#3D7BFF</color>

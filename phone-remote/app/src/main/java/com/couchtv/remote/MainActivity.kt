@@ -12,10 +12,12 @@ import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.provider.Settings
+import android.text.InputFilter
 import android.text.InputType
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.WindowManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageButton
@@ -141,7 +143,7 @@ class MainActivity : Activity() {
 
     /** The TV's sound in this phone's headphones, sent over Wi-Fi; it keeps playing with the screen off. */
     private fun startListening() {
-        val tv = remote.wifi.tvAddress?.hostAddress ?: remote.wifi.manualAddress
+        val tv = remote.wifi.tvAddress?.hostAddress   // connected (so paired): the sound needs that too
         if (tv == null) {
             toast(getString(R.string.listen_no_tv))
             return
@@ -341,7 +343,8 @@ class MainActivity : Activity() {
         val status = findViewById<TextView>(R.id.status)
         val tv = remote.wifi.tvName
         val address = remote.wifi.manualAddress
-        status.setTextColor(getColor(if (tv != null) R.color.good else R.color.muted))
+        val unpaired = remote.wifi.unpairedTv
+        status.setTextColor(getColor(if (tv != null) R.color.good else if (unpaired != null) R.color.warn else R.color.muted))
         val board = remote.board
         val pcOn = board.pcOn
         val tvOn = board.tvOn
@@ -349,18 +352,126 @@ class MainActivity : Activity() {
             getString(R.string.board_state, onOff(pcOn), onOff(tvOn)) else null
         status.text = when {
             tv != null -> getString(R.string.wifi_connected, tv) + (boardLine?.let { " · $it" } ?: "")
+            unpaired != null -> getString(R.string.pair_offer, unpaired)
+            remote.wifi.tvTooOld -> getString(R.string.tv_too_old)
             board.connected && pcOn == false -> getString(R.string.board_pc_off, onOff(tvOn == true))
             address != null -> getString(if (remote.ir.available) R.string.wifi_trying_ir else R.string.wifi_trying, address)
             !remote.ir.available -> getString(R.string.wifi_looking_no_ir)
             !remote.ir.supports38kHz -> getString(R.string.no_38khz)
             else -> getString(R.string.ready)
         }
-        status.setOnClickListener { editTvAddress() }
+        status.setOnClickListener { if (remote.wifi.unpairedTv != null) showPairing() else editTvAddress() }
         findViewById<TrackpadView>(R.id.trackpad).hint =
             if (tv == null && !remote.ir.available) getString(R.string.trackpad_offline) else null
     }
 
     private fun onOff(on: Boolean) = getString(if (on) R.string.state_on else R.string.state_off)
+
+    /**
+     * Pairs this phone with the TV, once: the TV shows a 6-digit code, typed here. Only paired phones can use the TV
+     * over Wi-Fi (or hear its sound, or press Power through the receiver box), so neighbours on a shared Wi-Fi can't.
+     */
+    private fun showPairing() {
+        val tv = remote.wifi.unpairedTv ?: return
+        val density = resources.displayMetrics.density
+        val padding = (20 * density).toInt()
+        val message = TextView(this).apply {
+            setTextColor(getColor(R.color.muted))
+            textSize = 16f
+        }
+        val input = EditText(this).apply {
+            hint = "000000"
+            inputType = InputType.TYPE_CLASS_NUMBER
+            filters = arrayOf(InputFilter.LengthFilter(6))
+            gravity = Gravity.CENTER
+            textSize = 32f
+            letterSpacing = 0.3f
+            setSingleLine()
+        }
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(padding, padding / 2, padding, 0)
+            addView(message)
+            addView(input)
+        }
+        var done = false
+        var waitingForCode = false
+        val dialog = AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+            .setTitle(getString(R.string.pair_title, tv))
+            .setView(form)
+            .setPositiveButton(R.string.pair, null)
+            .setNegativeButton(R.string.cancel, null)
+            .setNeutralButton(R.string.tv_address_title) { _, _ -> editTvAddress() }
+            .create()
+        dialog.setOnDismissListener { if (!done) remote.wifi.cancelPairing() }
+        dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
+        dialog.show()
+        val pair = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+
+        val listener = object : WifiLink.PairListener {
+            override fun codeShown() {
+                if (!dialog.isShowing) return
+                waitingForCode = true
+                message.setText(R.string.pair_type_code)
+                input.isEnabled = true
+                input.requestFocus()
+                pair.setText(R.string.pair)
+                pair.isEnabled = true
+            }
+
+            override fun refused(waitSeconds: Int) {
+                if (!dialog.isShowing) return
+                message.text = if (waitSeconds == 0) getString(R.string.pair_busy) else getString(R.string.pair_wait, (waitSeconds + 59) / 60)
+                pair.setText(R.string.pair_again)
+                pair.isEnabled = true
+            }
+
+            override fun finished(result: Handshake.PairResult) {
+                if (result == Handshake.PairResult.PAIRED) {
+                    done = true
+                    dialog.dismiss()
+                    toast(getString(R.string.paired, tv))
+                    return
+                }
+                if (!dialog.isShowing) return
+                message.setText(when (result) {
+                    Handshake.PairResult.WRONG_CODE -> R.string.pair_wrong
+                    Handshake.PairResult.NOT_SAFE -> R.string.pair_not_safe
+                    else -> R.string.pair_failed
+                })
+                input.setText("")
+                input.isEnabled = false
+                pair.setText(R.string.pair_again)
+                pair.isEnabled = true
+            }
+        }
+        // Each try asks the TV for a new code: a code is only good once.
+        val start = {
+            waitingForCode = false
+            message.text = getString(R.string.pair_asking, tv)
+            input.setText("")
+            input.isEnabled = false
+            pair.isEnabled = false
+            remote.wifi.pair(listener)
+        }
+        pair.setOnClickListener {
+            if (!waitingForCode) {
+                start()
+                return@setOnClickListener
+            }
+            val code = input.text.toString()
+            if (code.length != 6) {
+                input.error = getString(R.string.need_code)
+                return@setOnClickListener
+            }
+            waitingForCode = false
+            input.isEnabled = false
+            pair.isEnabled = false
+            message.setText(R.string.pair_checking)
+            remote.wifi.typeCode(code)
+        }
+        start()
+    }
 
     /** The TV's address on the Wi-Fi (reserved for it in the router), or empty to find it automatically. */
     private fun editTvAddress() {

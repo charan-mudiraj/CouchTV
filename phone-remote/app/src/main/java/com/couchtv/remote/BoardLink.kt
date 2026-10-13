@@ -18,7 +18,11 @@ import java.net.SocketTimeoutException
  * The receiver box's own Wi-Fi: an ESP32 (CouchLink) wired to the IR receiver, which presses the PC's and the TV's
  * power buttons with its relays. It's on even while the PC is asleep or off, so Power works from any phone, IR
  * blaster or not, and it knows whether the PC and the TV are on. "Receiver box Wi-Fi" in ir-receiver/PROTOCOL.md:
- * UDP port 47710; "COUCHBOARD?" (broadcast) finds it, "STATE" asks how things are, "POWER <id>" presses Power.
+ * UDP port 47710; "COUCHBOARD?" (broadcast) finds it.
+ *
+ * It only does what a paired phone asks: requests carry a tag made with the box's key (which the TV gives paired
+ * phones, and the box over USB) and the box's current challenge, so they can't be made up or replayed. Its answers
+ * are tagged too, and bring the next challenge. "NONCE" asks for one.
  */
 class BoardLink(context: Context) {
     companion object {
@@ -36,6 +40,9 @@ class BoardLink(context: Context) {
     @Volatile private var address: InetAddress? = null
     @Volatile private var lastHeard = 0L
     @Volatile private var acked = 0
+    @Volatile private var key: ByteArray? = prefs.getString("key", null)?.let { Secure.fromHex(it) }?.takeIf { it.size == 32 }
+    @Volatile private var challenge: String? = null
+    private val asked = ArrayDeque<String>()   // the challenges recent requests used, to check answers with
     private var nextId = (System.currentTimeMillis() % 1_000_000).toInt() + 1
 
     /** Called on the main thread when the board appears, goes, or the PC or TV changes. */
@@ -47,8 +54,15 @@ class BoardLink(context: Context) {
     @Volatile var tvOn: Boolean? = null
         private set
 
-    /** The board answered lately. */
+    /** The board answered lately, to this phone's key. */
     val connected: Boolean get() = SystemClock.elapsedRealtime() - lastHeard < GONE_AFTER_MS
+
+    /** The box's key, from the TV (each time this phone connects to it). */
+    fun setKey(newKey: ByteArray) {
+        if (Secure.same(key, newKey)) return
+        key = newKey
+        prefs.edit().putString("key", Secure.hex(newKey)).apply()
+    }
 
     fun start() {
         if (running) return
@@ -68,7 +82,8 @@ class BoardLink(context: Context) {
     fun power(done: (Boolean) -> Unit) {
         val target = address
         val s = socket
-        if (target == null || s == null) {
+        val k = key
+        if (target == null || s == null || k == null) {
             done(false)
             return
         }
@@ -76,7 +91,9 @@ class BoardLink(context: Context) {
         Thread {
             var ok = false
             for (attempt in 0 until 5) {
-                runCatching { send(s, "POWER $id", target) }
+                val c = challenge
+                if (c == null) runCatching { send(s, "NONCE", target) }
+                else runCatching { send(s, "POWER $id $c ${Secure.tag(k, "POWER $id $c")}", target, c) }
                 val until = SystemClock.elapsedRealtime() + 300
                 while (SystemClock.elapsedRealtime() < until && acked != id) SystemClock.sleep(15)
                 if (acked == id) {
@@ -96,7 +113,7 @@ class BoardLink(context: Context) {
                 s.broadcast = true
                 s.soTimeout = 300
                 socket = s
-                val buffer = ByteArray(256)
+                val buffer = ByteArray(512)
                 var lastAsk = 0L
                 while (running) {
                     val now = SystemClock.elapsedRealtime()
@@ -111,7 +128,7 @@ class BoardLink(context: Context) {
                     } catch (e: SocketTimeoutException) {
                         continue
                     }
-                    handle(String(packet.data, 0, packet.length, Charsets.UTF_8).trim(), packet.address)
+                    handle(s, String(packet.data, 0, packet.length, Charsets.UTF_8).trim(), packet.address)
                 }
             } catch (e: Exception) {
                 if (running) {
@@ -128,7 +145,7 @@ class BoardLink(context: Context) {
     /** Asks the board how things are; until it's found (or after it went quiet), the whole network as well. */
     private fun ask(s: DatagramSocket) {
         val known = address ?: prefs.getString("ip", null)?.let { runCatching { InetAddress.getByName(it) }.getOrNull() }
-        if (known != null) runCatching { send(s, "STATE", known) }
+        if (known != null) runCatching { askState(s, known) }
         if (connected) return
         val network = wifiNetwork()
         val targets = ArrayList<InetAddress>()
@@ -137,28 +154,58 @@ class BoardLink(context: Context) {
         for (target in targets) runCatching { send(s, "COUCHBOARD?", target) }
     }
 
-    private fun handle(message: String, from: InetAddress) {
+    private fun askState(s: DatagramSocket, target: InetAddress) {
+        val k = key ?: return   // no key yet: the TV gives it once this phone is paired and connects
+        val c = challenge
+        if (c == null) send(s, "NONCE", target) else send(s, "STATE $c ${Secure.tag(k, "STATE $c")}", target, c)
+    }
+
+    private fun handle(s: DatagramSocket, message: String, from: InetAddress) {
         when {
-            message.startsWith("COUCHBOARD ") -> heard(from)
-            message.startsWith("STATE") -> {
-                heard(from)
-                if (message == "STATE ?") setState(null, null)
-                else setState(message.contains("PC ON"), message.contains("TV ON"))
+            message.startsWith("COUCHBOARD ") -> found(from)
+            message.startsWith("NONCE ") -> {
+                // A fresh challenge: the one this phone used had changed (or it had none). Ask again with it.
+                found(from)
+                val fresh = message.removePrefix("NONCE ").trim()
+                if (fresh.length == 32 && fresh != challenge) {
+                    challenge = fresh
+                    runCatching { askState(s, from) }
+                }
             }
-            message.startsWith("OK ") -> {
-                heard(from)
-                message.removePrefix("OK ").trim().toIntOrNull()?.let { acked = it }
-            }
+            message == "NOKEY" -> found(from)   // the box hasn't had its key from the TV yet
+            else -> answer(message, from)
         }
     }
 
-    private fun heard(from: InetAddress) {
-        val wasConnected = connected
-        lastHeard = SystemClock.elapsedRealtime()
+    /** "<what> <next challenge> <tag>": tagged with the challenge this phone asked with, so it's the real box, now. */
+    private fun answer(message: String, from: InetAddress) {
+        val k = key ?: return
+        val parts = message.split(" ")
+        if (parts.size < 3) return
+        val tag = parts[parts.size - 1]
+        val next = parts[parts.size - 2]
+        val body = parts.subList(0, parts.size - 2).joinToString(" ")
+        val challenges = synchronized(asked) { asked.toList() }
+        if (challenges.none { Secure.tag(k, "R $it $body $next") == tag }) return
+        found(from)
+        challenge = next
+        heard()
+        when {
+            body.startsWith("STATE") -> if (body == "STATE ?") setState(null, null) else setState(body.contains("PC ON"), body.contains("TV ON"))
+            body.startsWith("OK ") -> body.removePrefix("OK ").trim().toIntOrNull()?.let { acked = it }
+        }
+    }
+
+    private fun found(from: InetAddress) {
         if (address != from) {
             address = from
             prefs.edit().putString("ip", from.hostAddress).apply()
         }
+    }
+
+    private fun heard() {
+        val wasConnected = connected
+        lastHeard = SystemClock.elapsedRealtime()
         if (!wasConnected) main.post { onChange?.invoke() }
     }
 
@@ -169,7 +216,13 @@ class BoardLink(context: Context) {
         main.post { onChange?.invoke() }
     }
 
-    private fun send(s: DatagramSocket, text: String, target: InetAddress) {
+    /** Sends one line; [challenge] is the one it was tagged with, to check the answer against. */
+    private fun send(s: DatagramSocket, text: String, target: InetAddress, challenge: String? = null) {
+        if (challenge != null) synchronized(asked) {
+            asked.remove(challenge)
+            asked.addLast(challenge)
+            while (asked.size > 4) asked.removeFirst()
+        }
         val bytes = text.toByteArray(Charsets.US_ASCII)
         s.send(DatagramPacket(bytes, bytes.size, target, PORT))
     }

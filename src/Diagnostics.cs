@@ -267,6 +267,7 @@ namespace CouchTV
             check("YouTube: the first ordinary result's id and title", first != null && first.Id == "Ab3_dEfGh-1" && first.Title == "Kesariya & Gerua \"Live\"");
             check("YouTube: a page without results gives nothing", SmartSearch.ParseYouTube("<html>consent</html>") == null);
 
+            SecurityTest(check);
             WifiRemoteTest(check);
             PointerTest(check);
 
@@ -409,49 +410,112 @@ namespace CouchTV
         }
 
         /// <summary>
-        /// CouchTV.exe --audiotest report.txt: plays a quiet tone for 2 seconds and listens like a phone would, over
-        /// this PC's loopback, to check the sound arrives: packet format, timing and that it isn't silence.
+        /// CouchTV.exe --audiotest report.txt: plays a quiet tone for 2 seconds and listens like a paired phone would,
+        /// over this PC's loopback, to check the sound arrives: packet format, encryption, timing and that it isn't
+        /// silence; and that requests without the phone's key, or replayed, get nothing.
         /// </summary>
         public static int AudioTest(string path)
         {
             var report = new StringBuilder();
             var share = new AudioShare(47792, System.Net.IPAddress.Loopback);
+            var session = new RemoteSession
+            {
+                Id = "0123456789abcdef", Phone = System.Net.IPAddress.Loopback, Name = "test",
+                AudioEnc = Secure.Random(32), AudioMac = Secure.Random(32),
+            };
+            share.Sessions = id => id == session.Id ? session : null;
             share.Start();
             var packets = new List<byte[]>();
             var times = new List<long>();
+            int strangers = -1, replayed = -1, badTags = 0;
+            long number = 0;
+            Func<string, byte[]> ask = verb =>
+            {
+                string n = (++number).ToString();
+                byte[] tag = Secure.Take(Secure.Hmac(session.AudioMac, Secure.Utf8(verb + " " + session.Id + " " + n)), 0, Secure.TagBytes);
+                return Encoding.ASCII.GetBytes(verb + " 3 " + session.Id + " " + n + " " + Secure.Hex(tag));
+            };
             try
             {
                 using (var phone = new System.Net.Sockets.UdpClient(new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 0)))
                 using (var tone = new System.Media.SoundPlayer(Tone(440, 1.0, 0.03)))
                 {
-                    phone.Client.ReceiveTimeout = 1000;
-                    byte[] listen = Encoding.ASCII.GetBytes("LISTEN 2");
+                    phone.Client.ReceiveTimeout = 200;
                     var server = new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 47792);
-                    phone.Send(listen, listen.Length, server);
+                    Func<int, int> drain = wait =>
+                    {
+                        int count = 0;
+                        var until = System.Diagnostics.Stopwatch.StartNew();
+                        while (until.ElapsedMilliseconds < wait)
+                        {
+                            var from = new System.Net.IPEndPoint(System.Net.IPAddress.Any, 0);
+                            try { phone.Receive(ref from); count++; }
+                            catch (System.Net.Sockets.SocketException) { }
+                        }
+                        return count;
+                    };
+                    // Strangers: an old app's requests, and one with a made-up tag.
+                    foreach (string message in new[] { "LISTEN 2", "LISTEN", "LISTEN 3 " + session.Id + " 99 " + Secure.Hex(Secure.Random(16)) })
+                    {
+                        byte[] bytes = Encoding.ASCII.GetBytes(message);
+                        phone.Send(bytes, bytes.Length, server);
+                    }
+                    strangers = drain(500);
+
+                    byte[] firstListen = ask("LISTEN");
+                    phone.Send(firstListen, firstListen.Length, server);
                     System.Threading.Thread.Sleep(300);
                     tone.Play();
+                    phone.Client.ReceiveTimeout = 1000;
                     var clock = System.Diagnostics.Stopwatch.StartNew();
+                    long lastAsk = 0;
                     while (clock.ElapsedMilliseconds < 3000)
                     {
-                        if (clock.ElapsedMilliseconds % 1000 < 20) phone.Send(listen, listen.Length, server);   // keep listening
+                        if (clock.ElapsedMilliseconds - lastAsk >= 1000)   // keep listening
+                        {
+                            lastAsk = clock.ElapsedMilliseconds;
+                            byte[] listen = ask("LISTEN");
+                            phone.Send(listen, listen.Length, server);
+                        }
                         var from = new System.Net.IPEndPoint(System.Net.IPAddress.Any, 0);
                         try { packets.Add(phone.Receive(ref from)); times.Add(clock.ElapsedMilliseconds); }
                         catch (System.Net.Sockets.SocketException) { }
                     }
-                    byte[] stop = Encoding.ASCII.GetBytes("STOP");
+                    byte[] stop = ask("STOP");
                     phone.Send(stop, stop.Length, server);
                     tone.Stop();
+                    phone.Client.ReceiveTimeout = 200;
+                    drain(300);
+                    phone.Send(firstListen, firstListen.Length, server);   // replayed: must not start it again
+                    replayed = drain(600);
                 }
             }
             catch (Exception ex) { report.AppendLine("FAILED: " + ex.Message); }
             finally { share.Stop(); }
 
+            // Each packet: check its tag, then decrypt it, as the phone does.
+            var opened = new List<byte[]>();
+            using (var cipher = new Ctr(session.AudioEnc))
+            using (var mac = new System.Security.Cryptography.HMACSHA256(session.AudioMac))
+                foreach (byte[] sealedPacket in packets)
+                {
+                    int body = sealedPacket.Length - Secure.TagBytes;
+                    if (body <= 16 || !Secure.Same(Secure.Take(mac.ComputeHash(sealedPacket, 0, body), 0, Secure.TagBytes), Secure.Take(sealedPacket, body, Secure.TagBytes)))
+                    {
+                        badTags++;
+                        continue;
+                    }
+                    byte[] p = Secure.Take(sealedPacket, 0, body);
+                    cipher.Apply(BitConverter.ToUInt32(p, 4), p, 16, body - 16);
+                    opened.Add(p);
+                }
+
             int loud = 0, peak = 0, rate = 0, gaps = 0, repairs = 0, badRepairs = 0;
             uint last = 0;
             byte[] previous = null;
-            foreach (byte[] p in packets)
+            foreach (byte[] p in opened)
             {
-                if (p.Length < 16 || Encoding.ASCII.GetString(p, 0, 4) != "CTA2") continue;
+                if (p.Length < 16 || Encoding.ASCII.GetString(p, 0, 4) != "CTA3") continue;
                 uint seq = BitConverter.ToUInt32(p, 4);
                 if (last != 0 && seq != last + 1) gaps++;
                 last = seq;
@@ -476,8 +540,9 @@ namespace CouchTV
             report.AppendLine("Sample rate: " + rate + " Hz, gaps in the sequence: " + gaps + ", repair copies: " + repairs + " (" + badRepairs + " wrong)");
             report.AppendLine("With the tone: " + loud + " packets, peak " + peak + " of 32767; silent: " + (packets.Count - loud));
             report.AppendLine("Longest wait between packets: " + longest + " ms (silence keeps coming after the tone ends)");
+            report.AppendLine("Packets whose tag didn't check: " + badTags + "; packets for strangers' requests: " + strangers + ", for a replayed one: " + replayed);
             bool ok = packets.Count > 450 && loud > 100 && packets.Count - loud > 100 && gaps == 0 && longest < 60 && repairs > 400 && badRepairs == 0
-                      && packets.Count > 0 && packets[0].Length == 16 + 2 * 720;
+                      && packets.Count > 0 && packets[0].Length == 16 + 2 * 720 + Secure.TagBytes && badTags == 0 && strangers == 0 && replayed == 0;
             report.AppendLine(ok ? "PASS" : "FAIL");
             File.WriteAllText(path, report.ToString());
             return ok ? 0 : 1;
@@ -527,19 +592,290 @@ namespace CouchTV
             check("trackpad: each 1-pixel nudge moves the pointer exactly 1 pixel, and back" + (exact && back ? "" : " (" + path + " > " + xb + "," + yb + ")"), exact && back);
         }
 
-        /// <summary>The Wi-Fi remote end to end on this PC, as the phone does it: discover, connect, press, send words.</summary>
+        /// <summary>The cryptography against published answers (RFC 4231, RFC 5869, NIST SP 800-38A, RFC 5903).</summary>
+        static void SecurityTest(Action<string, bool> check)
+        {
+            Func<string, byte[]> hex = s => Secure.FromHex(s.Replace(" ", ""));
+            byte[] key = new byte[20];
+            for (int i = 0; i < key.Length; i++) key[i] = 0x0b;
+            check("security: HMAC-SHA256 (RFC 4231 case 1)", Secure.Hex(Secure.Hmac(key, Encoding.ASCII.GetBytes("Hi There"))) ==
+                "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7");
+
+            byte[] ikm = new byte[22];
+            for (int i = 0; i < ikm.Length; i++) ikm[i] = 0x0b;
+            check("security: HKDF-SHA256 (RFC 5869 case 1)", Secure.Hex(Secure.Hkdf(ikm, hex("000102030405060708090a0b0c"), hex("f0f1f2f3f4f5f6f7f8f9"), 42)) ==
+                "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865");
+
+            byte[] block = hex("6bc1bee22e409f96e93d7e117393172a ae2d8a571e03ac9c9eb76fac45af8e51");
+            using (var ctr = new Ctr(hex("603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4")))
+                ctr.Apply(0xf0f1f2f3f4f5f6f7, block, 0, block.Length, 0xf8f9fafbfcfdfeff);
+            check("security: AES-256-CTR (NIST SP 800-38A F.5.5)", Secure.Hex(block) == "601ec313775789a5b7a7f504bbf3d228f443e3ca4d62b59aca84e990cacaf5c5");
+
+            try
+            {
+                using (var i = new EcdhKey(hex(Rfc5903I), hex("04" + Rfc5903Gi)))
+                {
+                    check("security: ECDH P-256 public key (RFC 5903)", Secure.Hex(i.PublicPoint) == "04" + Rfc5903Gi.Replace(" ", "").ToLowerInvariant());
+                    check("security: ECDH P-256 shared secret (RFC 5903), hashed", Secure.Same(i.Agree(hex("04" + Rfc5903Gr)), Secure.Sha256(hex(Rfc5903Gir))));
+                }
+                using (var a = new EcdhKey())
+                using (var b = new EcdhKey())
+                    check("security: two fresh keys agree", Secure.Same(a.Agree(b.PublicPoint), b.Agree(a.PublicPoint)));
+                bool refused = false;
+                byte[] offCurve = hex("04" + Rfc5903Gr);
+                offCurve[64] ^= 1;
+                using (var a = new EcdhKey())
+                {
+                    try { a.Agree(offCurve); }
+                    catch (System.Security.Cryptography.CryptographicException) { refused = true; }
+                }
+                check("security: a key that isn't on the curve is refused", refused);
+            }
+            catch (Exception ex) { check("security: ECDH: " + ex.Message, false); }
+
+            var tv = new Channel(hex("01".PadRight(64, '0')), hex("02".PadRight(64, '0')), hex("03".PadRight(64, '0')), hex("04".PadRight(64, '0')));
+            var phone = new Channel(hex("03".PadRight(64, '0')), hex("04".PadRight(64, '0')), hex("01".PadRight(64, '0')), hex("02".PadRight(64, '0')));
+            string first = tv.Seal("WELCOME TV"), second = tv.Seal("PONG");
+            check("security: sealed lines open in order", phone.Open(first) == "WELCOME TV" && phone.Open(second) == "PONG");
+            string third = tv.Seal("PONG");
+            check("security: a replayed line doesn't open", phone.Open(second) == null);
+            byte[] bent = Convert.FromBase64String(third);
+            bent[0] ^= 1;
+            check("security: a changed line doesn't open", phone.Open(Convert.ToBase64String(bent)) == null && phone.Open(third) == "PONG");
+            check("security: the same words seal differently each time", tv.Seal("PING") != tv.Seal("PING"));
+        }
+
+        const string Rfc5903I = "C88F01F5 10D9AC3F 70A292DA A2316DE5 44E9AAB8 AFE84049 C62A9C57 862D1433";
+        const string Rfc5903Gi = "DAD0B653 94221CF9 B051E1FE CA5787D0 98DFE637 FC90B9EF 945D0C37 72581180" +
+                                 "5271A046 1CDB8252 D61F1C45 6FA3E59A B1F45B33 ACCF5F58 389E0577 B8990BB3";
+        const string Rfc5903R = "C6EF9C5D 78AE012A 011164AC B397CE20 88685D8F 06BF9BE0 B283AB46 476BEE53";
+        const string Rfc5903Gr = "D12DFB52 89C8D4F8 1208B702 70398C34 2296970A 0BCCB74C 736FC755 4494BF63" +
+                                 "56FBF3CA 366CC23E 8157854C 13C58D6A AC23F046 ADA30F83 53E74F33 039872AB";
+        const string Rfc5903Gir = "D6840F6B 42F6EDAF D13116E0 E1256520 2FEF8E9E CE7DCE03 812464D0 4B9442DE";
+
+        /// <summary>
+        /// CouchTV.exe --securityvectors file: the same calculations as the phone app's (Secure.kt), from fixed inputs,
+        /// for its unit test (phone-remote/app/src/test/resources/couchtv-vectors.txt). "name = value" lines.
+        /// </summary>
+        public static int SecurityVectors(string path)
+        {
+            var v = new StringBuilder();
+            v.AppendLine("# Made by CouchTV.exe --securityvectors (src/Diagnostics.cs); checked by SecureTest.kt.");
+            Action<string, string> put = (name, value) => v.AppendLine(name + " = " + value);
+            Func<string, byte[]> hex = s => Secure.FromHex(s.Replace(" ", ""));
+            Func<int, int, byte[]> run = (from, count) =>
+            {
+                var b = new byte[count];
+                for (int i = 0; i < count; i++) b[i] = (byte)(from + i);
+                return b;
+            };
+
+            // Keys: the RFC 5903 pair, the phone's being i and the TV's r.
+            byte[] phonePoint = hex("04" + Rfc5903Gi), tvPoint = hex("04" + Rfc5903Gr);
+            byte[] shared;
+            using (var phone = new EcdhKey(hex(Rfc5903I), phonePoint)) shared = phone.Agree(tvPoint);
+            put("phone_private", Secure.Hex(hex(Rfc5903I)));
+            put("phone_point", Secure.Hex(phonePoint));
+            put("tv_point", Secure.Hex(tvPoint));
+            put("shared", Secure.Hex(shared));
+
+            string phoneHello = "HELLO2 CouchTV-Remote 1.99 00112233445566778899aabbccddeeff " + Convert.ToBase64String(phonePoint);
+            string tvHello = "HELLO2 ffeeddccbbaa99887766554433221100 " + Convert.ToBase64String(tvPoint) + " PAIR TESTTV";
+            byte[] transcript = Secure.Sha256(Secure.Utf8(phoneHello + "\n" + tvHello));
+            put("phone_hello", phoneHello);
+            put("tv_hello", tvHello);
+            put("transcript", Secure.Hex(transcript));
+
+            put("code", "482913");
+            byte[] pairKey = SessionKeys.PairKey(shared, "482913", transcript);
+            put("pair_key", Secure.Hex(pairKey));
+            byte[] nonce = run(0x40, 16);
+            put("commit_nonce", Secure.Hex(nonce));
+            put("commit_phone_bit1", Secure.Hex(Secure.Commit(nonce, 'P', phonePoint, tvPoint, 1)));
+            put("commit_tv_bit0", Secure.Hex(Secure.Commit(nonce, 'T', tvPoint, phonePoint, 0)));
+
+            SessionKeys keys = SessionKeys.Derive(shared, pairKey, transcript);
+            put("phone_proof", Secure.Hex(keys.PhoneProof));
+            put("tv_proof", Secure.Hex(keys.TvProof));
+            put("phone_enc", Secure.Hex(keys.PhoneEnc));
+            put("phone_mac", Secure.Hex(keys.PhoneMac));
+            put("tv_enc", Secure.Hex(keys.TvEnc));
+            put("tv_mac", Secure.Hex(keys.TvMac));
+            put("audio_enc", Secure.Hex(keys.AudioEnc));
+            put("audio_mac", Secure.Hex(keys.AudioMac));
+
+            using (var fromPhone = new Channel(keys.PhoneEnc, keys.PhoneMac, keys.TvEnc, keys.TvMac))
+            using (var fromTv = new Channel(keys.TvEnc, keys.TvMac, keys.PhoneEnc, keys.PhoneMac))
+            {
+                put("phone_line0", fromPhone.Seal("HELLO CouchTV-Remote 1.99"));
+                put("phone_line1", fromPhone.Seal("TEXT " + Convert.ToBase64String(Secure.Utf8("पंचायत"))));
+                put("tv_line0", fromTv.Seal("WELCOME TESTTV"));
+                put("tv_line1", fromTv.Seal("AUDIO 0123456789abcdef"));
+            }
+
+            put("listen_tag", Secure.Hex(Secure.Take(Secure.Hmac(keys.AudioMac, Secure.Utf8("LISTEN 0123456789abcdef 7")), 0, Secure.TagBytes)));
+            // A sound packet: header (CTA3, sequence 1234, 48000 Hz, 2 channels, flags 1), samples 0, 1, 2..., sealed.
+            var packet = new byte[16 + 1440 + Secure.TagBytes];
+            Encoding.ASCII.GetBytes("CTA3", 0, 4, packet, 0);
+            BitConverter.GetBytes(1234u).CopyTo(packet, 4);
+            BitConverter.GetBytes(48000u).CopyTo(packet, 8);
+            packet[12] = 2;
+            packet[13] = 1;
+            for (int i = 0; i < 1440; i++) packet[16 + i] = (byte)i;
+            using (var ctr = new Ctr(keys.AudioEnc)) ctr.Apply(1234, packet, 16, 1440);
+            using (var mac = new System.Security.Cryptography.HMACSHA256(keys.AudioMac))
+                Buffer.BlockCopy(mac.ComputeHash(packet, 0, 16 + 1440), 0, packet, 16 + 1440, Secure.TagBytes);
+            put("audio_packet", Secure.Hex(packet));
+
+            // The receiver box (CouchLink): requests and answers tagged with its key and its current challenge.
+            byte[] boardKey = run(0, 32);
+            string challenge = "00112233445566778899aabbccddeeff", next = "ffeeddccbbaa99887766554433221100";
+            put("board_key", Secure.Hex(boardKey));
+            put("board_challenge", challenge);
+            put("board_next", next);
+            put("board_state_tag", BoardTag(boardKey, "STATE " + challenge));
+            put("board_power_tag", BoardTag(boardKey, "POWER 42 " + challenge));
+            put("board_reply_tag", BoardTag(boardKey, "R " + challenge + " STATE PC ON TV OFF SENSE ON " + next));
+            File.WriteAllText(path, v.ToString().Replace("\r\n", "\n"), new UTF8Encoding(false));
+            return 0;
+        }
+
+        static string BoardTag(byte[] key, string message)
+        {
+            return Secure.Hex(Secure.Take(Secure.Hmac(key, Encoding.ASCII.GetBytes(message)), 0, Secure.TagBytes));
+        }
+
+        /// <summary>The phone's side of the Wi-Fi remote, as the app does it (WifiLink.kt), for the self-test.</summary>
+        sealed class TestPhone : IDisposable
+        {
+            public readonly string Id;
+            public string Answer;                      // the TV's HELLO2 line
+            public byte[] PairKey, AudioEnc, AudioMac;
+            public Channel Channel;
+            System.Net.Sockets.TcpClient _tcp;
+            Stream _stream;
+            LineReader _lines;
+            EcdhKey _key;
+            byte[] _shared, _transcript, _tvPoint;
+
+            public TestPhone(string id) { Id = id; }
+
+            /// <summary>Connects and says hello: "KNOWN" or "PAIR" from a new TV, else whatever it said.</summary>
+            public string Hello(int port)
+            {
+                _tcp = new System.Net.Sockets.TcpClient();
+                _tcp.Connect(System.Net.IPAddress.Loopback, port);
+                _tcp.ReceiveTimeout = 5000;
+                _stream = _tcp.GetStream();
+                _lines = new LineReader(_stream, 65536);
+                _key = new EcdhKey();
+                string hello = "HELLO2 CouchTV-Remote test " + Id + " " + Convert.ToBase64String(_key.PublicPoint);
+                Write(hello);
+                Answer = Read();
+                if (Answer == null) return null;
+                string[] p = Answer.Split(' ');
+                if (p[0] != "HELLO2" || p.Length < 5) return Answer;
+                _tvPoint = Convert.FromBase64String(p[2]);
+                _shared = _key.Agree(_tvPoint);
+                _transcript = Secure.Sha256(Secure.Utf8(hello + "\n" + Answer));
+                return p[3];
+            }
+
+            /// <summary>Pairs, typing the code code() gives once the TV shows one: "OK", or what the TV said instead.</summary>
+            public string Pair(string name, Func<string> code)
+            {
+                Write("PAIR " + Convert.ToBase64String(Secure.Utf8(name)));
+                string answer = Read();
+                if (answer != "CODE") return answer;
+                string typed = code();
+                int number = int.Parse(typed);
+                byte[] mine = _key.PublicPoint;
+                for (int i = 0; i < RemoteServer.CodeBits; i++)
+                {
+                    int bit = (number >> i) & 1;
+                    byte[] nonce = Secure.Random(16);
+                    Write("C " + i + " " + Convert.ToBase64String(Secure.Commit(nonce, 'P', mine, _tvPoint, bit)));
+                    string commit = Read();
+                    if (commit == null || !commit.StartsWith("C " + i + " ")) return commit;
+                    Write("R " + i + " " + Convert.ToBase64String(nonce));
+                    string reveal = Read();
+                    if (reveal == null || !reveal.StartsWith("R " + i + " ")) return reveal;
+                    byte[] tvNonce = Convert.FromBase64String(reveal.Split(' ')[2]);
+                    if (!Secure.Same(Secure.Commit(tvNonce, 'T', _tvPoint, mine, bit), Convert.FromBase64String(commit.Split(' ')[2])))
+                        return "the TV's commitment didn't match";
+                }
+                PairKey = SessionKeys.PairKey(_shared, typed, _transcript);
+                return "OK";
+            }
+
+            /// <summary>Proves it holds the pairing key; true once the TV proved it holds it too. Lines are encrypted after.</summary>
+            public bool Auth(byte[] pairKey)
+            {
+                SessionKeys keys = SessionKeys.Derive(_shared, pairKey, _transcript);
+                Write("AUTH " + Convert.ToBase64String(keys.PhoneProof));
+                string answer = Read();
+                if (answer == null || !answer.StartsWith("AUTH ") || !Secure.Same(Convert.FromBase64String(answer.Substring(5)), keys.TvProof)) return false;
+                Channel = new Channel(keys.PhoneEnc, keys.PhoneMac, keys.TvEnc, keys.TvMac);
+                AudioEnc = keys.AudioEnc;
+                AudioMac = keys.AudioMac;
+                return true;
+            }
+
+            public void Send(string line) { Write(Channel.Seal(line)); }
+
+            /// <summary>The next line, decrypted; null if the TV hung up or it didn't decrypt.</summary>
+            public string Receive()
+            {
+                string line = Read();
+                return line == null ? null : Channel.Open(line);
+            }
+
+            public void Write(string line)
+            {
+                byte[] bytes = Secure.Utf8(line + "\n");
+                _stream.Write(bytes, 0, bytes.Length);
+            }
+
+            public string Read()
+            {
+                try { return _lines.Read(); }
+                catch (IOException) { return null; }
+            }
+
+            public void Dispose()
+            {
+                if (_tcp != null) _tcp.Close();
+                if (_key != null) _key.Dispose();
+                if (Channel != null) Channel.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// The Wi-Fi remote end to end on this PC, as the phone does it: discover, pair with the code the TV shows,
+        /// connect again as a paired phone, press, send words; and that strangers, wrong codes, forged proofs, replayed
+        /// or changed lines get nowhere.
+        /// </summary>
         static void WifiRemoteTest(Action<string, bool> check)
         {
             var buttons = new List<string>();
             var words = new List<string>();
             var pointer = new List<string>();
-            var server = new RemoteServer(null, 47790, 47791, System.Net.IPAddress.Loopback);
+            var pairing = new List<string>();
+            string shown = null;
+            PhoneStore phones = PhoneStore.InMemory();
+            var server = new RemoteServer(null, phones, 47790, 47791, System.Net.IPAddress.Loopback);
             server.Button += s => { lock (buttons) buttons.Add(s.Code + (s.IsRepeat ? " R" : " N")); };
             server.Move = (x, y) => { lock (pointer) pointer.Add("move " + x + " " + y); };
             server.Wheel = (d, h) => { lock (pointer) pointer.Add((h ? "hwheel " : "wheel ") + d); };
             server.MouseButton = (r, d) => { lock (pointer) pointer.Add((r ? "right " : "left ") + (d ? "down" : "up")); };
             server.PointerLook += (st, sz, co) => { lock (pointer) pointer.Add("look " + st + " " + sz + " " + co); };
             server.Text += t => { lock (words) words.Add(t); };
+            server.PairingCode += (name, digits) => { lock (pairing) { shown = digits; pairing.Add(name + " shown"); } };
+            server.PairingEnded += (name, outcome) => { lock (pairing) pairing.Add(name + " " + outcome); };
+            Func<string> code = () => { lock (pairing) return shown; };
+            Func<string> wrongCode = () => { lock (pairing) return ((int.Parse(shown) + 1) % 1000000).ToString("D6"); };
+            Func<string> pairingLog = () => { lock (pairing) return string.Join(", ", pairing); };
+            const string idA = "0123456789abcdef0123456789abcdef", idB = "fedcba9876543210fedcba9876543210";
             server.Start();
             try
             {
@@ -553,39 +889,135 @@ namespace CouchTV
                     var from = new System.Net.IPEndPoint(System.Net.IPAddress.Any, 0);
                     try { answer = Encoding.UTF8.GetString(udp.Receive(ref from)); } catch (Exception) { }
                 }
-                check("Wi-Fi: the TV answers \"COUCHTV?\" with its port and name", answer == "COUCHTV 1 47791 " + RemoteServer.TvName);
+                check("Wi-Fi: the TV answers \"COUCHTV?\" with its port and name", answer == "COUCHTV 2 47791 " + RemoteServer.TvName);
 
+                using (var looker = new TestPhone(idA)) looker.Hello(47791);   // a new phone that only looks, and goes
                 using (var tcp = new System.Net.Sockets.TcpClient())
                 {
                     tcp.Connect(System.Net.IPAddress.Loopback, 47791);
                     tcp.ReceiveTimeout = 2000;
                     var stream = tcp.GetStream();
-                    var reader = new StreamReader(stream, new UTF8Encoding(false));
-                    var writer = new StreamWriter(stream, new UTF8Encoding(false)) { NewLine = "\n", AutoFlush = true };
-                    writer.WriteLine("HELLO test 1");
-                    string welcome = reader.ReadLine();
-                    writer.WriteLine("PING");
-                    string pong = reader.ReadLine();
-                    check("Wi-Fi: HELLO gets WELCOME, PING gets PONG", welcome == "WELCOME " + RemoteServer.TvName && pong == "PONG");
-                    writer.WriteLine("BTN CE 05 N");
-                    writer.WriteLine("BTN CE 06 R");
-                    writer.WriteLine("BTN ZZ 06 N");   // ignored
-                    writer.WriteLine("TEXT " + Convert.ToBase64String(Encoding.UTF8.GetBytes("पंचायत season 3")));
-                    writer.WriteLine("MOVE 12 -7");
-                    writer.WriteLine("MOVE 99999 0");   // ignored: far too big
-                    writer.WriteLine("WHEEL -240 36");
-                    writer.WriteLine("MOUSE L D");
-                    writer.WriteLine("MOVE 3 4");
-                    writer.WriteLine("MOUSE X D");     // ignored
-                    writer.WriteLine("POINTER dot 96 yellow");
-                    writer.WriteLine("PING");
-                    reader.ReadLine();                 // everything before it has been handled
+                    byte[] hello = Encoding.ASCII.GetBytes("HELLO test 1\nPING\n");
+                    stream.Write(hello, 0, hello.Length);
+                    var reader = new StreamReader(stream);
+                    string first = reader.ReadLine(), then = null;
+                    try { then = reader.ReadLine(); } catch (IOException) { }
+                    check("Wi-Fi: an app from before pairing is told to update, and gets nothing else", first == "UPDATE" && then == null);
+                }
+                check("Wi-Fi: a phone that only looks doesn't make the TV show a code", pairingLog() == "");
+
+                using (var a = new TestPhone(idA))
+                {
+                    check("Wi-Fi: a new phone is asked to pair", a.Hello(47791) == "PAIR");
+                    check("Wi-Fi: a wrong code is refused", a.Pair("Test phone", wrongCode) == "WRONG");
+                }
+                check("Wi-Fi: the TV showed a code, then said it was wrong", pairingLog() == "Test phone shown, Test phone wrong");
+
+                byte[] pairKey;
+                string session;
+                using (var a = new TestPhone(idA))
+                {
+                    a.Hello(47791);
+                    string paired = a.Pair("Test phone", code);
+                    check("Wi-Fi: the right code pairs, and both sides prove they hold the new key", paired == "OK" && a.Auth(a.PairKey));
+                    pairKey = a.PairKey;
+                    check("Wi-Fi: the TV remembers the phone", phones.Count == 1 && phones.Find(idA) != null && pairingLog().EndsWith("Test phone paired"));
+                    a.Send("HELLO CouchTV-Remote test");
+                    string welcome = a.Receive(), board = a.Receive(), audio = a.Receive();
+                    session = audio != null && audio.StartsWith("AUDIO ") ? audio.Substring(6) : null;
+                    check("Wi-Fi: HELLO gets WELCOME, the receiver box's key and a sound session, encrypted",
+                        welcome == "WELCOME " + RemoteServer.TvName && board == "BOARD " + Secure.Hex(phones.BoardKey) && server.FindSession(session) != null);
+                    a.Send("PING");
+                    check("Wi-Fi: PING gets PONG", a.Receive() == "PONG");
+                    a.Send("SOUND");
+                    check("Wi-Fi: SOUND gets the sound session (for the phone's sound service)", a.Receive() == "AUDIO " + session);
+                    a.Send("BTN CE 05 N");
+                    a.Send("BTN CE 06 R");
+                    a.Send("BTN ZZ 06 N");   // ignored
+                    a.Send("TEXT " + Convert.ToBase64String(Encoding.UTF8.GetBytes("पंचायत season 3")));
+                    a.Send("MOVE 12 -7");
+                    a.Send("MOVE 99999 0");   // ignored: far too big
+                    a.Send("WHEEL -240 36");
+                    a.Send("MOUSE L D");
+                    a.Send("MOVE 3 4");
+                    a.Send("MOUSE X D");     // ignored
+                    a.Send("POINTER dot 96 yellow");
+                    a.Send("PING");
+                    a.Receive();             // everything before it has been handled
                 }
                 System.Threading.Thread.Sleep(300);    // the server notices the phone left
+                check("Wi-Fi: its sound session ends with the connection", server.FindSession(session) == null);
                 lock (buttons) check("Wi-Fi: buttons arrive as the IR receiver's codes", string.Join(", ", buttons) == "NEC 00CE 0005 N, NEC 00CE 0006 R");
                 lock (words) check("Wi-Fi: words arrive whole, Hindi included", words.Count == 1 && words[0] == "पंचायत season 3");
                 lock (pointer) check("Wi-Fi: the trackpad moves, scrolls and drags; a phone that leaves mid-drag lets go",
                     string.Join(", ", pointer) == "move 12 -7, wheel -240, hwheel 36, left down, move 3 4, look dot 96 yellow, left up");
+
+                using (var a = new TestPhone(idA))
+                {
+                    check("Wi-Fi: the paired phone comes back without pairing again", a.Hello(47791) == "KNOWN" && a.Auth(pairKey));
+                    string ping = a.Channel.Seal("PING");
+                    a.Write(ping);
+                    check("Wi-Fi: ...and works", a.Receive() == "PONG");
+                    a.Write(ping);
+                    check("Wi-Fi: a replayed line ends the connection", a.Read() == null);
+                }
+                using (var a = new TestPhone(idA))
+                {
+                    a.Hello(47791);
+                    a.Auth(pairKey);
+                    string ping = a.Channel.Seal("PING");
+                    byte[] bent = Convert.FromBase64String(ping);
+                    bent[1] ^= 4;
+                    a.Write(Convert.ToBase64String(bent));
+                    check("Wi-Fi: a changed line ends the connection", a.Read() == null);
+                }
+                using (var a = new TestPhone(idA))
+                    check("Wi-Fi: someone using the paired phone's id without its key gets nowhere", a.Hello(47791) == "KNOWN" && !a.Auth(Secure.Random(32)));
+                using (var b = new TestPhone(idB))
+                    check("Wi-Fi: a stranger can't skip pairing", b.Hello(47791) == "PAIR" && !b.Auth(pairKey));
+                lock (buttons) buttons.Clear();
+                using (var b = new TestPhone(idB))
+                {
+                    b.Hello(47791);
+                    b.Write("BTN CE 05 N");
+                }
+                System.Threading.Thread.Sleep(100);
+                lock (buttons) check("Wi-Fi: ...nor press buttons", buttons.Count == 0);
+
+                using (var c = new TestPhone(idB))
+                using (var d = new TestPhone("11111111111111111111111111111111"))
+                {
+                    c.Hello(47791);
+                    c.Write("PAIR " + Convert.ToBase64String(Secure.Utf8("Phone C")));
+                    bool showing = c.Read() == "CODE";
+                    d.Hello(47791);
+                    check("Wi-Fi: one pairing at a time", showing && d.Pair("Phone D", code) == "BUSY");
+                }
+                System.Threading.Thread.Sleep(200);
+                check("Wi-Fi: a pairing the phone gave up on takes the code off the TV", pairingLog().EndsWith("Phone C shown, Phone C cancelled"));
+
+                string last = null;
+                for (int i = 0; i < RemoteServer.MostWrongCodes; i++)
+                    using (var b = new TestPhone(idB))
+                    {
+                        b.Hello(47791);
+                        last = b.Pair("Guesser", wrongCode);
+                    }
+                check("Wi-Fi: after " + RemoteServer.MostWrongCodes + " wrong codes, pairing waits (" + last + ")", last != null && last.StartsWith("WAIT "));
+
+                using (var a = new TestPhone(idA))
+                {
+                    a.Hello(47791);
+                    a.Auth(pairKey);
+                    a.Send("PING");
+                    a.Receive();
+                    byte[] boardBefore = phones.BoardKey;
+                    server.ForgetPhones();
+                    check("Wi-Fi: forgetting the phones drops them and changes the receiver box's key",
+                        a.Read() == null && phones.Count == 0 && !Secure.Same(boardBefore, phones.BoardKey));
+                }
+                using (var a = new TestPhone(idA))
+                    check("Wi-Fi: ...and a forgotten phone has to pair again", a.Hello(47791) == "PAIR");
             }
             catch (Exception ex) { check("Wi-Fi: " + ex.Message, false); }
             finally { server.Stop(); }

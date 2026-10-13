@@ -56,4 +56,8 @@ android {
     }
 }
 
-// No libraries: the app only uses the Android framework (ConsumerIrManager for the IR blaster).
+// No libraries: the app only uses the Android framework (ConsumerIrManager for the IR blaster). JUnit is only for
+// the unit test (SecureTest), which runs on the build machine, never in the app.
+dependencies {
+    testImplementation("junit:junit:4.13.2")
+}

@@ -22,6 +22,8 @@ namespace CouchTV
                 if (remoteTest != null) return Diagnostics.RemoteTest(remoteTest);
                 string audioTest = Arg(args, "--audiotest");
                 if (audioTest != null) return Diagnostics.AudioTest(audioTest);
+                string vectors = Arg(args, "--securityvectors");
+                if (vectors != null) return Diagnostics.SecurityVectors(vectors);
                 string pointerTest = Arg(args, "--pointertest");
                 if (pointerTest != null) return Diagnostics.PointerTest(pointerTest);
                 string searchTest = Arg(args, "--searchtest");

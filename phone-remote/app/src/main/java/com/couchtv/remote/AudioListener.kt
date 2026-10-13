@@ -16,14 +16,21 @@ import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.net.Socket
 import java.net.SocketTimeoutException
+import java.io.IOException
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Plays the TV's sound on this phone ("Sound on phones" in ir-receiver/PROTOCOL.md). CouchTV sends uncompressed
- * 16-bit stereo in 3.75 ms chunks while this asks for it ("LISTEN 2" every second); each packet also carries the
+ * 16-bit stereo in 3.75 ms chunks while this asks for it ("LISTEN 3" every second); each packet also carries the
  * chunk before it, so a packet lost on the Wi-Fi is repaired from the next one.
+ *
+ * Only for a phone paired with the TV: this keeps a connection of its own to the TV (the remote's stops with the
+ * screen off, the sound doesn't), which gives it a session id and keys. Its requests carry a tag made with them,
+ * and each packet comes encrypted and tagged for this phone alone (SoundKeys).
  *
  * Two threads: one receives packets into a queue, the other writes them to the speaker or headphones and waits
  * whenever the phone's own audio system is full, so the phone sets the pace. The cushion (how much sound is ready
@@ -58,12 +65,16 @@ class AudioListener(context: Context, private val tvHost: String) {
     /** [samples] is null for a chunk lost on the Wi-Fi, to be made up ([frames] long). */
     private class Chunk(val rate: Int, val samples: ByteArray?, val frames: Int = (samples?.size ?: 0) / 4)
 
+    private val pairings = Pairings(context)
     private val connectivity = context.applicationContext.getSystemService(ConnectivityManager::class.java)
     private val audio = context.applicationContext.getSystemService(AudioManager::class.java)
     private var routedTo: Int? = null   // the output the sound was last pointed at (playing thread only)
     private val queue = LinkedBlockingQueue<Chunk>()
     @Volatile private var running = false
     @Volatile private var socket: DatagramSocket? = null
+    @Volatile private var control: Socket? = null
+    @Volatile private var sound: SoundKeys? = null   // this connection's session id and keys, once the TV gave them
+    private val requests = AtomicLong()               // each request's number goes up
 
     /** The current cushion in ms: the delay this app adds before the speaker or headphones. */
     @Volatile var cushionMs = SPEAKER_MS
@@ -78,20 +89,69 @@ class AudioListener(context: Context, private val tvHost: String) {
     fun start() {
         if (running) return
         running = true
+        Thread({ connect() }, "CouchTV sound keys").start()
         Thread({ receive() }, "CouchTV sound in").start()
         Thread({ play() }, "CouchTV sound out").start()
     }
 
     fun stop() {
         running = false
+        val keys = sound
+        val c = control
         val s = socket ?: return
         Thread {
             runCatching {
-                val stop = "STOP".toByteArray(Charsets.US_ASCII)
-                s.send(DatagramPacket(stop, stop.size, InetSocketAddress(InetAddress.getByName(tvHost), PORT)))
+                if (keys != null) {
+                    val stop = keys.request("STOP", requests.incrementAndGet()).toByteArray(Charsets.US_ASCII)
+                    s.send(DatagramPacket(stop, stop.size, InetSocketAddress(InetAddress.getByName(tvHost), PORT)))
+                }
             }
             s.close()
+            runCatching { c?.close() }
         }.start()
+    }
+
+    // ---------------------------------------------------------------- the keys
+
+    /**
+     * Keeps a paired connection to the TV for the sound's session id and keys ("SOUND" asks for the id), pinging
+     * every second; connects again if it drops.
+     */
+    private fun connect() {
+        while (running) {
+            try {
+                val s = Socket()
+                control = s
+                wifiNetwork()?.bindSocket(s)
+                s.connect(InetSocketAddress(InetAddress.getByName(tvHost), WifiLink.CONTROL_PORT), 3000)
+                s.tcpNoDelay = true
+                s.soTimeout = 3000
+                val lines = LineIo(s.getInputStream(), s.getOutputStream())
+                val hs = Handshake.start(lines, pairings.phoneId, BuildConfig.VERSION_NAME) ?: throw IOException("not a CouchTV that pairs")
+                val key = pairings.key(hs.tvId)?.takeIf { hs.known } ?: throw IOException("this phone isn't paired with the TV")
+                val keys = hs.auth(lines, key) ?: throw IOException("not the TV this phone paired with")
+                val channel = Channel(keys.phoneEnc, keys.phoneMac, keys.tvEnc, keys.tvMac)
+                val say = { line: String -> synchronized(lines) { lines.write(channel.seal(line)) } }   // in order
+                say("SOUND")
+                Thread {
+                    while (running && control === s) {
+                        runCatching { say("PING") }
+                        SystemClock.sleep(1000)
+                    }
+                }.apply { isDaemon = true }.start()
+                while (running) {
+                    val line = channel.open(lines.read() ?: break) ?: break
+                    if (line.startsWith("AUDIO ")) sound = SoundKeys(line.removePrefix("AUDIO ").trim(), keys.audioEnc, keys.audioMac)
+                }
+            } catch (e: Exception) {
+                if (running) Log.i(TAG, "TV sound connection: ${e.message}")
+            } finally {
+                sound = null
+                runCatching { control?.close() }
+                control = null
+            }
+            if (running) SystemClock.sleep(1000)
+        }
     }
 
     // ---------------------------------------------------------------- receiving
@@ -105,15 +165,19 @@ class AudioListener(context: Context, private val tvHost: String) {
             s.soTimeout = 200
             s.receiveBufferSize = 256 * 1024
             socket = s
-            val listen = "LISTEN 2".toByteArray(Charsets.US_ASCII)   // 2: each packet also carries the previous chunk
             val buffer = ByteArray(4096)
             var lastSequence = -1L
             var lastAsk = 0L
+            var askedWith: SoundKeys? = null
             while (running) {
                 val now = SystemClock.elapsedRealtime()
-                if (now - lastAsk >= 1000) {
+                val keys = sound
+                // Every second, and at once when the keys change (connected again).
+                if (keys != null && (now - lastAsk >= 1000 || keys !== askedWith)) {
+                    val listen = keys.request("LISTEN", requests.incrementAndGet()).toByteArray(Charsets.US_ASCII)
                     runCatching { s.send(DatagramPacket(listen, listen.size, tv)) }
                     lastAsk = now
+                    askedWith = keys
                 }
                 val packet = DatagramPacket(buffer, buffer.size)
                 try {
@@ -121,14 +185,16 @@ class AudioListener(context: Context, private val tvHost: String) {
                 } catch (e: SocketTimeoutException) {
                     continue
                 }
-                if (packet.length <= HEADER || buffer[0] != 'C'.code.toByte() || buffer[1] != 'T'.code.toByte() ||
-                    buffer[2] != 'A'.code.toByte() || (buffer[3] != '1'.code.toByte() && buffer[3] != '2'.code.toByte())) continue
+                if (keys == null || packet.length <= HEADER || buffer[0] != 'C'.code.toByte() || buffer[1] != 'T'.code.toByte() ||
+                    buffer[2] != 'A'.code.toByte() || buffer[3] != '3'.code.toByte()) continue
+                // Only this connection's: checked, then decrypted. Anything else (an old key's, a stranger's) is dropped.
+                val body = keys.open(buffer, packet.length) ?: continue
                 // Old or repeated packets are dropped; a big jump back means CouchTV restarted its sound.
-                val sequence = uint32(buffer, 4)
+                val sequence = uint32(body, 4)
                 if (sequence <= lastSequence && lastSequence - sequence < 1000) continue
-                val rate = uint32(buffer, 8).toInt()
-                val withPrevious = buffer[3] == '2'.code.toByte() && (buffer[13].toInt() and 1) != 0
-                val size = if (withPrevious) (packet.length - HEADER) / 2 else packet.length - HEADER
+                val rate = uint32(body, 8).toInt()
+                val withPrevious = (body[13].toInt() and 1) != 0
+                val size = if (withPrevious) (body.size - HEADER) / 2 else body.size - HEADER
                 val missing = if (lastSequence >= 0 && sequence - lastSequence < 1000) (sequence - lastSequence - 1).toInt() else 0
                 if (missing > 0) {
                     // Packets lost on the Wi-Fi. The one just before this travels inside it too, so it's repaired;
@@ -137,12 +203,12 @@ class AudioListener(context: Context, private val tvHost: String) {
                     for (i in 0 until minOf(unrecovered, 3)) queue.offer(Chunk(rate, null, size / 4))
                     lost += unrecovered
                     if (withPrevious) {
-                        queue.offer(Chunk(rate, buffer.copyOfRange(HEADER + size, HEADER + 2 * size)))
+                        queue.offer(Chunk(rate, body.copyOfRange(HEADER + size, HEADER + 2 * size)))
                         repaired++
                     }
                 }
                 lastSequence = sequence
-                queue.offer(Chunk(rate, buffer.copyOfRange(HEADER, HEADER + size)))
+                queue.offer(Chunk(rate, body.copyOfRange(HEADER, HEADER + size)))
                 while (queue.size > 250) queue.poll()   // about a second behind (the phone stalled): keep the newest
             }
         } catch (e: Exception) {

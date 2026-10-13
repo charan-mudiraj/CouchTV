@@ -22,6 +22,21 @@
     <string name="bluetooth_switched_off">Bluetooth is off while CouchTV Remote is in use, for the best sound</string>
     <string name="bluetooth_still_on">Bluetooth is still on. Turn it off for the best TV sound.</string>
     <string name="bluetooth_turn_off_here">Turn Bluetooth off here for the best TV sound</string>
+    <string name="pair_offer">%1$s is on this Wi-Fi. Tap here to pair this phone with it (once), so it works without pointing.</string>
+    <string name="tv_too_old">The TV needs the latest CouchTV to work over Wi-Fi: press F6 on the TV to update it.</string>
+    <string name="pair_title">Pair with %1$s</string>
+    <string name="pair_asking">Asking %1$s to show a code…</string>
+    <string name="pair_type_code">Type the 6-digit code shown on the TV.</string>
+    <string name="pair_checking">Checking the code…</string>
+    <string name="pair">Pair</string>
+    <string name="pair_again">Try again</string>
+    <string name="pair_busy">Another phone is pairing with the TV right now. Try again in a minute.</string>
+    <string name="pair_wait">Too many wrong codes, so the TV is not pairing for now. Try again in %1$d min.</string>
+    <string name="pair_wrong">That wasn\'t the code on the TV. Tap Try again for a new one.</string>
+    <string name="pair_not_safe">The TV\'s answer didn\'t check out, so this phone didn\'t pair: someone on the Wi-Fi may be interfering. Try again.</string>
+    <string name="pair_failed">Couldn\'t reach the TV to pair. Check this phone is on the same Wi-Fi, then try again.</string>
+    <string name="paired">Paired with %1$s</string>
+    <string name="need_code">The 6 digits on the TV</string>
     <string name="tv_address_title">TV address</string>
     <string name="tv_address_hint">e.g. 192.168.0.13</string>
     <string name="tv_address_help">The TV PC\'s IP address on your Wi-Fi. The TV shows it under Settings &amp; power &gt; Remote. If it doesn\'t answer, the app searches the network instead.</string>
@@ -57,7 +72,7 @@
     <string name="app_web">Web</string>
 
     <string name="power">Power</string>
-    <string name="power_needs_ir">Can\'t reach the TV\'s receiver box on the Wi-Fi, and this phone has no IR blaster.</string>
+    <string name="power_needs_ir">Can\'t reach the TV\'s receiver box on the Wi-Fi, and this phone has no IR blaster. Pair this phone with the TV (tap the line at the top) for Power over Wi-Fi.</string>
     <string name="board_state">PC %1$s · TV %2$s</string>
     <string name="board_pc_off">The TV PC is asleep or off (the TV is %1$s). Press Power to switch both on.</string>
     <string name="state_on">on</string>

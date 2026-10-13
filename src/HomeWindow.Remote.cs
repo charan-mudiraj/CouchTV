@@ -23,6 +23,7 @@ namespace CouchTV
 
         IrLink _ir;
         RemoteServer _wifi;
+        PhoneStore _phones;
         AudioShare _sound;
         RemoteMap _remote;
 
@@ -79,7 +80,11 @@ namespace CouchTV
             _ir.Start();
 
             // The same phone remote over Wi-Fi: its buttons use the same mapping, and its words go straight to search.
-            _wifi = new RemoteServer(Dispatcher);
+            // Only phones paired with this TV (a code shown here, typed on the phone) can use it.
+            _phones = PhoneStore.Load();
+            _wifi = new RemoteServer(Dispatcher, _phones);
+            _wifi.PairingCode += ShowPairingCode;
+            _wifi.PairingEnded += PairingEnded;
             _wifi.Button += OnIrSignal;
             _wifi.Text += ReceiveSearchText;
             _wifi.Connected += who => { if (IsActive && !SearchOpen) Toast("Phone remote connected over Wi-Fi"); };
@@ -90,6 +95,7 @@ namespace CouchTV
 
             // The TV's sound on phones too, each into its own headphones ("Listen on this phone" in the remote app).
             _sound = new AudioShare();
+            _sound.Sessions = _wifi.FindSession;
             _sound.ListenersChanged += count => Dispatcher.BeginInvoke(new Action(() =>
             {
                 string message = count == 0 ? "No phones are playing the TV's sound now" : "The TV's sound is also playing on " + count + (count == 1 ? " phone" : " phones");
@@ -148,7 +154,56 @@ namespace CouchTV
         void OnIrStatus()
         {
             SyncWakeButtons();
+            SendBoardKey();
             UpdateSetupStatus();
+        }
+
+        /// <summary>
+        /// Gives the receiver box's Wi-Fi (an ESP32 behind the receiver) the key it checks phones' Power and status
+        /// requests with, by USB through the receiver; paired phones get the same key over their encrypted connection.
+        /// </summary>
+        void SendBoardKey()
+        {
+            if (_ir == null || _ir.Port == null || _phones == null) return;
+            _ir.Send("LINKKEY " + Secure.Hex(_phones.BoardKey));
+        }
+
+        void ShowPairingCode(string phone, string code)
+        {
+            Osd.ShowCode('', "To pair " + phone + ", type this code on it", code.Substring(0, 3) + " " + code.Substring(3), 125);
+        }
+
+        void PairingEnded(string phone, string outcome)
+        {
+            string message;
+            switch (outcome)
+            {
+                case "paired": message = "Paired " + phone + ": it can use the TV over Wi-Fi now"; break;
+                case "wrong": message = "That wasn't the code: " + phone + " isn't paired"; break;
+                case "failed": message = "Pairing " + phone + " didn't work. Try again from the phone."; break;
+                default:
+                    Osd.HideNow();
+                    return;
+            }
+            Osd.ShowMessage('', message, 5);
+            UpdateSetupStatus();
+        }
+
+        /// <summary>Forgets every paired phone, after asking (from Remote setup: F8).</summary>
+        void AskForgetPhones()
+        {
+            _setup.Visibility = Visibility.Collapsed;
+            int count = _wifi != null ? _wifi.PairedPhones : 0;
+            Confirm("Forget the paired phones?",
+                (count == 0 ? "No phones are paired now. " : count + (count == 1 ? " phone is paired now. " : " phones are paired now. ")) +
+                "To use the TV over Wi-Fi again, each pairs again with a code shown here. Until then they can't press Power through the receiver box either.",
+                "Forget", () =>
+                {
+                    if (_wifi == null) return;
+                    _wifi.ForgetPhones();
+                    SendBoardKey();
+                    Toast("Forgot the paired phones. To pair one again, tap the Wi-Fi line in its remote app.");
+                });
         }
 
         /// <summary>Tells the receiver which buttons mean "power", so it can wake the PC with them.</summary>
@@ -404,6 +459,7 @@ namespace CouchTV
             buttons.Children.Add(SetupButton("Skip", "Backspace", SkipStep));
             buttons.Children.Add(SetupButton("Save", "Enter", () => FinishSetup(true)));
             buttons.Children.Add(SetupButton("Cancel", "Esc", () => FinishSetup(false)));
+            buttons.Children.Add(SetupButton("Forget phones", "F8", AskForgetPhones));
 
             var column = new StackPanel();
             column.Children.Add(header);
@@ -498,8 +554,10 @@ namespace CouchTV
             bool connected = _ir != null && _ir.Port != null;
             _setupDot.Fill = Theme.Brush(connected ? Theme.Good : Theme.Bad);
             string address = RemoteServer.LocalAddress();
+            int phones = _wifi != null ? _wifi.PairedPhones : 0;
             _setupStatus.Text = (connected ? "Receiver ready on " + _ir.Port : "Receiver not found - plug it in") +
-                                (address != null ? "   ·   Wi-Fi remote: " + address : "");
+                                (address != null ? "   ·   Wi-Fi remote: " + address : "") +
+                                "   ·   " + phones + (phones == 1 ? " phone" : " phones") + " paired";
         }
 
         void SetFeedback(string text, Color color)
@@ -582,6 +640,7 @@ namespace CouchTV
                 case Key.Escape: FinishSetup(false); break;
                 case Key.Back: SkipStep(); break;
                 case Key.Enter: FinishSetup(true); break;
+                case Key.F8: AskForgetPhones(); break;
             }
         }
     }

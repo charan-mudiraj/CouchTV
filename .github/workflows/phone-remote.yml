@@ -55,6 +55,11 @@ jobs:
           path: ~/.android/debug.keystore
           key: couchtv-remote-debug-keystore
 
+      # The phone's encryption must match CouchTV's exactly (numbers from CouchTV.exe --securityvectors).
+      - name: Test
+        working-directory: phone-remote
+        run: gradle testDebugUnitTest --no-daemon --stacktrace
+
       - name: Build
         working-directory: phone-remote
         env:

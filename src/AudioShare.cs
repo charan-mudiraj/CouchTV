@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 
@@ -12,26 +13,37 @@ namespace CouchTV
     /// Plays the TV's sound on phones too, each into its own headphones ("Listen on this phone" in the remote app).
     /// Captures what Windows plays (WASAPI loopback, so it works with any app) and sends it to the phones on the
     /// Wi-Fi as uncompressed 16-bit stereo in chunks of 180 frames (3.75 ms at 48 kHz): no encoding delay.
-    ///   A phone sends "LISTEN 2" (or plain "LISTEN") to UDP port 47702 every second while it wants sound, and
-    ///   "STOP" when it's done.
-    ///   Each packet: "CTA1" or "CTA2", sequence (uint32), sample rate (uint32), channels (byte, 2), flags (byte),
-    ///   2 zero bytes, then the chunk's samples. CTA2 (for "LISTEN 2") also carries the previous chunk after it
-    ///   (flags bit 1), so a packet lost on the Wi-Fi is repaired from the next one; both still fit one Wi-Fi frame.
+    ///   Only phones paired with the TV get it ("Security" in ir-receiver/PROTOCOL.md). A phone connected to the
+    ///   Wi-Fi remote sends "LISTEN 3 &lt;session&gt; &lt;number&gt; &lt;tag&gt;" to UDP port 47702 every second while it wants sound,
+    ///   and "STOP 3 ..." when it's done: the session id its connection was given, a number that goes up each time,
+    ///   and an HMAC with that connection's sound key, from the phone's own address.
+    ///   Each packet: "CTA3", sequence (uint32), sample rate (uint32), channels (byte, 2), flags (byte), 2 zero
+    ///   bytes; then the chunk's samples and the previous chunk's (flags bit 1), so a packet lost on the Wi-Fi is
+    ///   repaired from the next one, encrypted with AES-CTR (the sequence is the nonce); then a 16-byte HMAC tag
+    ///   over all of it. 1472 bytes: exactly one Wi-Fi frame. Each phone's packets use its own keys.
     /// Capturing only runs while someone is listening.
     /// </summary>
     internal sealed class AudioShare
     {
         public const int Port = 47702;
-        const int HeaderBytes = 16, Frames = 180;   // 2 chunks + header = 1456 bytes, under the 1472 that fit a frame
+        const int HeaderBytes = 16, Frames = 180, ChunkBytes = Frames * 4;
+        const int PacketBytes = HeaderBytes + 2 * ChunkBytes + Secure.TagBytes;   // 1472, all that fits one frame
 
         sealed class Listener
         {
             public IPEndPoint Phone;
             public DateTime Seen;
-            public int Version;
+            public RemoteSession Session;
+            // Only used by the capture thread:
+            public Ctr Cipher;
+            public HMACSHA256 Mac;
+            public readonly byte[] Packet = new byte[PacketBytes];
         }
 
         public event Action<int> ListenersChanged;   // on a background thread
+
+        /// <summary>A paired phone's connection by its session id: RemoteServer.FindSession.</summary>
+        public Func<string, RemoteSession> Sessions;
 
         readonly int _port;
         readonly IPAddress _bind;
@@ -39,6 +51,7 @@ namespace CouchTV
         UdpClient _udp;
         volatile bool _stop;
         Thread _capture;
+        uint _sequence;   // never starts again while CouchTV runs: it's each packet's encryption nonce
 
         public AudioShare() : this(Port, IPAddress.Any) { }
 
@@ -82,8 +95,12 @@ namespace CouchTV
                             throw;
                         }
                         string message = Encoding.ASCII.GetString(data).Trim();
-                        if (message.StartsWith("LISTEN")) Add(from, message == "LISTEN 2" ? 2 : 1);
-                        else if (message.StartsWith("STOP")) Remove(from);
+                        RemoteSession session = Check(message, from.Address);
+                        if (session != null)
+                        {
+                            if (message.StartsWith("LISTEN")) Add(from, session);
+                            else Remove(from);
+                        }
                         Expire();
                     }
                 }
@@ -93,13 +110,42 @@ namespace CouchTV
             }
         }
 
-        void Add(IPEndPoint phone, int version)
+        /// <summary>
+        /// "LISTEN 3 &lt;session&gt; &lt;number&gt; &lt;tag&gt;" or "STOP 3 ...", from a paired phone's live connection, from its address,
+        /// with a higher number than last time. Returns that connection; null for anything else (strangers, replays,
+        /// apps from before pairing).
+        /// </summary>
+        RemoteSession Check(string message, IPAddress from)
+        {
+            string[] p = message.Split(' ');
+            if (p.Length != 5 || (p[0] != "LISTEN" && p[0] != "STOP") || p[1] != "3") return null;
+            Func<string, RemoteSession> sessions = Sessions;
+            RemoteSession s = sessions != null ? sessions(p[2]) : null;
+            long number;
+            if (s == null || s.Closed || !s.Phone.Equals(from) || !long.TryParse(p[3], out number) || number <= s.LastListen) return null;
+            byte[] tag = Secure.Take(Secure.Hmac(s.AudioMac, Secure.Utf8(p[0] + " " + p[2] + " " + p[3])), 0, Secure.TagBytes);
+            if (!Secure.Same(tag, Secure.FromHex(p[4]))) return null;
+            s.LastListen = number;
+            return s;
+        }
+
+        void Add(IPEndPoint phone, RemoteSession session)
         {
             bool added;
             lock (_listeners)
             {
-                added = !_listeners.ContainsKey(phone.ToString());
-                _listeners[phone.ToString()] = new Listener { Phone = phone, Seen = DateTime.UtcNow, Version = version };
+                Listener known;
+                added = !_listeners.TryGetValue(phone.ToString(), out known);
+                if (known != null && known.Session == session) known.Seen = DateTime.UtcNow;
+                else
+                {
+                    // A listener is never disposed: the capture thread may be using it. The garbage collector tidies up.
+                    _listeners[phone.ToString()] = new Listener
+                    {
+                        Phone = phone, Seen = DateTime.UtcNow, Session = session,
+                        Cipher = new Ctr(session.AudioEnc), Mac = new HMACSHA256(session.AudioMac),
+                    };
+                }
                 if (_capture == null || !_capture.IsAlive)
                 {
                     _capture = new Thread(Capture) { IsBackground = true, Name = "Phone audio capture", Priority = ThreadPriority.Highest };
@@ -124,14 +170,14 @@ namespace CouchTV
             }
         }
 
-        /// <summary>Phones that stopped asking (switched off, walked away) for 3 seconds are dropped.</summary>
+        /// <summary>Phones that stopped asking (switched off, walked away) for 3 seconds, or disconnected, are dropped.</summary>
         void Expire()
         {
             var gone = new List<string>();
             lock (_listeners)
             {
                 foreach (KeyValuePair<string, Listener> pair in _listeners)
-                    if ((DateTime.UtcNow - pair.Value.Seen).TotalSeconds > 3) gone.Add(pair.Key);
+                    if ((DateTime.UtcNow - pair.Value.Seen).TotalSeconds > 3 || pair.Value.Session.Closed) gone.Add(pair.Key);
                 foreach (string key in gone) _listeners.Remove(key);
             }
             if (gone.Count > 0) Changed();
@@ -178,19 +224,14 @@ namespace CouchTV
             using (var loopback = new Loopback())
             {
                 Log.Info("Phone audio: capturing " + loopback.Description);
-                const int perPacket = Frames, chunkBytes = Frames * 4;
+                const int perPacket = Frames, chunkBytes = ChunkBytes, sealedBytes = HeaderBytes + 2 * ChunkBytes;
                 var pcm = new List<short>(perPacket * 4);
-                // Version 1: just the chunk. Version 2: the chunk, then the previous one, to repair a lost packet.
-                var plain = new byte[HeaderBytes + chunkBytes];
-                var repairing = new byte[HeaderBytes + 2 * chunkBytes];
-                Encoding.ASCII.GetBytes("CTA1", 0, 4, plain, 0);
-                Encoding.ASCII.GetBytes("CTA2", 0, 4, repairing, 0);
-                foreach (byte[] p in new[] { plain, repairing })
-                {
-                    BitConverter.GetBytes((uint)loopback.SampleRate).CopyTo(p, 8);
-                    p[12] = 2;
-                }
-                uint sequence = 0;
+                // The packet before encryption: the header, the chunk, then the previous one, to repair a lost packet.
+                var repairing = new byte[sealedBytes];
+                Encoding.ASCII.GetBytes("CTA3", 0, 4, repairing, 0);
+                BitConverter.GetBytes((uint)loopback.SampleRate).CopyTo(repairing, 8);
+                repairing[12] = 2;
+                bool first = true;
                 var sender = new UdpClient(new IPEndPoint(_bind, 0));
                 // When nothing plays (a paused video), Windows produces no sound data at all. Phones would run dry
                 // and keep more in reserve each time, so after 20 ms without data, send silence at the real pace.
@@ -227,21 +268,24 @@ namespace CouchTV
                         {
                             // The last chunk moves behind the new one (the repair copy), then the new one goes in front.
                             Buffer.BlockCopy(repairing, HeaderBytes, repairing, HeaderBytes + chunkBytes, chunkBytes);
-                            repairing[13] = (byte)(sequence > 0 ? 1 : 0);
-                            BitConverter.GetBytes(sequence).CopyTo(plain, 4);
+                            repairing[13] = (byte)(first ? 0 : 1);
+                            first = false;
+                            uint sequence = _sequence++;
                             BitConverter.GetBytes(sequence).CopyTo(repairing, 4);
-                            sequence++;
                             for (int i = 0; i < perPacket * 2; i++)
                             {
                                 short s = pcm[offset + i];
-                                plain[HeaderBytes + i * 2] = (byte)s;
-                                plain[HeaderBytes + i * 2 + 1] = (byte)(s >> 8);
+                                repairing[HeaderBytes + i * 2] = (byte)s;
+                                repairing[HeaderBytes + i * 2 + 1] = (byte)(s >> 8);
                             }
-                            Buffer.BlockCopy(plain, HeaderBytes, repairing, HeaderBytes, chunkBytes);
                             offset += perPacket * 2;
                             foreach (Listener phone in Targets())
                             {
-                                byte[] packet = phone.Version >= 2 ? repairing : plain;
+                                // Sealed for this phone alone: encrypted with its key, then tagged, header included.
+                                byte[] packet = phone.Packet;
+                                Buffer.BlockCopy(repairing, 0, packet, 0, sealedBytes);
+                                phone.Cipher.Apply(sequence, packet, HeaderBytes, 2 * chunkBytes);
+                                Buffer.BlockCopy(phone.Mac.ComputeHash(packet, 0, sealedBytes), 0, packet, sealedBytes, Secure.TagBytes);
                                 try { sender.Send(packet, packet.Length, phone.Phone); }
                                 catch (SocketException) { }   // that phone's gone; it expires on its own
                             }

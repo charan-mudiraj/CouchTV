@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 6 to 11: keys for the TV and the receiver box stay on this phone, out of backups. -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="pairing.xml" />
+    <exclude domain="sharedpref" path="board.xml" />
+</full-backup-content>
