@@ -32,10 +32,11 @@
     port's 5 V -> 2.2 kOhm -> pin 10, with 10 kOhm from pin 10 to GND, and the port's ground to GND.
   - The PC counts as on while it sends USB frames (one a millisecond). Asleep it stops; shut down, its USB port can
     look like anything (still "configured", never "suspended"), so the frames are what's watched.
-  - CouchTV says "SLEEP SOON" as the PC goes to sleep (any sleep: Power, the timer, idle; Windows tells it), and
+  - CouchTV says "SLEEP SOON" just before it puts the PC to sleep (Power, the sleep tile, the timer), and
     the TV goes off at once, rather than after the PC's USB has been quiet for 4 s (still the fallback). If the PC
     is still awake a minute later, it didn't sleep after all, and the TV comes back on. Waking needs no message:
-    half a second of USB frames and the TV comes on.
+    half a second of USB frames and the TV comes on. A SLEEP SOON in the 10 s after the PC wakes is ignored: it's
+    a late one, and would switch the TV off just after it came on.
   - CouchTV says "OFF SOON" just before it shuts the PC down, and "RESTART SOON" before a restart. Both are saved,
     because the PC's USB power can blink as it goes off and restart the receiver, which would otherwise forget the
     TV was on: after OFF SOON the TV is switched off once the PC is off; after RESTART SOON the TV is left alone
@@ -105,7 +106,7 @@ const uint16_t LOG_NEXT_AT = 199, LOG_AT = 200;
 const uint8_t LOG_SIZE = 60;
 const uint8_t EV_START = 1, EV_PC_ON = 2, EV_PC_OFF = 3, EV_PRESS_TV = 4, EV_PRESS_PC = 5, EV_POWER = 6,
               EV_USB_WAKE = 7, EV_OFF_SOON = 8, EV_RESTART_SOON = 9, EV_PLAN_DONE = 10, EV_DIED = 11,
-              EV_SLEEP_SOON = 12, EV_NO_SLEEP = 13;
+              EV_SLEEP_SOON = 12, EV_NO_SLEEP = 13, EV_LATE_SLEEP = 14;
 const uint8_t EV_USB = 0x20;       // + configured (4) + suspended (2) + frames arriving (1): the PC's USB changed
 const uint8_t MAX_USB_EVENTS = 30; // per start, so a flapping line can't fill the log
 // The CouchTV phone remote's power button always wakes the PC, even before CouchTV has sent its list.
@@ -117,6 +118,7 @@ const unsigned long AWAKE_STABLE_MS = 500;    // how long the PC's USB must be u
 const unsigned long ASLEEP_STABLE_MS = 4000;  // ...or quiet before it counts as asleep or off (it blinks as the PC
                                               // starts), unless CouchTV said it's going: then at once
 const unsigned long SLEEP_WAIT_MS = 60000;    // SLEEP SOON, but the PC still awake by then: it didn't sleep
+const unsigned long LATE_SLEEP_MS = 10000;    // a SLEEP SOON this soon after the PC woke is a late one: ignored
 const unsigned long POWER_GAP_MS = 5000;      // a second Power press within this is ignored
 const unsigned long WAKE_WAIT_MS = 8000;      // woken over USB but not up by then: press its button
 const unsigned long TV_GAP_MS = 15000;        // the TV ignores its button this long after switching (tested: 11 s too short)
@@ -149,6 +151,7 @@ unsigned long wakeDeadline = 0;    // 0: no wake-up pending
 uint8_t plan = PLAN_NONE;          // OFF SOON or RESTART SOON, until it's done
 bool sleepSoon = false;            // CouchTV said SLEEP SOON...
 unsigned long sleepSoonAt = 0;     // ...at this time
+unsigned long wokeAt = 0;          // when the PC last came on (or Power was pressed to wake it)
 unsigned long planSince = 0;
 uint16_t lastFrame = 0;            // the last USB frame number seen...
 unsigned long lastFrameAt = 0;     // ...and when it changed
@@ -287,6 +290,7 @@ void printLog() {
       case EV_DIED: Serial.println(F("STARTED AFTER A PRESS CUT THE POWER")); break;
       case EV_SLEEP_SOON: Serial.println(F("SLEEP SOON")); break;
       case EV_NO_SLEEP: Serial.println(F("didn't sleep after all")); break;
+      case EV_LATE_SLEEP: Serial.println(F("SLEEP SOON ignored: the PC just woke")); break;
       default: Serial.println(event); break;
     }
   }
@@ -373,6 +377,7 @@ void powerOn() {
   if (powerUsed && now - lastPower < POWER_GAP_MS) return;
   powerUsed = true;
   lastPower = now;
+  wokeAt = now;
   note(EV_POWER);
   if (USBDevice.wakeupHost()) {
     note(EV_USB_WAKE);
@@ -407,6 +412,7 @@ void watchPower() {
     pcOn = awake ? 1 : 0;
     note(awake ? EV_PC_ON : EV_PC_OFF);
     if (!awake) sleepSoon = false;
+    else wokeAt = now;
     if (justStarted) {
       // Just started. After a power cut the TV is off like the PC, so assume it matches the PC; but if CouchTV
       // said the PC was about to go off or restart, the TV was on, and this start was the PC's USB power blinking.
@@ -534,6 +540,11 @@ void runCommand(const char *text, Print &out) {
     out.println(F("OK"));
     powerButton();
   } else if (strcmp(text, "SLEEP SOON") == 0) {
+    if (wokeAt != 0 && millis() - wokeAt < LATE_SLEEP_MS) {
+      note(EV_LATE_SLEEP);
+      out.println(F("OK"));
+      return;
+    }
     note(EV_SLEEP_SOON);
     sleepSoon = true;
     sleepSoonAt = millis();

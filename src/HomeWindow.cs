@@ -1126,9 +1126,9 @@ namespace CouchTV
 
         void OnPowerChanged(object sender, PowerModeChangedEventArgs e)
         {
-            // Any sleep (Power, the timer, idle): with the relay, the receiver switches the TV off straight away.
-            // This runs as Windows suspends, so it has to go out now (Windows allows about 2 s).
-            if (e.Mode == PowerModes.Suspend && _ir != null) _ir.SendNow("SLEEP SOON", 1000);
+            // No SLEEP SOON here for the receiver: Windows' suspend notice often arrives only after the PC has woken
+            // up again, which would switch the TV off just after waking. CouchTV's own sleeps say it beforehand
+            // (SleepNow); after any other sleep the receiver notices the PC's USB go quiet.
             if (e.Mode != PowerModes.Resume) return;
             Dispatcher.BeginInvoke(new Action(() =>
             {
