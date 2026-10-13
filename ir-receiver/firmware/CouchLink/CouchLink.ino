@@ -374,7 +374,8 @@ void loop() {
     lastAsk = now;
     tellLeonardo("STATE");
   }
-  if (now - challengeAt >= CHALLENGE_MS) newChallenge();
+  // millis() afresh: handling a request above may just have changed the challenge (and now - later wraps around).
+  if (millis() - challengeAt >= CHALLENGE_MS) newChallenge();
 
   // Holding BOOT for 3 seconds opens the setup network: only someone at the box can change its Wi-Fi.
   if (digitalRead(BOOT_BUTTON) == LOW) {
@@ -385,7 +386,7 @@ void loop() {
   }
   if (setupOpen) {
     digitalWrite(LED, (now / 500) % 2 ? HIGH : LOW);
-    if (ssid.length() > 0 && now - setupOpenedAt > SETUP_OPEN_MS) closeSetup();
+    if (ssid.length() > 0 && millis() - setupOpenedAt > SETUP_OPEN_MS) closeSetup();
   }
   delay(2);
 }
