@@ -1059,6 +1059,140 @@ namespace CouchTV
             return failures == 0 ? 0 : 1;
         }
 
+        /// <summary>
+        /// CouchTV.exe --touchtest report.txt: a small always-on-top window in the screen's top-left corner with a
+        /// button, and one injected tap on that button (TouchInjector, as the screen mirror's touches): did the button
+        /// get clicked? Touches nothing else.
+        /// </summary>
+        public static int TouchTest(string path)
+        {
+            var report = new StringBuilder();
+            int clicks = 0, downs = 0;
+            var button = new System.Windows.Controls.Button { Content = "Tap", Width = 160, Height = 100 };
+            button.Click += (s, e) => clicks++;
+            button.PreviewTouchDown += (s, e) => downs++;
+            button.PreviewMouseDown += (s, e) => report.AppendLine("  (mouse down promoted from the touch)");
+            var window = new Window
+            {
+                Title = "CouchTV touch test", Content = button, Width = 200, Height = 160, Left = 0, Top = 0, Topmost = true,
+                ShowActivated = false, WindowStyle = WindowStyle.ToolWindow, WindowStartupLocation = WindowStartupLocation.Manual,
+            };
+            var app = new Application();
+            window.ContentRendered += (s, e) =>
+            {
+                var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+                int step = 0;
+                timer.Tick += (s2, e2) =>
+                {
+                    step++;
+                    if (step == 1)
+                    {
+                        Point centre = button.PointToScreen(new Point(button.ActualWidth / 2, button.ActualHeight / 2));
+                        int sw = (int)SystemParameters.PrimaryScreenWidth, sh = (int)SystemParameters.PrimaryScreenHeight;
+                        int nx = (int)(centre.X * 65535 / (sw - 1)), ny = (int)(centre.Y * 65535 / (sh - 1));
+                        report.AppendLine("Tapping at " + (int)centre.X + "," + (int)centre.Y + " of " + sw + "x" + sh);
+                        TouchInjector.Touch("test", 0, 'D', nx, ny);
+                        System.Threading.Thread.Sleep(60);
+                        TouchInjector.Touch("test", 0, 'U', nx, ny);
+                    }
+                    if (step == 4)
+                    {
+                        timer.Stop();
+                        report.AppendLine("Touches seen by the button: " + downs + ", clicks: " + clicks);
+                        report.AppendLine(clicks == 1 ? "PASS" : "FAIL");
+                        app.Shutdown();
+                    }
+                };
+                timer.Start();
+            };
+            app.Run(window);
+            File.WriteAllText(path, report.ToString());
+            return clicks == 1 ? 0 : 1;
+        }
+
+        /// <summary>
+        /// CouchTV.exe --browsertouchtest report.txt [--hold 60]: a small Edge window (a profile of its own) in the
+        /// top-left corner, showing a page that counts pointer events and clicks in its title, and one injected tap in
+        /// it. Reports what the page saw.
+        /// </summary>
+        public static int BrowserTouchTest(string path, int holdMs, string browserPath = null, bool drag = false)
+        {
+            var report = new StringBuilder();
+            string edge = browserPath;
+            if (edge == null) foreach (string p in new[] { @"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe", @"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe" })
+                if (File.Exists(Environment.ExpandEnvironmentVariables(p))) edge = Environment.ExpandEnvironmentVariables(p);
+            if (edge == null) { File.WriteAllText(path, "Edge isn't installed\n"); return 1; }
+            string profile = Path.Combine(Path.GetTempPath(), "couchtv-touchtest-edge");
+            string page = "data:text/html,<title>ready</title><body style='margin:0'><button id=b style='width:100vw;height:100vh;font-size:30px'>tap</button>" +
+                          "<script>var n={};function c(k){n[k]=(n[k]||0)+1;document.title=JSON.stringify(n);}" +
+                          "['pointerdown','pointerup','touchstart','touchend','mousedown','click'].forEach(function(k){document.addEventListener(k,function(e){c(k+(e.pointerType?':'+e.pointerType:''));},true);});" +
+                          "document.body.style.height='400vh';window.addEventListener('scroll',function(){n.scrolled=Math.round(scrollY);document.title=JSON.stringify(n);});</script>";
+            var start = new System.Diagnostics.ProcessStartInfo(edge, "--user-data-dir=\"" + profile + "\" --no-first-run --no-default-browser-check --window-position=0,0 --window-size=360,300 \"--app=" + page + "\"");
+            Log.Info("touchtest: starting the browser");
+            System.Diagnostics.Process browser = System.Diagnostics.Process.Start(start);
+            Log.Info("touchtest: started");
+            try
+            {
+                // Found by its title with plain Windows calls (UI Automation from inside a WPF app can hang).
+                IntPtr window = IntPtr.Zero;
+                for (int i = 0; i < 100 && window == IntPtr.Zero; i++)
+                {
+                    System.Threading.Thread.Sleep(150);
+                    window = TestFindWindow(null, "ready");
+                }
+                Log.Info("touchtest: window " + window);
+                if (window == IntPtr.Zero) { report.AppendLine("The test page didn't open"); File.WriteAllText(path, report.ToString()); return 1; }
+                TEST_RECT wr;
+                TestGetWindowRect(window, out wr);
+                var r = new System.Windows.Rect(wr.Left, wr.Top, wr.Right - wr.Left, wr.Bottom - wr.Top);
+                int x = (int)(r.Left + r.Width / 2), y = (int)(r.Top + r.Height * 0.6);
+                int sw = (int)SystemParameters.PrimaryScreenWidth, sh = (int)SystemParameters.PrimaryScreenHeight;
+                report.AppendLine("Edge window at " + r + "; tapping " + x + "," + y + " of " + sw + "x" + sh + ", held " + holdMs + " ms");
+                int nx = (int)((long)x * 65535 / (sw - 1)), ny = (int)((long)y * 65535 / (sh - 1)), ny2 = ny;
+                System.Threading.Thread.Sleep(800);
+                Log.Info("touchtest: down");
+                TouchInjector.Touch("test", 0, 'D', nx, ny);
+                Log.Info("touchtest: down done");
+                // As a phone does: moves every 16 ms while the finger's down (without moving; or, with a drag, 100 pixels up).
+                int steps = Math.Max(1, holdMs / 16);
+                for (int step = 1; step <= steps; step++)
+                {
+                    System.Threading.Thread.Sleep(16);
+                    int dragged = drag ? 100 * step / steps : 0;
+                    ny2 = (int)((long)(y - dragged) * 65535 / (sh - 1));
+                    TouchInjector.Touch("test", 0, 'M', nx, ny2);
+                }
+                TouchInjector.Touch("test", 0, 'U', nx, ny2);
+                Log.Info("touchtest: up done");
+                System.Threading.Thread.Sleep(1000);
+                var text = new StringBuilder(512);
+                TestGetWindowText(window, text, text.Capacity);
+                string title = text.ToString();
+                report.AppendLine("The page saw: " + title);
+                bool ok = drag ? title.Contains("scrolled") && !title.Contains("click") : title.Contains("click");
+                report.AppendLine(ok ? "PASS" : "FAIL");
+                File.WriteAllText(path, report.ToString());
+                return ok ? 0 : 1;
+            }
+            finally
+            {
+                try { if (!browser.HasExited) browser.Kill(); } catch (Exception) { }
+                foreach (System.Diagnostics.Process p in System.Diagnostics.Process.GetProcessesByName("msedge"))
+                {
+                    try { if (p.StartInfo != null && p.MainModule != null) { } } catch (Exception) { }
+                }
+            }
+        }
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        struct TEST_RECT { public int Left, Top, Right, Bottom; }
+        [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "FindWindowW", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        static extern IntPtr TestFindWindow(string className, string title);
+        [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "GetWindowRect")]
+        static extern bool TestGetWindowRect(IntPtr window, out TEST_RECT rect);
+        [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "GetWindowTextW", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        static extern int TestGetWindowText(IntPtr window, StringBuilder text, int most);
+
         /// <summary>The window --typingtest looks at: shown without taking the focus, gone after 20 s at the latest.</summary>
         public static int TypingTarget()
         {

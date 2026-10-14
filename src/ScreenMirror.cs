@@ -329,15 +329,21 @@ namespace CouchTV
     }
 
     /// <summary>
-    /// Touches on the phone's mirror, played on the TV as real touches (Windows' touch injection), so apps and
-    /// browsers take them as from a touchscreen: tap to click, drag to scroll, pinch to zoom, hold to right-click. Up
-    /// to ten fingers. Held fingers are repeated every 100 ms (Windows lets go of a touch that goes quiet). Where touch
-    /// can't be injected, one finger works as the mouse.
+    /// Touches on the phone's mirror, played on the TV. By default as the mouse, which every app takes (MirrorTouch =
+    /// mouse in couchtv.ini): a tap clicks there, a drag scrolls (the page follows the finger), a hold right-clicks,
+    /// and two fingers pinch to zoom (Ctrl and the wheel). With MirrorTouch = touch, as real touches instead
+    /// (Windows' touch injection, up to ten fingers, held ones repeated every 100 ms as Windows lets go of a touch that
+    /// goes quiet), for apps that do more with touch; where touch can't be injected, one finger works as the mouse.
     /// </summary>
     internal static class TouchInjector
     {
         const int MostContacts = 10;
         const uint FlagInRange = 0x2, FlagInContact = 0x4, FlagDown = 0x10000, FlagUpdate = 0x20000, FlagUp = 0x40000;
+        const int SlopPx = 14, HoldMs = 600, PinchStepPx = 40;
+        const double WheelPerPixel = 1.2;   // about what a browser scrolls a pixel by
+
+        /// <summary>True: fingers work as the mouse (the default). False: as real touches.</summary>
+        public static volatile bool AsMouse = true;
 
         sealed class Contact
         {
@@ -350,12 +356,24 @@ namespace CouchTV
         static bool? _ready;
         static bool _mouseDown;
 
+        // The mouse's gesture: where the first finger went down, and whether it's become a scroll.
+        static string _first;
+        static int _startX, _startY, _lastX, _lastY, _pinch;
+        static long _downAt;
+        static bool _moved;
+        static double _wheelX, _wheelY;
+
         /// <summary>A finger (owner: the phone's connection; id: its finger) down, moved or up, at x, y from 0 to 65535 across the screen.</summary>
         public static void Touch(string owner, int id, char kind, int nx, int ny)
         {
             int x = (int)((long)nx * (GetSystemMetrics(0) - 1) / 65535), y = (int)((long)ny * (GetSystemMetrics(1) - 1) / 65535);
             lock (Lock)
             {
+                if (AsMouse)
+                {
+                    MouseGesture(owner + "/" + id, kind, x, y);
+                    return;
+                }
                 if (_ready == null)
                 {
                     _ready = InitializeTouchInjection(MostContacts, 1);   // TOUCH_FEEDBACK_DEFAULT: the TV shows where you touch
@@ -395,6 +413,7 @@ namespace CouchTV
                     contact = new Contact { Slot = slot, X = x, Y = y };
                     Contacts[key] = contact;
                     Inject(contact, FlagDown | FlagInRange | FlagInContact);
+                    Log.Info("Screen mirror: touch at " + x + "," + y + " on " + WindowAt(x, y));
                 }
                 else if (contact != null && kind == 'M')
                 {
@@ -418,11 +437,118 @@ namespace CouchTV
             }
         }
 
+        /// <summary>
+        /// The fingers as the mouse: the first one puts the pointer where it lands; lifted soon without moving, it
+        /// clicks there, held, it right-clicks; moved, it scrolls the page along with it. A second finger pinches:
+        /// apart zooms in, together zooms out. Under Lock.
+        /// </summary>
+        static void MouseGesture(string key, char kind, int x, int y)
+        {
+            Contact contact;
+            Contacts.TryGetValue(key, out contact);
+            if (kind == 'D')
+            {
+                if (contact != null) return;
+                Contacts[key] = new Contact { X = x, Y = y };
+                if (Contacts.Count == 1)
+                {
+                    _first = key;
+                    _startX = _lastX = x;
+                    _startY = _lastY = y;
+                    _downAt = Environment.TickCount;
+                    _moved = false;
+                    _wheelX = _wheelY = 0;
+                    Input.MoveTo(x, y);
+                }
+                else if (Contacts.Count == 2)
+                {
+                    _moved = true;   // a pinch, not a click
+                    _pinch = Spread();
+                }
+                return;
+            }
+            if (contact == null) return;
+            contact.X = x;
+            contact.Y = y;
+            if (kind == 'M')
+            {
+                if (Contacts.Count >= 2)
+                {
+                    int spread = Spread();
+                    while (Math.Abs(spread - _pinch) >= PinchStepPx)
+                    {
+                        bool apart = spread > _pinch;
+                        Input.KeyChange(0x11, true);   // Ctrl and the wheel: the browser's zoom
+                        Input.WheelBy(apart ? 120 : -120, false);
+                        Input.KeyChange(0x11, false);
+                        _pinch += apart ? PinchStepPx : -PinchStepPx;
+                    }
+                    return;
+                }
+                if (key != _first) return;
+                if (!_moved && (Math.Abs(x - _startX) > SlopPx || Math.Abs(y - _startY) > SlopPx)) _moved = true;
+                if (_moved)
+                {
+                    // The page follows the finger: dragging up scrolls down (a negative wheel turn), as on a phone.
+                    _wheelY += (y - _lastY) * WheelPerPixel;
+                    _wheelX -= (x - _lastX) * WheelPerPixel;
+                    if (Math.Abs(_wheelY) >= 10)
+                    {
+                        Input.WheelBy((int)_wheelY, false);
+                        _wheelY -= (int)_wheelY;
+                    }
+                    if (Math.Abs(_wheelX) >= 10)
+                    {
+                        Input.WheelBy((int)_wheelX, true);
+                        _wheelX -= (int)_wheelX;
+                    }
+                }
+                _lastX = x;
+                _lastY = y;
+                return;
+            }
+            // 'U'
+            Contacts.Remove(key);
+            if (key == _first && Contacts.Count == 0 && !_moved)
+            {
+                bool held = unchecked(Environment.TickCount - (int)_downAt) >= HoldMs;
+                Input.MoveTo(_startX, _startY);
+                Input.Button(held, true);
+                Input.Button(held, false);
+            }
+            if (Contacts.Count == 0) _first = null;
+        }
+
+        static int Spread()
+        {
+            var points = new List<Contact>(Contacts.Values);
+            if (points.Count < 2) return 0;
+            int dx = points[0].X - points[1].X, dy = points[0].Y - points[1].Y;
+            return (int)Math.Sqrt((double)dx * dx + (double)dy * dy);
+        }
+
+        /// <summary>The program whose window is at that point (for the log: where a touch went).</summary>
+        static string WindowAt(int x, int y)
+        {
+            IntPtr window = WindowFromPoint(new POINT { X = x, Y = y });
+            if (window == IntPtr.Zero) return "nothing";
+            uint pid;
+            GetWindowThreadProcessId(window, out pid);
+            try { return Process.GetProcessById((int)pid).ProcessName + " (window " + window + ")"; }
+            catch (Exception) { return "process " + pid; }
+        }
+
         /// <summary>Lifts every finger of a phone that went away.</summary>
         public static void LiftAll(string owner)
         {
             lock (Lock)
             {
+                if (AsMouse)
+                {
+                    foreach (string key in new List<string>(Contacts.Keys)) if (key.StartsWith(owner + "/")) Contacts.Remove(key);
+                    if (Contacts.Count == 0) _first = null;
+                    return;
+                }
                 foreach (string key in new List<string>(Contacts.Keys))
                 {
                     if (!key.StartsWith(owner + "/")) continue;
@@ -467,6 +593,8 @@ namespace CouchTV
             if (changed != null && !Contacts.ContainsValue(changed)) frame.Add(Info(changed, flags));
             if (frame.Count > 0 && !InjectTouchInput((uint)frame.Count, frame.ToArray()))
                 Log.Info("Screen mirror: a touch wasn't taken (" + Marshal.GetLastWin32Error() + ")");
+            else if (changed != null && (flags & FlagUp) != 0)
+                Log.Info("Screen mirror: touch lifted at " + changed.X + "," + changed.Y);
         }
 
         static POINTER_TOUCH_INFO Info(Contact c, uint flags)
@@ -512,6 +640,8 @@ namespace CouchTV
             public uint orientation, pressure;
         }
 
+        [DllImport("user32.dll")] static extern IntPtr WindowFromPoint(POINT point);
+        [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
         [DllImport("user32.dll", SetLastError = true)] static extern bool InitializeTouchInjection(uint maxCount, uint feedbackMode);
         [DllImport("user32.dll", SetLastError = true)] static extern bool InjectTouchInput(uint count, [In] POINTER_TOUCH_INFO[] contacts);
         [DllImport("user32.dll")] static extern int GetSystemMetrics(int index);

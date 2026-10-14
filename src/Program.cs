@@ -22,6 +22,24 @@ namespace CouchTV
                 if (remoteTest != null) return Diagnostics.RemoteTest(remoteTest);
                 string audioTest = Arg(args, "--audiotest");
                 if (audioTest != null) return Diagnostics.AudioTest(audioTest);
+                string browserTouch = Arg(args, "--browsertouchtest");
+                if (browserTouch != null && Has(args, "--wpf"))
+                {
+                    // As in CouchTV itself: a WPF app running, the taps from a background thread.
+                    int result = 1;
+                    var testApp = new Application();
+                    var window = new Window { Width = 220, Height = 120, Left = 1500, Top = 20, Title = "CouchTV WPF", ShowActivated = false };
+                    window.ContentRendered += (s, e) => new System.Threading.Thread(() =>
+                    {
+                        result = Diagnostics.BrowserTouchTest(browserTouch, int.Parse(Arg(args, "--hold") ?? "60"), Arg(args, "--browser"));
+                        testApp.Dispatcher.BeginInvoke(new Action(testApp.Shutdown));
+                    }) { IsBackground = true }.Start();
+                    testApp.Run(window);
+                    return result;
+                }
+                if (browserTouch != null) return Diagnostics.BrowserTouchTest(browserTouch, int.Parse(Arg(args, "--hold") ?? "60"), Arg(args, "--browser"), Has(args, "--drag"));
+                string touchTest = Arg(args, "--touchtest");
+                if (touchTest != null) return Diagnostics.TouchTest(touchTest);
                 string mirrorTest = Arg(args, "--mirrortest");
                 if (mirrorTest != null) return Diagnostics.MirrorTest(mirrorTest);
                 string bluetoothTest = Arg(args, "--bluetoothtest");

@@ -171,7 +171,7 @@ Also worth doing on a shared Wi-Fi: set the TV PC's network to **Public** (Setti
 | 4 | x, y, shown (1 byte) | where the mouse pointer is |
 | 5 | | nothing changed (a heartbeat, at least every second) |
 
-- Touches come on the phone's normal connection (`TOUCH`, above). CouchTV plays them with Windows' touch injection (up to 10 fingers, repeated every 100 ms while held, as Windows lets go of a touch that goes quiet), so apps and browsers take them as from a touchscreen, and the TV shows a dot where you touch. Where touch can't be injected, one finger works as the mouse. A phone that goes away lifts its fingers.
+- Touches come on the phone's normal connection (`TOUCH`, above). By default CouchTV plays them as the mouse, which every app takes (`MirrorTouch = mouse` in couchtv.ini): the first finger puts the pointer where it lands; lifted within 0.6 s without moving more than 14 pixels it clicks there, held longer it right-clicks; moved, it scrolls the page along with the finger (1.2 wheel units a pixel, both ways); a second finger pinches to zoom (Ctrl and the wheel, a notch each 40 pixels). With `MirrorTouch = touch`, they're played as real touches instead (Windows' touch injection, up to 10 fingers, repeated every 100 ms while held, as Windows lets go of a touch that goes quiet; the TV shows a dot where you touch). On the first TV tried, Windows showed those touches but the browser didn't act on them, hence the mouse by default. A phone that goes away lifts its fingers.
 - The TV says on screen when a phone starts and stops showing it.
 - Copy-protected video (Netflix, Prime Video, JioHotstar while playing) is black in any screen capture; their menus, rows and search aren't, and nor is anything else.
 
