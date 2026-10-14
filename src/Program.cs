@@ -11,6 +11,10 @@ namespace CouchTV
         [STAThread]
         static int Main(string[] args)
         {
+            // WPF takes touch through Windows' pointer messages (as browsers do), not its older tablet stack, which
+            // never sees touches injected by the screen mirror: so a tap on a home screen tile opens it. Must be set
+            // before WPF starts (.NET 4.7 and later).
+            AppContext.SetSwitch("Switch.System.Windows.Input.Stylus.EnablePointerSupport", true);
             Log.Init();
             try
             {
@@ -39,7 +43,7 @@ namespace CouchTV
                 }
                 if (browserTouch != null) return Diagnostics.BrowserTouchTest(browserTouch, int.Parse(Arg(args, "--hold") ?? "60"), Arg(args, "--browser"), Has(args, "--drag"));
                 string touchTest = Arg(args, "--touchtest");
-                if (touchTest != null) return Diagnostics.TouchTest(touchTest);
+                if (touchTest != null) return Diagnostics.TouchTest(touchTest, Has(args, "--mouse"));
                 string mirrorTest = Arg(args, "--mirrortest");
                 if (mirrorTest != null) return Diagnostics.MirrorTest(mirrorTest);
                 string bluetoothTest = Arg(args, "--bluetoothtest");

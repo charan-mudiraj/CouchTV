@@ -1064,8 +1064,9 @@ namespace CouchTV
         /// button, and one injected tap on that button (TouchInjector, as the screen mirror's touches): did the button
         /// get clicked? Touches nothing else.
         /// </summary>
-        public static int TouchTest(string path)
+        public static int TouchTest(string path, bool asMouse)
         {
+            TouchInjector.AsMouse = asMouse;
             var report = new StringBuilder();
             int clicks = 0, downs = 0;
             var button = new System.Windows.Controls.Button { Content = "Tap", Width = 160, Height = 100 };
@@ -1090,7 +1091,7 @@ namespace CouchTV
                         Point centre = button.PointToScreen(new Point(button.ActualWidth / 2, button.ActualHeight / 2));
                         int sw = (int)SystemParameters.PrimaryScreenWidth, sh = (int)SystemParameters.PrimaryScreenHeight;
                         int nx = (int)(centre.X * 65535 / (sw - 1)), ny = (int)(centre.Y * 65535 / (sh - 1));
-                        report.AppendLine("Tapping at " + (int)centre.X + "," + (int)centre.Y + " of " + sw + "x" + sh);
+                        report.AppendLine("Tapping at " + (int)centre.X + "," + (int)centre.Y + " of " + sw + "x" + sh + (TouchInjector.AsMouse ? " (as the mouse)" : " (a real touch)"));
                         TouchInjector.Touch("test", 0, 'D', nx, ny);
                         System.Threading.Thread.Sleep(60);
                         TouchInjector.Touch("test", 0, 'U', nx, ny);

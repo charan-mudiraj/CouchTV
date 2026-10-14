@@ -329,11 +329,12 @@ namespace CouchTV
     }
 
     /// <summary>
-    /// Touches on the phone's mirror, played on the TV. By default as the mouse, which every app takes (MirrorTouch =
-    /// mouse in couchtv.ini): a tap clicks there, a drag scrolls (the page follows the finger), a hold right-clicks,
-    /// and two fingers pinch to zoom (Ctrl and the wheel). With MirrorTouch = touch, as real touches instead
-    /// (Windows' touch injection, up to ten fingers, held ones repeated every 100 ms as Windows lets go of a touch that
-    /// goes quiet), for apps that do more with touch; where touch can't be injected, one finger works as the mouse.
+    /// Touches on the phone's mirror, played on the TV. By default as real touches (Windows' touch injection, up to ten
+    /// fingers, held ones repeated every 100 ms as Windows lets go of a touch that goes quiet), so browsers scroll and
+    /// zoom as on a phone, and CouchTV's own screens take them too (Program.cs turns on WPF's pointer touch: its older
+    /// tablet stack never sees injected touches); where touch can't be injected, one finger works as the mouse. With
+    /// MirrorTouch = mouse in couchtv.ini, as the mouse instead, for an app that ignores touch: a tap clicks there, a
+    /// drag scrolls (the page follows the finger), a hold right-clicks, and two fingers pinch to zoom (Ctrl and the wheel).
     /// </summary>
     internal static class TouchInjector
     {
@@ -342,8 +343,8 @@ namespace CouchTV
         const int SlopPx = 14, HoldMs = 600, PinchStepPx = 40;
         const double WheelPerPixel = 1.2;   // about what a browser scrolls a pixel by
 
-        /// <summary>True: fingers work as the mouse (the default). False: as real touches.</summary>
-        public static volatile bool AsMouse = true;
+        /// <summary>False: fingers are real touches (the default). True: they work as the mouse.</summary>
+        public static volatile bool AsMouse;
 
         sealed class Contact
         {

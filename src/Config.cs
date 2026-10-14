@@ -50,7 +50,7 @@ namespace CouchTV
         public string UpdateRepo = "charan-mudiraj/CouchTV", UpdateBranch = "main";
         public bool SmartSearch = true;                       // AI search, when a Gemini key is set
         public bool TypeOnPhone = true;                       // a text box gets focus: the phone's keyboard pops up
-        public bool MirrorTouchAsMouse = true;                // the screen mirror's fingers: the mouse, or real touches
+        public bool MirrorTouchAsMouse;                       // the screen mirror's fingers: real touches, or the mouse
         public string AiModel = "gemini-flash-lite-latest";
         public string PointerStyle = "arrow", PointerColor = "white";   // see Pointer.cs
         public int PointerSize = Pointer.DefaultSize;
@@ -171,7 +171,7 @@ namespace CouchTV
             UpdateBranch = Get(v, "UpdateBranch", UpdateBranch);
             SmartSearch = GetBool(v, "SmartSearch", true);
             TypeOnPhone = GetBool(v, "TypeOnPhone", true);
-            MirrorTouchAsMouse = !string.Equals(Get(v, "MirrorTouch", "mouse"), "touch", StringComparison.OrdinalIgnoreCase);
+            MirrorTouchAsMouse = string.Equals(Get(v, "MirrorTouch", "touch"), "mouse", StringComparison.OrdinalIgnoreCase);
             AiModel = Get(v, "AiModel", AiModel);
             PointerStyle = Get(v, "PointerStyle", PointerStyle);
             PointerColor = Get(v, "PointerColor", PointerColor);
