@@ -84,12 +84,11 @@ class WifiLink(context: Context) {
     /** Called on the main thread when a text box on the TV gets the focus, or (null) loses it, or the link drops. */
     var onTyping: ((TypingField?) -> Unit)? = null
 
-    /** What the TV suggests (films and songs, for the first page), as it last said, kept for while it's off; empty until it says. */
-    @Volatile var suggestions: List<Suggestion> = emptyList()
-        private set
-
-    /** Called on the main thread with a new list of suggestions. */
+    /** Called on the main thread with the TV's suggestions (films and songs, for the first page), as it connects or changes them. */
     var onSuggestions: ((List<Suggestion>) -> Unit)? = null
+
+    /** Called on the main thread with what the TV has ("SUGGESTSETUP", without its name), for fetching them here while it's off. */
+    var onSuggestSetup: ((String) -> Unit)? = null
 
     private val app = context.applicationContext
     private val connectivity = app.getSystemService(ConnectivityManager::class.java)
@@ -109,10 +108,6 @@ class WifiLink(context: Context) {
     private val typed = LinkedBlockingQueue<String>()
     private var incoming: MutableList<String>? = null   // a list of suggestions arriving (on the reading thread)
     private var expected = 0
-
-    init {
-        suggestions = prefs.getString("suggestions", null)?.lines()?.mapNotNull { Suggestion.parse(it) } ?: emptyList()
-    }
 
     /**
      * The TV's address (reserved for the TV PC in the router): it's tried first, with no searching. If it doesn't
@@ -429,6 +424,7 @@ class WifiLink(context: Context) {
                 line.startsWith("POINTER ") -> pointerLook = line.removePrefix("POINTER ").trim()
                 line.startsWith("BOARD ") -> Secure.fromHex(line.removePrefix("BOARD ").trim())?.takeIf { it.size == 32 }?.let { onBoardKey?.invoke(it) }
                 line.startsWith("INPUT ") -> typing(line.removePrefix("INPUT "))
+                line.startsWith("SUGGESTSETUP ") -> line.removePrefix("SUGGESTSETUP ").let { setup -> main.post { onSuggestSetup?.invoke(setup) } }
                 line.startsWith("SUGGESTIONS ") -> {
                     // A new list: that many SUGGEST lines follow.
                     expected = line.removePrefix("SUGGESTIONS ").trim().toIntOrNull() ?: 0
@@ -452,15 +448,12 @@ class WifiLink(context: Context) {
         main.post { onTyping?.invoke(field) }
     }
 
-    /** Plays a suggestion (a film or song from [suggestions]) on the TV. */
-    fun play(id: String) = send("PLAY $id")
+    /** Plays a suggestion on the TV: one from its own list, or one this phone fetched. */
+    fun play(s: Suggestion) = send(s.playLine())
 
-    /** A whole list arrived: shown, and kept for when the TV's off. */
     private fun setSuggestions(lines: List<String>) {
         incoming = null
         val list = lines.mapNotNull { Suggestion.parse(it) }
-        suggestions = list
-        prefs.edit().putString("suggestions", lines.joinToString("\n")).apply()
         main.post { onSuggestions?.invoke(list) }
     }
 

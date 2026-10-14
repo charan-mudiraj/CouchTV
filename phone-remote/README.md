@@ -11,7 +11,7 @@ A remote control app for CouchTV. It works two ways, and picks by itself:
 
 The top stays put (the connection status, the headphones button for the TV's sound, and **Power**), and underneath, pages swipe sideways like a phone's home screen. The app opens on the remote; the dots at the bottom show which page you're on; tap one to jump there, and Back returns to the remote.
 
-0. **Popular now** (swipe right from the remote): the films and songs the TV suggests under its apps, as posters three to a row, each with the app it plays in. Tap one and it plays on the TV. The phone keeps the last list, so it's there with the TV off too: a tap then turns the TV on (Power, through the receiver box) and plays it as soon as the TV is back. The only page that scrolls up and down.
+0. **Popular now** (swipe right from the remote): the films and songs the TV suggests under its apps, as posters three to a row, each with the app it plays in. Tap one and it plays on the TV. With the TV off the phone fetches the same lists itself, for the TV's apps and subscriptions, so you can choose before turning the TV on: a tap then turns the TV on (Power, through the receiver box) and plays it as soon as the TV is back. The only page that scrolls up and down.
 1. **Remote:** search, the D-pad, Back / Home / Menu, volume and Play-Pause.
 2. **Apps:** big tiles for Netflix, YouTube, Prime Video, JioHotstar and Web, plus the TV's Exit, Full screen, Sleep timer and Delete.
 3. **Trackpad:** like a laptop's, with Left and Right click buttons below it.
@@ -125,7 +125,7 @@ Each button sends an NEC frame (38 kHz, address `0xCE`), then a "still held" fra
 | `ScreenLink.kt`, `MirrorView.kt` | The TV's screen on the phone, and touching it |
 | `TypingBox.kt` | Typing into the TV's text boxes with the phone's own keyboard |
 | `PagerView.kt`, `PageDots.kt`, `FitGrid.kt` | The sideways pages, their dots, and button grids that shrink to fit |
-| `SuggestionsView.kt`, `Suggestion.kt` | The *Popular now* page: the TV's suggestions, their pictures, and playing one |
+| `SuggestionsView.kt`, `Suggestion.kt`, `SuggestionFeed.kt` | The *Popular now* page: the TV's suggestions or, with the TV off, the phone's own; their pictures; playing one |
 | `CustomButtons.kt` | Saves your own buttons |
 
 ## Feedback to send

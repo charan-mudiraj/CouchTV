@@ -61,7 +61,7 @@ Everything is undone by `Uninstall-CouchTV.cmd`.
 | F5 on the home screen | Reload `couchtv.ini` after editing it |
 | F6 on the home screen | Check for a CouchTV update now |
 
-Under the apps, **Popular films** and **Top songs** show what's popular now: films streaming in India this year (from JustWatch), each with the app it plays on (one you subscribe to, or one that has it free), and India's most-played songs (Apple Music's chart), on YouTube. Press OK on one and it plays: a film opens in its app (on Netflix it starts playing straight away), a song plays on YouTube full screen, as a mix of similar songs. Going down to these rows slides the screen up. The lists are fetched every 6 hours and kept for offline; `Suggestions = movies, music` in `couchtv.ini` chooses the rows, or `off`. The phone remote shows the same on its first page.
+Under the apps, **Popular films** and **Top songs** show what's popular now: films streaming in India this year (from JustWatch), each with the app it plays on (one you subscribe to, or one that has it free), and India's most-played songs (Apple Music's chart), on YouTube. Press OK on one and it plays: a film opens in its app (on Netflix it starts playing straight away), a song plays on YouTube full screen, as a mix of similar songs. Going down to these rows slides the screen up. The lists are fetched every 6 hours and kept for offline; `Suggestions = movies, music` in `couchtv.ini` chooses the rows, or `off`. The phone remote shows the same on its first page, even with the TV off (it fetches the lists itself then): tap one and the TV turns on and plays it.
 
 The **Settings & power** row has:
 

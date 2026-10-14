@@ -54,7 +54,7 @@ namespace CouchTV
                 }
             }
 
-            List<string> lines = Suggestions.PhoneLines(shown, FindTile);
+            List<string> lines = Suggestions.PhoneLines(shown, _cfg, FindTile);
             if (string.Join("\n", lines) == string.Join("\n", _phoneSuggestions)) return;
             _phoneSuggestions = lines;
             if (_wifi != null) _wifi.SendToPhones(lines);
@@ -138,12 +138,16 @@ namespace CouchTV
 
         // ================================================================ playing one
 
-        /// <summary>From the phone remote's first page: "PLAY &lt;id&gt;".</summary>
-        void PlaySuggestionById(string id)
+        /// <summary>
+        /// From the phone remote's first page: "PLAY &lt;id&gt;", and what it is (Suggestions.FromPhone), for one the phone
+        /// found while the TV was off, or one that's left the TV's list since.
+        /// </summary>
+        void PlaySuggestionById(string request)
         {
-            Suggestion s = VisibleSuggestions().Find(x => x.Id == id);
+            string[] p = request.Split(' ');
+            Suggestion s = VisibleSuggestions().Find(x => x.Id == p[0]) ?? Suggestions.FromPhone(p, _cfg.AppTiles);
             if (s != null) PlaySuggestion(s);
-            else Log.Info("Suggestion " + id + " isn't on the list any more");
+            else Log.Info("Suggestion from the phone: can't play \"" + (request.Length > 200 ? request.Substring(0, 200) + "…" : request) + "\"");
         }
 
         void PlaySuggestion(Suggestion s)

@@ -36,7 +36,7 @@ namespace CouchTV
     ///     EDIT &lt;backspaces&gt; &lt;base64 UTF-8&gt;   the phone's own keyboard: delete that many, then type the text
     ///                  →  INPUT TEXT|PASSWORD &lt;name&gt; &lt;value&gt;, INPUT OFF   a text box got (or lost) the focus on the
     ///                               TV, so the phone pops up its keyboard: told to the phone used last
-    ///     PLAY &lt;id&gt;                 play a suggestion (a film or song from the SUGGEST lines) on the TV
+    ///     PLAY &lt;id&gt; [&lt;what it is&gt;]   play a suggestion (from the SUGGEST lines, or one the phone found) on the TV
     /// Buttons go through the same remote.ini mapping as infrared ones, so both remotes behave the same.
     /// </summary>
     internal sealed class RemoteServer
@@ -56,7 +56,7 @@ namespace CouchTV
         public event Action<string, string> PairingEnded;   // its name and "paired", "wrong", "failed" or "cancelled" (UI thread)
         public event Action<int> PhonesChanged;              // how many phones are connected as remotes now (UI thread)
         public event Action<string, bool> Mirroring;         // a phone started (true) or stopped mirroring the screen: its name (UI thread)
-        public event Action<string> Play;                    // a phone chose a suggestion: its id (UI thread)
+        public event Action<string> Play;                    // a phone chose a suggestion: its id and what it is (UI thread)
 
         /// <summary>The pointer's look now ("arrow 64 white"), told to each phone as it connects.</summary>
         internal Func<string> CurrentPointer;
@@ -591,10 +591,10 @@ namespace CouchTV
                     }
                     return null;
                 case "PLAY":
-                    if (parts.Length >= 2 && parts[1].Length > 0 && parts[1].Length <= 60)
+                    if (parts.Length >= 2 && parts[1].Length > 0 && parts[1].Length <= 60 && line.Length <= 4000)
                     {
-                        string id = parts[1];
-                        Raise(() => { if (Play != null) Play(id); });
+                        string request = line.Substring(5);
+                        Raise(() => { if (Play != null) Play(request); });
                     }
                     return null;
                 case "EDIT":

@@ -43,6 +43,8 @@ class MainActivity : Activity() {
     }
 
     private lateinit var remote: Remote
+    private lateinit var feed: SuggestionFeed
+    private var tvWasThere = false
     private lateinit var voice: VoiceSearch
     private lateinit var store: CustomButtons
     private lateinit var myButtons: MutableList<CustomButton>
@@ -69,9 +71,13 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         remote = Remote(this)
+        feed = SuggestionFeed(this)
         remote.wifi.onChange = {
             showStatus()
-            findViewById<SuggestionsView>(R.id.suggestions).show(remote.wifi.suggestions, remote.wifi.tvName != null)
+            val tvThere = remote.wifi.tvName != null
+            findViewById<SuggestionsView>(R.id.suggestions).show(feed.current, tvThere)
+            if (tvWasThere && !tvThere) fetchSuggestionsSoon()   // the TV went off: the phone's own list from now on
+            tvWasThere = tvThere
         }
         remote.board.onChange = { showStatus() }
         remote.onPowerNeedsIr = { toast(getString(R.string.power_needs_ir)) }
@@ -85,20 +91,21 @@ class MainActivity : Activity() {
         findViewById<View>(R.id.voice_search).setOnClickListener { voice.start() }
         findViewById<View>(R.id.search_bar).setOnClickListener { voice.type() }
 
-        // The first page: what the TV suggests; a tap plays it there.
+        // The first page: popular films and songs, the TV's list, or with the TV off the phone's own; a tap plays it there.
         val suggestions = findViewById<SuggestionsView>(R.id.suggestions)
         suggestions.onPlay = { playSuggestion(it) }
-        suggestions.show(remote.wifi.suggestions, remote.wifi.tvName != null)
+        suggestions.show(feed.current, false)
+        feed.onChange = { list -> if (remote.wifi.tvName == null) suggestions.show(list, false) }
+        remote.wifi.onSuggestSetup = { feed.setSetup(it) }
         remote.wifi.onSuggestions = { list ->
+            feed.fromTv(list)
             suggestions.show(list, true)
             // The TV sends its list as it connects: the one tapped while it was off can play now.
             pendingPlay?.let { wanted ->
                 pendingPlay = null
                 if (SystemClock.elapsedRealtime() > pendingUntil) return@let
-                if (list.any { it.id == wanted.id }) {
-                    remote.wifi.play(wanted.id)
-                    toast(getString(R.string.suggestion_playing, wanted.title, wanted.app))
-                } else toast(getString(R.string.suggestion_gone, wanted.title))
+                remote.wifi.play(wanted)
+                toast(getString(R.string.suggestion_playing, wanted.title, wanted.app))
             }
         }
 
@@ -221,7 +228,7 @@ class MainActivity : Activity() {
      */
     private fun playSuggestion(s: Suggestion) {
         if (remote.wifi.connected) {
-            remote.wifi.play(s.id)
+            remote.wifi.play(s)
             toast(getString(R.string.suggestion_playing, s.title, s.app))
             return
         }
@@ -239,6 +246,14 @@ class MainActivity : Activity() {
         pendingUntil = SystemClock.elapsedRealtime() + 180_000
         if (!already) remote.press(Codes.ADDRESS, Codes.POWER, hold = false)   // a second tap meanwhile just changes what plays
         toast(getString(R.string.suggestion_turning_on, s.title))
+    }
+
+    /**
+     * The phone's own list, fetched if the one kept is a few hours old: a moment after the app opens, so a TV that's on
+     * connects first and gives its own.
+     */
+    private fun fetchSuggestionsSoon() {
+        findViewById<View>(R.id.pager).postDelayed({ if (remote.wifi.tvName == null) feed.refreshIfStale() }, 4000)
     }
 
     /** The TV's sound in this phone's headphones, sent over Wi-Fi; it keeps playing with the screen off. */
@@ -341,6 +356,7 @@ class MainActivity : Activity() {
         super.onStart()
         remote.wifi.start()
         remote.board.start()
+        fetchSuggestionsSoon()
         if (mirroring) startMirror()
         BluetoothGuard.askUser = { askToTurnOffBluetooth() }
         BluetoothGuard.hold(this, "screen")

@@ -383,22 +383,94 @@ namespace CouchTV
         // ================================================================ for the phone
 
         /// <summary>
-        /// The list as the phone remote's first page gets it: "SUGGESTIONS &lt;count&gt;", then one line each:
-        /// SUGGEST M|S &lt;id&gt; &lt;title&gt; &lt;subtitle&gt; &lt;app&gt; &lt;picture's address&gt; &lt;app colour&gt; &lt;app text colour&gt;
-        /// (texts in base64 UTF-8, "-" for none; colours RRGGBB). The phone plays one with PLAY &lt;id&gt;.
+        /// The list as the phone remote's first page gets it:
+        ///   SUGGESTSETUP &lt;films Y|N&gt; &lt;songs Y|N&gt; &lt;apps&gt;: what the TV has, so the phone can fetch the same lists itself
+        ///     while the TV is off. Each app as key:name:label:colour:text colour:Y|N (JustWatch's name for it, or
+        ///     youtube; Y for one you subscribe to, or any with no Subscriptions), comma separated; "-" for none.
+        ///   SUGGESTIONS &lt;count&gt;, then that many
+        ///   SUGGEST M|S &lt;id&gt; &lt;title&gt; &lt;details&gt; &lt;app&gt; &lt;picture&gt; &lt;colour&gt; &lt;text colour&gt; &lt;app key&gt; &lt;link&gt; &lt;query&gt;
+        /// Texts in base64 UTF-8, "-" for none; colours RRGGBB. The phone plays one with PLAY (FromPhone).
         /// </summary>
-        public static List<string> PhoneLines(List<Suggestion> list, Func<string, Tile> tile)
+        public static List<string> PhoneLines(List<Suggestion> list, Config cfg, Func<string, Tile> tile)
         {
-            var lines = new List<string>();
+            var apps = new List<string>();
+            var keys = new HashSet<string>();
+            foreach (Tile t in cfg.AppTiles)
+            {
+                string key = AppKey(t);
+                if (key == null || !keys.Add(key)) continue;   // the first tile for each, as the TV uses
+                bool yours = cfg.Subscriptions.Count == 0 || SmartSearch.IsSubscribed(t, cfg.Subscriptions);
+                apps.Add(key + ":" + B64(t.Name) + ":" + B64(t.Label) + ":" + Rgb(t.Background) + ":" + Rgb(t.Foreground) + ":" + (yours ? "Y" : "N"));
+            }
+            var lines = new List<string>
+            {
+                "SUGGESTSETUP " + (cfg.SuggestMovies ? "Y" : "N") + " " + (cfg.SuggestSongs ? "Y" : "N") + " " + (apps.Count == 0 ? "-" : string.Join(",", apps)),
+            };
+            var items = new List<string>();
             foreach (Suggestion s in list)
             {
                 Tile app = tile(s.App);
                 if (app == null) continue;
-                lines.Add("SUGGEST " + (s.Kind == SuggestionKind.Movie ? "M" : "S") + " " + s.Id + " " + B64(s.Title) + " " + B64(s.Subtitle) + " " +
-                          B64(app.Label) + " " + B64(s.ImageUrl) + " " + Rgb(app.Background) + " " + Rgb(app.Foreground));
+                items.Add("SUGGEST " + (s.Kind == SuggestionKind.Movie ? "M" : "S") + " " + s.Id + " " + B64(s.Title) + " " + B64(s.Subtitle) + " " +
+                          B64(app.Label) + " " + B64(s.ImageUrl) + " " + Rgb(app.Background) + " " + Rgb(app.Foreground) + " " +
+                          (AppKey(app) ?? "-") + " " + B64(s.PlayUrl) + " " + B64(s.Query));
             }
-            lines.Insert(0, "SUGGESTIONS " + lines.Count);
+            lines.Add("SUGGESTIONS " + items.Count);
+            lines.AddRange(items);
             return lines;
+        }
+
+        /// <summary>JustWatch's name for a tile's app ("nfx"), or "youtube"; null for others.</summary>
+        internal static string AppKey(Tile t)
+        {
+            var one = new List<Tile> { t };
+            foreach (string[] p in Packages) if (SmartSearch.FindHost(one, p[1]) != null) return p[0];
+            return SmartSearch.FindHost(one, "youtube.com") != null ? "youtube" : null;
+        }
+
+        static Tile TileForKey(string key, List<Tile> apps)
+        {
+            if (key == "youtube") return SmartSearch.FindHost(apps, "youtube.com");
+            foreach (string[] p in Packages) if (p[0] == key) return SmartSearch.FindHost(apps, p[1]);
+            return null;
+        }
+
+        /// <summary>
+        /// A film or song the phone found itself, while the TV was off ("PLAY &lt;id&gt; M|S &lt;app key&gt; &lt;link&gt; &lt;title&gt;
+        /// &lt;query&gt;", split, without PLAY): played only on one of the TV's apps, and only from that app's own site
+        /// (YouTube: a video); null if it isn't. A song with no link is looked for on YouTube when it's played.
+        /// </summary>
+        internal static Suggestion FromPhone(string[] p, List<Tile> apps)
+        {
+            if (p.Length < 6 || p[0].Length == 0 || (p[1] != "M" && p[1] != "S")) return null;
+            Tile app = TileForKey(p[2], apps);
+            if (app == null) return null;
+            string link = Text(p[3]), title = Text(p[4]), query = Text(p[5]);
+            bool movie = p[1] == "M";
+            if (link == null ? movie || string.IsNullOrEmpty(query) : !OnSite(link, p[2])) return null;
+            return new Suggestion
+            {
+                Kind = movie ? SuggestionKind.Movie : SuggestionKind.Song, Id = p[0], Title = title ?? "", App = app.Name,
+                PlayUrl = link == null ? null : PlayableUrl(link), Query = query,
+            };
+        }
+
+        static bool OnSite(string link, string key)
+        {
+            Uri uri;
+            if (!Uri.TryCreate(link, UriKind.Absolute, out uri) || uri.Scheme != Uri.UriSchemeHttps || link.Length > 2000) return false;
+            string site = key == "youtube" ? "youtube.com" : null;
+            foreach (string[] p in Packages) if (p[0] == key) site = p[1];
+            string host = uri.Host.ToLowerInvariant();
+            if (site == null || (host != site && !host.EndsWith("." + site))) return false;
+            return key != "youtube" || uri.AbsolutePath == "/watch";
+        }
+
+        static string Text(string field)
+        {
+            if (field == "-") return null;
+            try { return new UTF8Encoding(false, true).GetString(Convert.FromBase64String(field)); }
+            catch (Exception) { return null; }
         }
 
         static string B64(string s) { return string.IsNullOrEmpty(s) ? "-" : Convert.ToBase64String(Encoding.UTF8.GetBytes(s)); }

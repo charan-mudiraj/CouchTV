@@ -318,6 +318,22 @@ namespace CouchTV
             check("ZEE5 as it is", Suggestions.PlayableUrl("https://www.zee5.com/movies/details/nude/0-0-70944"), "https://www.zee5.com/movies/details/nude/0-0-70944");
 
             Config cfg = Config.Load();
+            Func<string, string> b64 = text => Convert.ToBase64String(Encoding.UTF8.GetBytes(text));
+            Func<string, string> fromPhone = request =>
+            {
+                Suggestion s = Suggestions.FromPhone(request.Split(' '), cfg.AppTiles);
+                return s == null ? "refused" : s.App + " " + (s.PlayUrl ?? "(look for: " + s.Query + ")");
+            };
+            check("phone's film plays", fromPhone("mtm1 M nfx " + b64("https://www.netflix.com/title/82034837") + " " + b64("Vishwanath & Sons") + " -"),
+                  "Netflix https://www.netflix.com/watch/82034837");
+            check("phone's song is looked for", fromPhone("s1 S youtube - " + b64("Hawayein") + " " + b64("Hawayein Pritam")), "YouTube (look for: Hawayein Pritam)");
+            check("phone's song with its video", fromPhone("s1 S youtube " + b64("https://www.youtube.com/watch?v=cYOB941gyXI&list=RDcYOB941gyXI") + " " + b64("Hawayein") + " -"),
+                  "YouTube https://www.youtube.com/watch?v=cYOB941gyXI&list=RDcYOB941gyXI");
+            check("not another site", fromPhone("mtm1 M nfx " + b64("https://netflix.com.example.org/title/1") + " " + b64("x") + " -"), "refused");
+            check("not plain http", fromPhone("mtm1 M nfx " + b64("http://www.netflix.com/title/1") + " " + b64("x") + " -"), "refused");
+            check("YouTube: videos only", fromPhone("s1 S youtube " + b64("https://www.youtube.com/redirect?q=x") + " " + b64("x") + " -"), "refused");
+            check("not an app the TV hasn't", fromPhone("mtm1 M xyz " + b64("https://www.netflix.com/title/1") + " " + b64("x") + " -"), "refused");
+            check("a film needs its link", fromPhone("mtm1 M nfx - " + b64("x") + " " + b64("x")), "refused");
             DateTime fetched;
             List<Suggestion> previous = Suggestions.Load(out fetched);
             report.AppendLine();
@@ -335,7 +351,7 @@ namespace CouchTV
                                       (s.PlayUrl ?? "(looked for when chosen: " + s.Query + ")") + "  |  " + (s.ImageFile ?? "no picture"));
                 report.AppendLine();
                 report.AppendLine("To the phone:");
-                foreach (string line in Suggestions.PhoneLines(list, name => cfg.AppTiles.Find(t => t.Name == name)))
+                foreach (string line in Suggestions.PhoneLines(list, cfg, name => cfg.AppTiles.Find(t => t.Name == name)))
                     report.AppendLine("  " + (line.Length > 150 ? line.Substring(0, 150) + "…" : line));
                 if (list.Count == 0) failures++;
             }

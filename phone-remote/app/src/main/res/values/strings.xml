@@ -68,12 +68,11 @@
     <string name="suggestions_title">Popular now</string>
     <string name="suggestions_movies">Popular films</string>
     <string name="suggestions_songs">Top songs</string>
-    <string name="suggestions_offline">Connect to the TV over Wi-Fi to see popular films and songs here, and play them on the TV with a tap.</string>
+    <string name="suggestions_offline">Finding what\'s popular. This needs the internet.</string>
     <string name="suggestions_waiting">The TV hasn\'t found any suggestions yet. It looks every few hours while it\'s on, and they show up here.</string>
     <string name="suggestion_playing">Playing %1$s on %2$s</string>
     <string name="suggestions_tv_off">The TV\'s off. Tap one to turn it on and play it there.</string>
     <string name="suggestion_turning_on">Turning on the TV. %1$s plays once it\'s on.</string>
-    <string name="suggestion_gone">%1$s isn\'t in the TV\'s list any more. Here\'s what\'s popular now.</string>
     <string name="suggestion_tv_unreachable">The TV\'s on, but this phone can\'t reach it over Wi-Fi.</string>
     <string name="app_netflix">Netflix</string>
     <string name="app_youtube">YouTube</string>
