@@ -54,6 +54,8 @@ class MainActivity : Activity() {
     private var mirroring = false
     private var resumed = false
     private var pendingTyping: WifiLink.TypingField? = null   // a text box got the focus while this was in the background
+    private var pendingPlay: Suggestion? = null               // tapped while the TV was off: plays once it's on...
+    private var pendingUntil = 0L                             // ...if it comes on by then
 
     // Updates from GitHub
     private lateinit var updater: AppUpdater
@@ -85,14 +87,20 @@ class MainActivity : Activity() {
 
         // The first page: what the TV suggests; a tap plays it there.
         val suggestions = findViewById<SuggestionsView>(R.id.suggestions)
-        suggestions.onPlay = { s ->
-            if (remote.wifi.connected) {
-                remote.wifi.play(s.id)
-                toast(getString(R.string.suggestion_playing, s.title, s.app))
-            } else toast(getString(R.string.suggestion_needs_wifi))
-        }
+        suggestions.onPlay = { playSuggestion(it) }
         suggestions.show(remote.wifi.suggestions, remote.wifi.tvName != null)
-        remote.wifi.onSuggestions = { suggestions.show(it, true) }
+        remote.wifi.onSuggestions = { list ->
+            suggestions.show(list, true)
+            // The TV sends its list as it connects: the one tapped while it was off can play now.
+            pendingPlay?.let { wanted ->
+                pendingPlay = null
+                if (SystemClock.elapsedRealtime() > pendingUntil) return@let
+                if (list.any { it.id == wanted.id }) {
+                    remote.wifi.play(wanted.id)
+                    toast(getString(R.string.suggestion_playing, wanted.title, wanted.app))
+                } else toast(getString(R.string.suggestion_gone, wanted.title))
+            }
+        }
 
         // The screen mirror: the TV's screen here, full screen, touched like a touchscreen.
         mirrorView = findViewById(R.id.mirror_view)
@@ -205,6 +213,32 @@ class MainActivity : Activity() {
             findViewById<TextView>(R.id.update_text).text = message
             findViewById<Button>(R.id.update_now).isEnabled = true
         }
+    }
+
+    /**
+     * A film or song from the first page: played on the TV. With the TV off (asleep, or shut down), Power turns it on
+     * (through the receiver box, as the Power key does) and it plays as soon as the TV is back, within 3 minutes.
+     */
+    private fun playSuggestion(s: Suggestion) {
+        if (remote.wifi.connected) {
+            remote.wifi.play(s.id)
+            toast(getString(R.string.suggestion_playing, s.title, s.app))
+            return
+        }
+        if (remote.board.pcOn == true) {
+            // Power would put it to sleep: it's on, this phone just can't reach CouchTV.
+            toast(getString(R.string.suggestion_tv_unreachable))
+            return
+        }
+        if (!remote.board.connected && !remote.ir.available) {
+            toast(getString(R.string.power_needs_ir))   // no way to send Power from here
+            return
+        }
+        val already = pendingPlay != null && SystemClock.elapsedRealtime() < pendingUntil
+        pendingPlay = s
+        pendingUntil = SystemClock.elapsedRealtime() + 180_000
+        if (!already) remote.press(Codes.ADDRESS, Codes.POWER, hold = false)   // a second tap meanwhile just changes what plays
+        toast(getString(R.string.suggestion_turning_on, s.title))
     }
 
     /** The TV's sound in this phone's headphones, sent over Wi-Fi; it keeps playing with the screen off. */

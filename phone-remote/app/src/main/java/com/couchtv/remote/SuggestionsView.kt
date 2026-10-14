@@ -44,13 +44,12 @@ class SuggestionsView @JvmOverloads constructor(context: Context, attrs: Attribu
         build()
     }
 
-    /** A new list from the TV (or the same one, with the connection changed). */
+    /** A new list from the TV, or the same one with the TV come or gone ([connected]: over Wi-Fi now). */
     fun show(suggestions: List<Suggestion>, connected: Boolean) {
         if (suggestions === list && connected == this.connected) return
-        val rebuild = suggestions !== list || (suggestions.isEmpty() && connected != this.connected)
         list = suggestions
         this.connected = connected
-        if (rebuild) build()
+        build()
     }
 
     private fun build() {
@@ -66,6 +65,14 @@ class SuggestionsView @JvmOverloads constructor(context: Context, attrs: Attribu
             })
             return
         }
+        if (!connected) {
+            // The list the TV sent last time: a tap turns the TV on, and it plays once the TV's there.
+            column.addView(TextView(context).apply {
+                setText(R.string.suggestions_tv_off)
+                setTextColor(context.getColor(R.color.muted))
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            }, wrap(0, 6))
+        }
         section(R.string.suggestions_movies, list.filter { it.movie }, 1.5f)
         section(R.string.suggestions_songs, list.filter { !it.movie }, 1f)
         column.addView(View(context), LinearLayout.LayoutParams(1, dp(24)))
@@ -74,7 +81,7 @@ class SuggestionsView @JvmOverloads constructor(context: Context, attrs: Attribu
     /** A heading, then the cards three to a row; [ratio] is a picture's height to its width. */
     private fun section(heading: Int, items: List<Suggestion>, ratio: Float) {
         if (items.isEmpty()) return
-        val first = column.childCount == 1   // just the page's title above
+        val first = column.getChildAt(column.childCount - 1) !is LinearLayout   // nothing but text above
         column.addView(TextView(context, null, 0, R.style.Section).apply { setText(heading) }, wrap(if (first) 0 else 14, 10))
         for (start in items.indices step 3) {
             val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
