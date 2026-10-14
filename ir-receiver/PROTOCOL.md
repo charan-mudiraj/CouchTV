@@ -118,6 +118,7 @@ The same remote also works over the home network, with no pointing, and on phone
 | `MOUSE L\|R D\|U` | | the trackpad: left or right mouse button down or up; if the phone drops while holding one, CouchTV lets go of it |
 | `POINTER <style> <size> <colour>` | | the pointer's look: `arrow`, `dot` or `ring`; 32–128 pixels; `white`, `yellow`, `blue`, `green` or `pink`. CouchTV shows it at once and keeps it in couchtv.ini |
 | | `POINTER arrow 64 white` (after `WELCOME`) | the pointer's look now, so the phone can show it |
+| `TOUCH <finger> D\|M\|U <x> <y>` | | the screen mirror: a finger (0–9) down, moved or up, at x and y from 0 to 65535 across the TV's screen; played as a touchscreen's touch (below) |
 | `KEY <vk> D\|U` | | the keyboard page: a PC key down or up, as its Windows virtual-key code in hex (`A2` left Ctrl, `43` C, `70` F1…). Sent down again every 45 ms while held, since Windows only repeats real keyboards' keys. CouchTV lets go of keys a phone still held when it drops |
 | `EDIT <backspaces> [<base64 of UTF-8>]` | | typing with the phone's own keyboard: that many Backspaces, then the text, typed as characters (any language, emoji), whatever the PC's keyboard layout; a line break is Enter |
 | | `INPUT TEXT\|PASSWORD <name> <value>`, or `INPUT OFF` | a text box got the keyboard focus on the TV (its name and what's in it, base64; a password box's value is never sent), or none has it now. Told to the phone that sent something last, which pops up its keyboard. CouchTV watches the focus with UI Automation (Windows' accessibility interface) while a phone is connected; `TypeOnPhone = off` in couchtv.ini stops it |
@@ -153,6 +154,28 @@ Keys are 65-byte points (`04`, x, y) and binary values are base64; the phone id 
 The pairing keys live in `%LOCALAPPDATA%\CouchTV\phones.dat`, encrypted by Windows for that user (DPAPI), and on the phone in its app storage, left out of backups. The code: `src/Secure.cs`, `src/Phones.cs` and `src/RemoteServer.cs`; `phone-remote/.../Secure.kt` and `Handshake.kt`; `firmware/CouchLink`. `CouchTV.exe --remotetest` checks the cryptography against published test vectors and runs pairing, wrong codes, forged proofs, replayed and changed lines; `CouchTV.exe --securityvectors` writes the numbers the phone app's unit test (`SecureTest.kt`, run by every build) checks its own against.
 
 Also worth doing on a shared Wi-Fi: set the TV PC's network to **Public** (Settings > Network & internet > Wi-Fi or Ethernet > the network > Public network), which turns off file and printer sharing and network discovery; the phone remote keeps working, since its firewall rule covers both. Your own router behind the shared one (a network only your devices join) keeps neighbours off it altogether.
+
+## Screen mirror
+
+*Show the TV's screen here* (the button at the top of the app) shows the TV's screen on the phone, full screen in landscape, for choosing what to watch from across the room. Fingers on it work the TV as a touchscreen would: tap to click, drag to scroll, pinch to zoom, hold to right-click. A strip at the side has Back, Home, volume, the phone's keyboard and the way back to the remote.
+
+- The phone opens a paired connection of its own (*Security*) and, after `AUTH`, sends `MIRROR <width> <kbps>`: the widest picture it wants (1280) and the most it may send (4000 kbps; 2500 while that phone is also playing the TV's sound, so the sound keeps its share of the Wi-Fi). From then on that connection carries the TV's pictures, one way.
+- CouchTV captures the main screen scaled to that width (GDI, HALFTONE scaling), splits it into 64-pixel tiles and sends only tiles that changed since its last look, as JPEG strips along each row (quality 72): the first picture whole (about 90 KB), then a moving highlight costs a few KB. It looks 15 times a second while things change or the phone sends anything, 5 times a second once all's been still for 2 s, and waits longer when needed to stay under the cap.
+- Each message is binary: its length (4 bytes, big-endian), then AES-256-CTR ciphertext, then 16 bytes of HMAC-SHA256 over the message number (8 bytes, big-endian, from 0) and the ciphertext, with keys of their own: HMAC(TV encryption key, `mirror enc`) and HMAC(TV MAC key, `mirror mac`). Inside, the first byte says what it is; numbers are 16-bit big-endian:
+
+| Type | Then | Meaning |
+|---|---|---|
+| 1 | width, height | a new picture of that size (at the start, and if the screen's resolution changes) |
+| 2 | x, y, width, height, JPEG | a strip of what changed |
+| 3 | | that look's strips are all in: show them |
+| 4 | x, y, shown (1 byte) | where the mouse pointer is |
+| 5 | | nothing changed (a heartbeat, at least every second) |
+
+- Touches come on the phone's normal connection (`TOUCH`, above). CouchTV plays them with Windows' touch injection (up to 10 fingers, repeated every 100 ms while held, as Windows lets go of a touch that goes quiet), so apps and browsers take them as from a touchscreen, and the TV shows a dot where you touch. Where touch can't be injected, one finger works as the mouse. A phone that goes away lifts its fingers.
+- The TV says on screen when a phone starts and stops showing it.
+- Copy-protected video (Netflix, Prime Video, JioHotstar while playing) is black in any screen capture; their menus, rows and search aren't, and nor is anything else.
+
+`CouchTV.exe --mirrortest report.txt` mirrors the PC's screen to a pretend phone over the loopback and reports the first picture's size and time, the bandwidth after it, the CPU and how close the phone's picture is to the screen. The code is `src/ScreenMirror.cs` and `phone-remote/.../ScreenLink.kt` and `MirrorView.kt`.
 
 ## Receiver box Wi-Fi
 

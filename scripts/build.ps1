@@ -24,6 +24,7 @@ $references = @(
     (Join-Path $framework 'System.IO.Compression.dll'),
     (Join-Path $framework 'System.IO.Compression.FileSystem.dll'),
     (Join-Path $framework 'System.Security.dll'),
+    (Join-Path $framework 'System.Drawing.dll'),
     (Join-Path $framework 'WPF\UIAutomationClient.dll'),
     (Join-Path $framework 'WPF\UIAutomationTypes.dll'),
     # Windows' own API descriptions, for switching Bluetooth on and off (BluetoothPower.cs). Part of Windows 10/11.

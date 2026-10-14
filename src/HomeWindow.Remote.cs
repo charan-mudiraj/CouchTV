@@ -86,6 +86,13 @@ namespace CouchTV
             _wifi = new RemoteServer(Dispatcher, _phones);
             _wifi.PairingCode += ShowPairingCode;
             _wifi.PairingEnded += PairingEnded;
+            // Someone's watching this screen on a phone: say so, on the TV.
+            _wifi.Mirroring += (phone, on) =>
+            {
+                string message = on ? "This screen is showing on " + phone : phone + " stopped showing this screen";
+                if (IsActive && !Modal) Toast(message);
+                else Osd.ShowMessage('\uE8EA', message, 3);
+            };
             // A text box getting the focus pops up the phone's keyboard: watched only while a phone is connected.
             if (_cfg.TypeOnPhone)
             {

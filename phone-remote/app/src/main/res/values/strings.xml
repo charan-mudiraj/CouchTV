@@ -114,6 +114,12 @@
     <string name="pointer_needs_wifi">Connect to the TV over Wi-Fi to change its pointer</string>
     <string name="tv_keys">TV</string>
     <string name="keyboard">Keyboard</string>
+    <string name="mirror_start">Show the TV\'s screen here</string>
+    <string name="mirror_title">The TV\'s screen</string>
+    <string name="mirror_exit">Back to the remote</string>
+    <string name="mirror_connecting">Getting the TV\'s screen…</string>
+    <string name="mirror_reconnecting">Lost the TV\'s screen. Getting it again…</string>
+    <string name="mirror_needs_wifi">Connect to the TV over Wi-Fi first (the line at the top turns green).</string>
     <string name="keyboard_type">Type</string>
     <string name="keyboard_help">Shift, Ctrl, Alt and Win stay on for the next key: tap twice to keep them on. Type uses this phone\'s own keyboard.</string>
     <string name="keyboard_offline">Connect to the TV over Wi-Fi first</string>

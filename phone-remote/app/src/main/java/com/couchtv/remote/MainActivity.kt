@@ -5,6 +5,7 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.net.Uri
@@ -17,6 +18,8 @@ import android.text.InputType
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.WindowInsets
+import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.EditText
@@ -44,6 +47,9 @@ class MainActivity : Activity() {
     private var editing = false
     private lateinit var keyboard: KeyboardView
     private lateinit var typingBox: TypingBox
+    private lateinit var mirrorView: MirrorView
+    private lateinit var screen: ScreenLink
+    private var mirroring = false
     private var resumed = false
     private var pendingTyping: WifiLink.TypingField? = null   // a text box got the focus while this was in the background
 
@@ -71,6 +77,17 @@ class MainActivity : Activity() {
         voice.onStatus = { findViewById<TextView>(R.id.search_hint).text = it }
         findViewById<View>(R.id.voice_search).setOnClickListener { voice.start() }
         findViewById<View>(R.id.search_bar).setOnClickListener { voice.type() }
+
+        // The screen mirror: the TV's screen here, full screen, touched like a touchscreen.
+        mirrorView = findViewById(R.id.mirror_view)
+        mirrorView.onTouch = { finger, kind, x, y -> remote.wifi.touch(finger, kind, x, y) }
+        screen = ScreenLink(this, mirrorView)
+        findViewById<View>(R.id.mirror).setOnClickListener { setMirror(true) }
+        findViewById<View>(R.id.mirror_exit).setOnClickListener { setMirror(false) }
+        findViewById<View>(R.id.mirror_keyboard).setOnClickListener {
+            if (remote.wifi.connected) typingBox.show(null) else toast(getString(R.string.keyboard_offline))
+        }
+        for (id in intArrayOf(R.id.mirror, R.id.mirror_exit, R.id.mirror_keyboard)) Haptics.attach(findViewById(id))
 
         findViewById<ImageButton>(R.id.listen).setOnClickListener {
             if (ListenService.running) stopService(Intent(this, ListenService::class.java)) else startListening()
@@ -120,6 +137,10 @@ class MainActivity : Activity() {
             R.id.volume_down to Codes.VOLUME_DOWN,
             R.id.mute to Codes.MUTE,
             R.id.volume_up to Codes.VOLUME_UP,
+            R.id.mirror_back to Codes.BACK,
+            R.id.mirror_home to Codes.HOME,
+            R.id.mirror_volume_down to Codes.VOLUME_DOWN,
+            R.id.mirror_volume_up to Codes.VOLUME_UP,
             R.id.play_pause to Codes.PLAY_PAUSE,
             R.id.exit to Codes.EXIT,
             R.id.full_screen to Codes.FULL_SCREEN,
@@ -197,8 +218,56 @@ class MainActivity : Activity() {
     /** Back on another page goes to the first; on the first, it leaves as usual. */
     @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION")
     override fun onBackPressed() {
+        if (mirroring) {
+            setMirror(false)
+            return
+        }
         val pager = findViewById<PagerView>(R.id.pager)
         if (pager.page > 0) pager.go(0) else super.onBackPressed()
+    }
+
+    /**
+     * The screen mirror on or off: the TV's screen full screen in landscape (the remote's pages aren't needed: touch
+     * the picture), and the phone's screen kept on; off, back to the remote, upright.
+     */
+    private fun setMirror(on: Boolean) {
+        if (on && !remote.wifi.connected) {
+            toast(getString(R.string.mirror_needs_wifi))
+            return
+        }
+        mirroring = on
+        findViewById<View>(R.id.main_ui).visibility = if (on) View.GONE else View.VISIBLE
+        findViewById<View>(R.id.mirror_layer).visibility = if (on) View.VISIBLE else View.GONE
+        requestedOrientation = if (on) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        fullScreen(on)
+        if (on) startMirror()
+        else {
+            screen.stop()
+            mirrorView.clear()
+        }
+    }
+
+    private fun startMirror() {
+        // Less of the Wi-Fi for the picture while this phone plays the TV's sound too.
+        screen.start({ remote.wifi.tvAddress?.hostAddress ?: remote.wifi.manualAddress }, { if (ListenService.running) 2500 else 4000 })
+    }
+
+    @Suppress("DEPRECATION")
+    private fun fullScreen(on: Boolean) {
+        if (Build.VERSION.SDK_INT >= 30) {
+            window.insetsController?.let { c ->
+                if (on) {
+                    c.hide(WindowInsets.Type.systemBars())
+                    c.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                } else c.show(WindowInsets.Type.systemBars())
+            }
+        } else {
+            window.decorView.systemUiVisibility = if (!on) 0 else View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+        }
+        if (on) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
 
     override fun onDestroy() {
@@ -221,6 +290,7 @@ class MainActivity : Activity() {
         super.onStart()
         remote.wifi.start()
         remote.board.start()
+        if (mirroring) startMirror()
         BluetoothGuard.askUser = { askToTurnOffBluetooth() }
         BluetoothGuard.hold(this, "screen")
     }
@@ -228,6 +298,7 @@ class MainActivity : Activity() {
     override fun onStop() {
         remote.wifi.stop()
         remote.board.stop()
+        screen.stop()
         BluetoothGuard.askUser = null
         BluetoothGuard.release("screen")
         super.onStop()

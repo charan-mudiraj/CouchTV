@@ -84,6 +84,17 @@ class SecureTest {
     }
 
     @Test
+    fun mirrorMatchesCouchTv() {
+        val keys = keys()
+        assertEquals(v["mirror_enc"], Secure.hex(keys.mirrorEnc))
+        assertEquals(v["mirror_mac"], Secure.hex(keys.mirrorMac))
+        val frames = FrameReader(java.io.ByteArrayInputStream(bytes("mirror_frame0") + bytes("mirror_frame1")), keys.mirrorEnc, keys.mirrorMac)
+        assertArrayEquals(byteArrayOf(1, 5, 0, 2, 208.toByte()), frames.next())   // the picture is 1280 x 720
+        assertArrayEquals(byteArrayOf(5), frames.next())                          // a heartbeat
+        assertNull(frames.next())
+    }
+
+    @Test
     fun boardTagsMatchCouchTv() {
         val key = bytes("board_key")
         val c = v.getValue("board_challenge")

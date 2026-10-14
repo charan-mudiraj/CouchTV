@@ -4,11 +4,17 @@
     at the bottom stay put; in between, pages swipe sideways like a phone's home screen. Flexible parts (the D-pad,
     the pointer pad, the grids) shrink or grow with the screen.
 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/background"
+    android:background="@color/background">
+
+<!-- The remote -->
+<LinearLayout
+    android:id="@+id/main_ui"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
     android:fitsSystemWindows="true"
     android:orientation="vertical">
 
@@ -47,6 +53,19 @@
                 android:textColor="@color/muted"
                 android:textSize="13sp" />
         </LinearLayout>
+
+        <!-- The TV's screen here, to choose from across the room -->
+        <ImageButton
+            android:id="@+id/mirror"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:layout_marginStart="10dp"
+            android:background="@drawable/listen_bg"
+            android:contentDescription="@string/mirror_start"
+            android:paddingBottom="4dp"
+            android:src="@drawable/ic_mirror"
+            android:stateListAnimator="@animator/key_press"
+            android:tooltipText="@string/mirror_start" />
 
         <ImageButton
             android:id="@+id/listen"
@@ -537,3 +556,68 @@
         android:layout_height="32dp"
         android:layout_marginBottom="4dp" />
 </LinearLayout>
+
+<!-- The screen mirror: the TV's screen, full screen in landscape, with a few keys at the side -->
+<FrameLayout
+    android:id="@+id/mirror_layer"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000"
+    android:visibility="gone">
+
+    <com.couchtv.remote.MirrorView
+        android:id="@+id/mirror_view"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:contentDescription="@string/mirror_title" />
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end|center_vertical"
+        android:layout_marginEnd="8dp"
+        android:background="@drawable/strip_bg"
+        android:orientation="vertical"
+        android:paddingStart="6dp"
+        android:paddingTop="4dp"
+        android:paddingEnd="6dp"
+        android:paddingBottom="4dp">
+
+        <ImageButton
+            android:id="@+id/mirror_back"
+            style="@style/StripKey"
+            android:contentDescription="@string/back"
+            android:src="@drawable/ic_back" />
+
+        <ImageButton
+            android:id="@+id/mirror_home"
+            style="@style/StripKey"
+            android:contentDescription="@string/home"
+            android:src="@drawable/ic_home" />
+
+        <ImageButton
+            android:id="@+id/mirror_volume_down"
+            style="@style/StripKey"
+            android:contentDescription="@string/volume_down"
+            android:src="@drawable/ic_volume_down" />
+
+        <ImageButton
+            android:id="@+id/mirror_volume_up"
+            style="@style/StripKey"
+            android:contentDescription="@string/volume_up"
+            android:src="@drawable/ic_volume_up" />
+
+        <ImageButton
+            android:id="@+id/mirror_keyboard"
+            style="@style/StripKey"
+            android:contentDescription="@string/keyboard"
+            android:src="@drawable/ic_keyboard" />
+
+        <ImageButton
+            android:id="@+id/mirror_exit"
+            style="@style/StripKey"
+            android:contentDescription="@string/mirror_exit"
+            android:src="@drawable/ic_close" />
+    </LinearLayout>
+</FrameLayout>
+</FrameLayout>

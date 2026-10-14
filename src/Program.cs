@@ -22,6 +22,8 @@ namespace CouchTV
                 if (remoteTest != null) return Diagnostics.RemoteTest(remoteTest);
                 string audioTest = Arg(args, "--audiotest");
                 if (audioTest != null) return Diagnostics.AudioTest(audioTest);
+                string mirrorTest = Arg(args, "--mirrortest");
+                if (mirrorTest != null) return Diagnostics.MirrorTest(mirrorTest);
                 string bluetoothTest = Arg(args, "--bluetoothtest");
                 if (bluetoothTest != null) return Diagnostics.BluetoothTest(bluetoothTest);
                 string typingTest = Arg(args, "--typingtest");

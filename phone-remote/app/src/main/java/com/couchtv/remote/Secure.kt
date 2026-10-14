@@ -166,6 +166,10 @@ class SessionKeys(
     val phoneEnc: ByteArray, val phoneMac: ByteArray, val tvEnc: ByteArray, val tvMac: ByteArray,
     val audioEnc: ByteArray, val audioMac: ByteArray,
 ) {
+    /** The screen mirror's pictures (TV to phone, on a connection of their own). */
+    val mirrorEnc: ByteArray get() = Secure.hmac(tvEnc, Secure.utf8("mirror enc"))
+    val mirrorMac: ByteArray get() = Secure.hmac(tvMac, Secure.utf8("mirror mac"))
+
     companion object {
         fun derive(shared: ByteArray, pairKey: ByteArray, transcript: ByteArray): SessionKeys {
             val okm = Secure.hkdf(shared, pairKey, Secure.utf8("CouchTV session 1") + transcript, 7 * 32)
@@ -259,9 +263,54 @@ class SoundKeys(val session: String, enc: ByteArray, private val mac: ByteArray)
     }
 }
 
+/**
+ * The TV's binary messages (the screen mirror's pictures): each is its length (4 bytes, big-endian), the AES-CTR
+ * ciphertext and a 16-byte HMAC tag over the message number and ciphertext, as CouchTV's FrameWriter seals them.
+ */
+class FrameReader(private val input: InputStream, enc: ByteArray, mac: ByteArray) {
+    private val cipher = Ctr(enc)
+    private val macKey = SecretKeySpec(mac, "HmacSHA256")
+    private var number = 0L
+
+    /** The next message; null when the connection closed. Throws for one that wasn't sealed by the TV in this order. */
+    fun next(): ByteArray? {
+        val head = exactly(4) ?: return null
+        val length = ((head[0].toInt() and 0xFF) shl 24) or ((head[1].toInt() and 0xFF) shl 16) or
+            ((head[2].toInt() and 0xFF) shl 8) or (head[3].toInt() and 0xFF)
+        if (length < Secure.TAG_BYTES || length > (4 shl 20)) throw IOException("not a message from the TV")
+        val body = exactly(length) ?: return null
+        val size = length - Secure.TAG_BYTES
+        val counter = ByteArray(8) { (number ushr (56 - 8 * it)).toByte() }
+        val tag = Mac.getInstance("HmacSHA256").run {
+            init(macKey)
+            update(counter)
+            update(body, 0, size)
+            doFinal()
+        }.copyOf(Secure.TAG_BYTES)
+        if (!Secure.same(tag, body.copyOfRange(size, length))) throw IOException("a message that didn't come from the TV")
+        cipher.apply(number, body, 0, size)
+        number++
+        return body.copyOf(size)
+    }
+
+    private fun exactly(count: Int): ByteArray? {
+        val bytes = ByteArray(count)
+        var done = 0
+        while (done < count) {
+            val n = input.read(bytes, done, count - done)
+            if (n < 0) return null
+            done += n
+        }
+        return bytes
+    }
+}
+
 /** Lines of UTF-8 over a connection, refusing any too long (so a stranger posing as the TV can't fill memory). */
 class LineIo(input: InputStream, private val output: OutputStream) {
     private val input = BufferedInputStream(input)
+
+    /** The connection's incoming bytes, for binary messages after the lines (anything read ahead stays in order). */
+    val stream: InputStream get() = input
 
     /** The next line, or null when the connection closed. */
     fun read(): String? {

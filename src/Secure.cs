@@ -253,12 +253,13 @@ namespace CouchTV
         public byte[] PhoneProof, TvProof;
         public byte[] PhoneEnc, PhoneMac, TvEnc, TvMac;   // what the phone sends; what the TV sends
         public byte[] AudioEnc, AudioMac;
+        public byte[] MirrorEnc, MirrorMac;   // the screen mirror's pictures, TV to phone, on their own connection
 
         public static SessionKeys Derive(byte[] shared, byte[] pairKey, byte[] transcript)
         {
             byte[] okm = Secure.Hkdf(shared, pairKey, Secure.Join(Secure.Utf8("CouchTV session 1"), transcript), 7 * 32);
             byte[] confirm = Secure.Take(okm, 0, 32);
-            return new SessionKeys
+            var keys = new SessionKeys
             {
                 PhoneProof = Secure.Hmac(confirm, Secure.Utf8("phone")),
                 TvProof = Secure.Hmac(confirm, Secure.Utf8("tv")),
@@ -266,6 +267,9 @@ namespace CouchTV
                 TvEnc = Secure.Take(okm, 96, 32), TvMac = Secure.Take(okm, 128, 32),
                 AudioEnc = Secure.Take(okm, 160, 32), AudioMac = Secure.Take(okm, 192, 32),
             };
+            keys.MirrorEnc = Secure.Hmac(keys.TvEnc, Secure.Utf8("mirror enc"));
+            keys.MirrorMac = Secure.Hmac(keys.TvMac, Secure.Utf8("mirror mac"));
+            return keys;
         }
 
         /// <summary>The key a pairing leaves both sides with, once the code checked out.</summary>

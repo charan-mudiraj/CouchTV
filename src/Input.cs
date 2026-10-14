@@ -99,6 +99,19 @@ namespace CouchTV
             Send(MouseEvent(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK, nx, ny, 0));
         }
 
+        /// <summary>Puts the pointer on a screen pixel (the screen mirror's touches, where touch can't be injected).</summary>
+        public static void MoveTo(int x, int y)
+        {
+            int left = GetSystemMetrics(SM_XVIRTUALSCREEN), top = GetSystemMetrics(SM_YVIRTUALSCREEN);
+            int width = GetSystemMetrics(SM_CXVIRTUALSCREEN), height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+            if (width < 2 || height < 2) return;
+            x = Math.Max(0, Math.Min(width - 1, x - left));
+            y = Math.Max(0, Math.Min(height - 1, y - top));
+            int nx = (int)Math.Min(65535, ((long)x * 65536 + width - 1) / width);
+            int ny = (int)Math.Min(65535, ((long)y * 65536 + height - 1) / height);
+            Send(MouseEvent(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK, nx, ny, 0));
+        }
+
         /// <summary>A mouse button down or up (a click is both; holding it between drags).</summary>
         public static void Button(bool right, bool down)
         {

@@ -30,6 +30,8 @@ namespace CouchTV
     ///     MOUSE L|R D|U             a mouse button down or up (a phone that drops lets go of what it held)
     ///     POINTER &lt;style&gt; &lt;size&gt; &lt;colour&gt;   the pointer's look, e.g. "POINTER arrow 64 white"
     ///     KEY &lt;vk&gt; D|U             the keyboard page: a PC key down or up (Windows virtual-key code, hex)
+    ///     TOUCH &lt;finger&gt; D|M|U &lt;x&gt; &lt;y&gt;   the screen mirror: a finger down, moved or up (0-65535 across the screen)
+    ///     MIRROR &lt;width&gt; &lt;kbps&gt;   on a connection of its own: from then on the TV sends its screen (ScreenMirror)
     ///     EDIT &lt;backspaces&gt; &lt;base64 UTF-8&gt;   the phone's own keyboard: delete that many, then type the text
     ///                  →  INPUT TEXT|PASSWORD &lt;name&gt; &lt;value&gt;, INPUT OFF   a text box got (or lost) the focus on the
     ///                               TV, so the phone pops up its keyboard: told to the phone used last
@@ -51,6 +53,7 @@ namespace CouchTV
         public event Action<string, string> PairingCode;    // a phone asked to pair: its name and the code to show (UI thread)
         public event Action<string, string> PairingEnded;   // its name and "paired", "wrong", "failed" or "cancelled" (UI thread)
         public event Action<int> PhonesChanged;              // how many phones are connected as remotes now (UI thread)
+        public event Action<string, bool> Mirroring;         // a phone started (true) or stopped mirroring the screen: its name (UI thread)
 
         /// <summary>The pointer's look now ("arrow 64 white"), told to each phone as it connects.</summary>
         internal Func<string> CurrentPointer;
@@ -62,6 +65,8 @@ namespace CouchTV
         internal Action<bool, bool> MouseButton = Input.Button;     // right, down
         internal Action<int, bool> KeyChange = (vk, down) => Input.KeyChange((uint)vk, down);
         internal Action<int, string> TypeText = Input.Edit;         // backspaces, then text
+        internal Action<string, int, char, int, int> Touch = TouchInjector.Touch;   // connection, finger, D|M|U, x, y
+        internal Action<string> LiftTouches = TouchInjector.LiftAll;
 
         readonly Dispatcher _ui;
         readonly PhoneStore _phones;
@@ -236,6 +241,11 @@ namespace CouchTV
                         Log.Info("Wi-Fi remote " + who + ": a line that wasn't from the paired phone; disconnected");
                         break;
                     }
+                    if (plain.StartsWith("MIRROR "))
+                    {
+                        Mirror(client, stream, session, plain);   // until the phone goes: the connection carries pictures now
+                        break;
+                    }
                     string reply = Handle(plain.Trim(), who, held, session, keys);
                     if (reply != null)
                         foreach (string r in reply.Split('\n')) session.Send(r);
@@ -249,6 +259,7 @@ namespace CouchTV
                 if (session != null)
                 {
                     session.Closed = true;
+                    LiftTouches(session.Id);
                     lock (_sessions) _sessions.Remove(session.Id);
                     if (session.Remote) Raise(() => { if (PhonesChanged != null) PhonesChanged(Phones()); });
                 }
@@ -258,6 +269,22 @@ namespace CouchTV
                 for (int i = 0; i < held.Length; i++) if (held[i]) MouseButton(i == 1, false);
                 foreach (int vk in keys) KeyChange(vk, false);
             }
+        }
+
+        /// <summary>"MIRROR &lt;width&gt; &lt;kbps&gt;": streams the screen on this connection until the phone goes.</summary>
+        void Mirror(TcpClient client, Stream stream, RemoteSession session, string request)
+        {
+            string[] p = request.Split(' ');
+            int width, kbps;
+            if (p.Length < 3 || !TryInt(p[1], 4000, out width) || !TryInt(p[2], 20000, out kbps)) return;
+            Log.Info("Screen mirror: to " + session.Name + ", " + width + " wide, at most " + kbps + " kbps");
+            Raise(() => { if (Mirroring != null) Mirroring(session.Name, true); });
+            client.SendTimeout = 10000;
+            try { ScreenMirror.Stream(stream, session.MirrorEnc, session.MirrorMac, width, kbps, () => _stop || session.Closed); }
+            catch (IOException) { }   // the phone stopped mirroring, or went
+            catch (Exception ex) { Log.Info("Screen mirror: " + ex.Message); }
+            Log.Info("Screen mirror: " + session.Name + " stopped");
+            Raise(() => { if (Mirroring != null) Mirroring(session.Name, false); });
         }
 
         static void Send(Stream stream, string line)
@@ -328,7 +355,7 @@ namespace CouchTV
                 session = new RemoteSession
                 {
                     Id = Secure.Hex(Secure.Random(8)), Phone = ((IPEndPoint)client.Client.RemoteEndPoint).Address, Name = name,
-                    AudioEnc = keys.AudioEnc, AudioMac = keys.AudioMac, Client = client,
+                    AudioEnc = keys.AudioEnc, AudioMac = keys.AudioMac, MirrorEnc = keys.MirrorEnc, MirrorMac = keys.MirrorMac, Client = client,
                 };
                 return new Channel(keys.TvEnc, keys.TvMac, keys.PhoneEnc, keys.PhoneMac);
             }
@@ -462,7 +489,11 @@ namespace CouchTV
         {
             string[] parts = line.Split(' ');
             int dx, dy;
-            if (session != null && parts[0] != "PING" && parts[0] != "SOUND") session.LastUsed = DateTime.UtcNow;
+            if (session != null && parts[0] != "PING" && parts[0] != "SOUND")
+            {
+                session.LastUsed = DateTime.UtcNow;
+                ScreenMirror.Poke();   // the screen's about to change: a mirror looks at full speed
+            }
             switch (parts[0])
             {
                 case "HELLO":
@@ -531,6 +562,12 @@ namespace CouchTV
                         if (held != null) held[right ? 1 : 0] = down;
                         MouseButton(right, down);
                     }
+                    return null;
+                case "TOUCH":
+                    int finger, tx, ty;
+                    if (session != null && parts.Length >= 5 && int.TryParse(parts[1], out finger) && finger >= 0 && finger < 10 &&
+                        (parts[2] == "D" || parts[2] == "M" || parts[2] == "U") && TryInt(parts[3], 65535, out tx) && TryInt(parts[4], 65535, out ty) && tx >= 0 && ty >= 0)
+                        Touch(session.Id, finger, parts[2][0], tx, ty);
                     return null;
                 case "KEY":
                     int vk;
@@ -683,6 +720,7 @@ namespace CouchTV
         public IPAddress Phone;
         public string Name;
         public byte[] AudioEnc, AudioMac;
+        public byte[] MirrorEnc, MirrorMac;
         public long LastListen;        // the number of its last sound request: each must be higher (no replays)
         public volatile bool Closed;
         public volatile bool Remote;   // said HELLO: the remote itself (not the phone's sound service)

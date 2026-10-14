@@ -63,6 +63,18 @@
         <item name="android:minHeight">0dp</item>
     </style>
 
+    <!-- A key on the screen mirror's strip. -->
+    <style name="StripKey">
+        <item name="android:layout_width">48dp</item>
+        <item name="android:layout_height">48dp</item>
+        <item name="android:layout_marginTop">3dp</item>
+        <item name="android:layout_marginBottom">3dp</item>
+        <item name="android:background">@drawable/key_bg</item>
+        <item name="android:scaleType">center</item>
+        <item name="android:paddingBottom">4dp</item>
+        <item name="android:stateListAnimator">@animator/key_press</item>
+    </style>
+
     <!-- The name at the top of a page. -->
     <style name="PageTitle">
         <item name="android:layout_width">wrap_content</item>

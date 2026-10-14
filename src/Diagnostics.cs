@@ -720,6 +720,13 @@ namespace CouchTV
             }
 
             put("listen_tag", Secure.Hex(Secure.Take(Secure.Hmac(keys.AudioMac, Secure.Utf8("LISTEN 0123456789abcdef 7")), 0, Secure.TagBytes)));
+            put("mirror_enc", Secure.Hex(keys.MirrorEnc));
+            put("mirror_mac", Secure.Hex(keys.MirrorMac));
+            using (var mirror = new FrameWriter(Stream.Null, keys.MirrorEnc, keys.MirrorMac))
+            {
+                put("mirror_frame0", Secure.Hex(mirror.Seal(new byte[] { 1, 5, 0, 2, 208 })));   // the picture is 1280 x 720
+                put("mirror_frame1", Secure.Hex(mirror.Seal(new byte[] { 5 })));                // a heartbeat
+            }
             // A sound packet: header (CTA3, sequence 1234, 48000 Hz, 2 channels, flags 1), samples 0, 1, 2..., sealed.
             var packet = new byte[16 + 1440 + Secure.TagBytes];
             Encoding.ASCII.GetBytes("CTA3", 0, 4, packet, 0);
@@ -815,6 +822,189 @@ namespace CouchTV
             return failures == 0 ? 0 : 1;
         }
 
+        /// <summary>
+        /// CouchTV.exe --mirrortest report.txt: mirrors this PC's screen to a pretend phone over the loopback for 8
+        /// seconds, puts the picture back together as the phone does, and reports how big and how fast the first
+        /// picture was, the bandwidth after it, the CPU it took, and how close the result is to the screen.
+        /// </summary>
+        public static int MirrorTest(string path)
+        {
+            var report = new StringBuilder();
+            int failures = 0;
+            Action<string, bool> check = (name, ok) =>
+            {
+                report.AppendLine((ok ? "PASS  " : "FAIL  ") + name);
+                if (!ok) failures++;
+            };
+            PhoneStore phones = PhoneStore.InMemory();
+            var server = new RemoteServer(null, phones, 47795, 47796, System.Net.IPAddress.Loopback);
+            string shown = null;
+            server.PairingCode += (name, digits) => shown = digits;
+            server.Start();
+            System.Drawing.Bitmap canvas = null;
+            try
+            {
+                System.Threading.Thread.Sleep(300);
+                byte[] pairKey;
+                using (var p = new TestPhone("22222222222222222222222222222222"))
+                {
+                    p.Hello(47796);
+                    p.Pair("Mirror test", () => shown);
+                    p.Auth(p.PairKey);
+                    pairKey = p.PairKey;
+                }
+                using (var m = new TestPhone("22222222222222222222222222222222"))
+                {
+                    m.Hello(47796);
+                    m.Auth(pairKey);
+                    TimeSpan cpuBefore = System.Diagnostics.Process.GetCurrentProcess().TotalProcessorTime;
+                    var clock = System.Diagnostics.Stopwatch.StartNew();
+                    m.Send("MIRROR 1280 4000");
+                    var frames = new FrameReader(m.Stream, m.Keys.MirrorEnc, m.Keys.MirrorMac);
+                    long firstBytes = 0, laterBytes = 0, firstMs = -1;
+                    int pictures = 0, heartbeats = 0;
+                    byte[] message;
+                    System.Drawing.Graphics draw = null;
+                    while (clock.ElapsedMilliseconds < 8000 && (message = frames.Next()) != null)
+                    {
+                        int size = message.Length + 4 + Secure.TagBytes;
+                        if (firstMs < 0) firstBytes += size;
+                        else laterBytes += size;
+                        switch (message[0])
+                        {
+                            case 1:
+                                canvas = new System.Drawing.Bitmap(message[1] << 8 | message[2], message[3] << 8 | message[4]);
+                                draw = System.Drawing.Graphics.FromImage(canvas);
+                                break;
+                            case 2:
+                                using (System.Drawing.Image tile = System.Drawing.Image.FromStream(new MemoryStream(message, 9, message.Length - 9)))
+                                    draw.DrawImage(tile, message[1] << 8 | message[2], message[3] << 8 | message[4], tile.Width, tile.Height);
+                                break;
+                            case 3:
+                                pictures++;
+                                if (firstMs < 0) firstMs = clock.ElapsedMilliseconds;
+                                break;
+                            case 5:
+                                heartbeats++;
+                                break;
+                        }
+                    }
+                    double seconds = Math.Max(0.001, (clock.ElapsedMilliseconds - firstMs) / 1000.0);
+                    double cpu = (System.Diagnostics.Process.GetCurrentProcess().TotalProcessorTime - cpuBefore).TotalMilliseconds / clock.ElapsedMilliseconds * 100;
+                    report.AppendLine("First picture: " + (firstBytes / 1024) + " KB in " + firstMs + " ms");
+                    report.AppendLine("After it: " + pictures + " changed pictures, " + heartbeats + " heartbeats, " + (laterBytes * 8 / 1000 / seconds).ToString("0") + " kbps on average");
+                    report.AppendLine("CPU (this process: capture, compare, JPEG, and the pretend phone's decoding): " + cpu.ToString("0") + "% of one core");
+                    check("mirror: the first picture arrives within 3 s", firstMs >= 0 && firstMs < 3000);
+                    check("mirror: then it stays under the 4000 kbps asked for", laterBytes * 8 / 1000 / seconds <= 4000);
+                }
+                using (var grab = new ScreenGrab(1280))
+                {
+                    grab.Grab();
+                    long difference = 0;
+                    var data = canvas.LockBits(new System.Drawing.Rectangle(0, 0, canvas.Width, canvas.Height), System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppRgb);
+                    var pixels = new int[canvas.Width * canvas.Height];
+                    for (int row = 0; row < canvas.Height; row++)
+                        System.Runtime.InteropServices.Marshal.Copy(new IntPtr(data.Scan0.ToInt64() + (long)row * data.Stride), pixels, row * canvas.Width, canvas.Width);
+                    canvas.UnlockBits(data);
+                    for (int i = 0; i < pixels.Length; i++)
+                    {
+                        int a = pixels[i], b = grab.Pixels[i];
+                        difference += Math.Abs((a & 255) - (b & 255)) + Math.Abs((a >> 8 & 255) - (b >> 8 & 255)) + Math.Abs((a >> 16 & 255) - (b >> 16 & 255));
+                    }
+                    double mean = difference / (pixels.Length * 3.0);
+                    report.AppendLine("Phone's picture vs the screen now: " + mean.ToString("0.0") + " of 255 apart on average (JPEG, and whatever changed at the very end)");
+                    check("mirror: the phone's picture matches the screen", mean < 12);
+                }
+            }
+            catch (Exception ex) { check("mirror: " + ex.Message, false); }
+            finally { server.Stop(); }
+            report.AppendLine(failures == 0 ? "All passed" : failures + " failed");
+            File.WriteAllText(path, report.ToString());
+            return failures == 0 ? 0 : 1;
+        }
+
+        /// <summary>A phone's mirror connection, against a server on 47791: the first picture whole, then it keeps going.</summary>
+        static void MirrorChecks(Action<string, bool> check, string id, byte[] pairKey)
+        {
+            using (var m = new TestPhone(id))
+            {
+                m.Hello(47791);
+                m.Auth(pairKey);
+                m.Send("MIRROR 1280 4000");
+                var frames = new FrameReader(m.Stream, m.Keys.MirrorEnc, m.Keys.MirrorMac);
+                byte[] start = frames.Next();
+                int w = start != null && start.Length == 5 && start[0] == 1 ? start[1] << 8 | start[2] : 0, h = start != null && start.Length == 5 ? start[3] << 8 | start[4] : 0;
+                check("mirror: it starts with the picture's size (" + w + "x" + h + ")", w > 0 && w <= 1280 && h > 0);
+                int tiles = 0, area = 0;
+                bool decoded = true;
+                byte[] message = null;
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                while (clock.ElapsedMilliseconds < 8000 && (message = frames.Next()) != null && message[0] != 3)
+                {
+                    if (message[0] != 2) continue;
+                    tiles++;
+                    area += (message[5] << 8 | message[6]) * (message[7] << 8 | message[8]);
+                    try { using (System.Drawing.Image image = System.Drawing.Image.FromStream(new MemoryStream(message, 9, message.Length - 9))) { } }
+                    catch (Exception) { decoded = false; }
+                }
+                check("mirror: the whole screen comes first, as JPEG strips that decode (" + tiles + " strips)", message != null && message[0] == 3 && area == w * h && decoded);
+                byte[] next = frames.Next();
+                check("mirror: then it keeps going (changes, the pointer, or a heartbeat each second)", next != null && next[0] >= 2 && next[0] <= 5);
+            }
+        }
+
+        /// <summary>The phone's side of FrameWriter (ScreenLink.kt does the same): the next message, or null.</summary>
+        sealed class FrameReader
+        {
+            readonly Stream _stream;
+            readonly Ctr _cipher;
+            readonly System.Security.Cryptography.HMACSHA256 _mac;
+            ulong _number;
+
+            public FrameReader(Stream stream, byte[] enc, byte[] mac)
+            {
+                _stream = stream;
+                _cipher = new Ctr(enc);
+                _mac = new System.Security.Cryptography.HMACSHA256(mac);
+            }
+
+            public byte[] Next()
+            {
+                byte[] head = Exactly(4);
+                if (head == null) return null;
+                int length = head[0] << 24 | head[1] << 16 | head[2] << 8 | head[3];
+                if (length < Secure.TagBytes || length > 4 << 20) return null;
+                byte[] body = Exactly(length);
+                if (body == null) return null;
+                int size = length - Secure.TagBytes;
+                var counter = new byte[8];
+                Ctr.BigEndian(_number, counter, 0);
+                _mac.Initialize();
+                _mac.TransformBlock(counter, 0, 8, null, 0);
+                _mac.TransformFinalBlock(body, 0, size);
+                if (!Secure.Same(Secure.Take(_mac.Hash, 0, Secure.TagBytes), Secure.Take(body, size, Secure.TagBytes))) return null;
+                _cipher.Apply(_number, body, 0, size);
+                _number++;
+                return Secure.Take(body, 0, size);
+            }
+
+            byte[] Exactly(int count)
+            {
+                var buffer = new byte[count];
+                try
+                {
+                    for (int done = 0; done < count;)
+                    {
+                        int n = _stream.Read(buffer, done, count - done);
+                        if (n <= 0) return null;
+                        done += n;
+                    }
+                }
+                catch (IOException) { return null; }
+                return buffer;
+            }
+        }
+
         static string TypingLine(string kind, string name, string value)
         {
             return "INPUT " + kind + " " + Convert.ToBase64String(Encoding.UTF8.GetBytes(name)) + " " + Convert.ToBase64String(Encoding.UTF8.GetBytes(value));
@@ -905,7 +1095,9 @@ namespace CouchTV
             public readonly string Id;
             public string Answer;                      // the TV's HELLO2 line
             public byte[] PairKey, AudioEnc, AudioMac;
+            public SessionKeys Keys;
             public Channel Channel;
+            public Stream Stream { get { return _stream; } }
             System.Net.Sockets.TcpClient _tcp;
             Stream _stream;
             LineReader _lines;
@@ -970,6 +1162,7 @@ namespace CouchTV
                 string answer = Read();
                 if (answer == null || !answer.StartsWith("AUTH ") || !Secure.Same(Convert.FromBase64String(answer.Substring(5)), keys.TvProof)) return false;
                 Channel = new Channel(keys.PhoneEnc, keys.PhoneMac, keys.TvEnc, keys.TvMac);
+                Keys = keys;
                 AudioEnc = keys.AudioEnc;
                 AudioMac = keys.AudioMac;
                 return true;
@@ -1016,6 +1209,7 @@ namespace CouchTV
             var pointer = new List<string>();
             var pairing = new List<string>();
             var typed = new List<string>();
+            var touches = new List<string>();
             var phonesNow = new List<int>();
             string shown = null;
             PhoneStore phones = PhoneStore.InMemory();
@@ -1029,6 +1223,8 @@ namespace CouchTV
             server.KeyChange = (vk, down) => { lock (typed) typed.Add("key " + vk.ToString("X2") + (down ? " down" : " up")); };
             server.TypeText = (back, text) => { lock (typed) typed.Add("edit " + back + " " + text); };
             server.PhonesChanged += count => { lock (phonesNow) phonesNow.Add(count); };
+            server.Touch = (owner, finger, kind, x, y) => { lock (touches) touches.Add(finger + "" + kind + " " + x + "," + y); };
+            server.LiftTouches = owner => { lock (touches) touches.Add("lift"); };
             server.PairingCode += (name, digits) => { lock (pairing) { shown = digits; pairing.Add(name + " shown"); } };
             server.PairingEnded += (name, outcome) => { lock (pairing) pairing.Add(name + " " + outcome); };
             Func<string> code = () => { lock (pairing) return shown; };
@@ -1104,6 +1300,12 @@ namespace CouchTV
                     a.Send("EDIT 2 " + Convert.ToBase64String(Encoding.UTF8.GetBytes("नमस्ते 👋")));
                     a.Send("EDIT 0");
                     a.Send("EDIT 9999 eA==");   // ignored: too many backspaces
+                    a.Send("TOUCH 0 D 32768 16384");
+                    a.Send("TOUCH 0 M 32800 16400");
+                    a.Send("TOUCH 0 U 32800 16400");
+                    a.Send("TOUCH 1 D 70000 0");    // ignored: off the screen
+                    a.Send("TOUCH 12 D 10 10");     // ignored: ten fingers at most
+                    a.Send("TOUCH 2 D 100 200");    // still down when the phone leaves
                     a.Send("BTN CE 05 N");
                     a.Send("BTN CE 06 R");
                     a.Send("BTN ZZ 06 N");   // ignored
@@ -1128,6 +1330,8 @@ namespace CouchTV
                     string.Join(", ", typed) == "key A2 down, key 43 down, key 43 up, edit 2 नमस्ते 👋, edit 0 , key A2 up");
                 lock (phonesNow) check("Wi-Fi: the TV knows when a phone is connected as a remote (it watches for text boxes meanwhile)",
                     string.Join(",", phonesNow) == "1,0");
+                lock (touches) check("mirror: touches arrive; a phone that leaves lifts its fingers (" + string.Join(", ", touches) + ")",
+                    string.Join(", ", touches).StartsWith("0D 32768,16384, 0M 32800,16400, 0U 32800,16400, 2D 100,200, lift"));
 
                 server.ShowTyping(new TypingField { Name = "Search", Value = "" });   // no phone to tell yet
 
@@ -1147,6 +1351,7 @@ namespace CouchTV
                     a.Write(ping);
                     check("Wi-Fi: a replayed line ends the connection", a.Read() == null);
                 }
+                MirrorChecks(check, idA, pairKey);
                 using (var a = new TestPhone(idA))
                 {
                     a.Hello(47791);

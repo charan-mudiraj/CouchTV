@@ -161,6 +161,9 @@ class WifiLink(context: Context) {
     /** The trackpad: a mouse button down or up. */
     fun mouse(right: Boolean, down: Boolean) = send("MOUSE ${if (right) "R" else "L"} ${if (down) "D" else "U"}")
 
+    /** The screen mirror: a finger down ('D'), moved ('M') or up ('U') at x, y from 0 to 65535 across the TV's screen. */
+    fun touch(finger: Int, kind: Char, x: Int, y: Int) = send("TOUCH $finger $kind $x $y")
+
     /** The keyboard page: a PC key (Windows virtual-key code) down or up. */
     fun key(vk: Int, down: Boolean) = send(String.format(Locale.ROOT, "KEY %02X %s", vk and 0xFF, if (down) "D" else "U"))
 
