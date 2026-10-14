@@ -1,0 +1,522 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>CouchIR Wiring</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: one reading column; each diagram sits on its own "cutting mat" panel and scrolls sideways on phones. */
+  :root {
+    --bg: #eef2ee;
+    --panel: #ffffff;
+    --mat: #e3ebe5;
+    --mat-line: #cfdcd3;
+    --ink: #16201b;
+    --muted: #56665d;
+    --rule: #d3ddd6;
+    --accent: #1d7a55;
+    --board: #1f5fa8;
+    --board-ink: #e8f0fb;
+    --socket: #10233d;
+    --relay: #2a78c9;
+    --module: #10151c;
+    --module-ink: #dfe6ee;
+    --breadboard: #f4f4ef;
+    --hole: #b9bfb6;
+    --w-5v: #d63a3a;
+    --w-gnd: #23292a;
+    --w-out: #d99e00;
+    --w-in1: #e0661a;
+    --w-in2: #2f6fdb;
+    --w-sense: #8a4fd6;
+    --w-button: #7d8c84;
+    --w-later: #9aa79f;
+    --chip-new: #fde9d9;
+    --chip-new-ink: #8a3a0a;
+    --chip-now: #e1efe7;
+    --chip-now-ink: #1d5e40;
+    --chip-later: #ecebf6;
+    --chip-later-ink: #4b3f8c;
+    --font-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+    --font-body: "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0e1412; --panel: #151d19; --mat: #1a2520; --mat-line: #24332b; --ink: #e5ede8; --muted: #93a49a;
+      --rule: #26332c; --accent: #4cc38a; --board: #2a6cbd; --board-ink: #eaf2ff; --socket: #0b1a2e;
+      --relay: #3a88d8; --module: #0a0e13; --module-ink: #dfe6ee; --breadboard: #2b302c; --hole: #59625a;
+      --w-5v: #ff5b5b; --w-gnd: #c9d2cd; --w-out: #f2b927; --w-in1: #ff8a3d; --w-in2: #5b93ff; --w-sense: #b383ff;
+      --w-button: #9aaaa1; --w-later: #6c7a72;
+      --chip-new: #3a2516; --chip-new-ink: #ffb98a; --chip-now: #16301f; --chip-now-ink: #8fe0b3;
+      --chip-later: #24203d; --chip-later-ink: #c3b8ff; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e1412; --panel: #151d19; --mat: #1a2520; --mat-line: #24332b; --ink: #e5ede8; --muted: #93a49a;
+    --rule: #26332c; --accent: #4cc38a; --board: #2a6cbd; --board-ink: #eaf2ff; --socket: #0b1a2e;
+    --relay: #3a88d8; --module: #0a0e13; --module-ink: #dfe6ee; --breadboard: #2b302c; --hole: #59625a;
+    --w-5v: #ff5b5b; --w-gnd: #c9d2cd; --w-out: #f2b927; --w-in1: #ff8a3d; --w-in2: #5b93ff; --w-sense: #b383ff;
+    --w-button: #9aaaa1; --w-later: #6c7a72;
+    --chip-new: #3a2516; --chip-new-ink: #ffb98a; --chip-now: #16301f; --chip-now-ink: #8fe0b3;
+    --chip-later: #24203d; --chip-later-ink: #c3b8ff; color-scheme: dark;
+  }
+
+  body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 17px; line-height: 1.55; }
+  .page { max-width: 960px; margin: 0 auto; padding-inline: 20px; padding-block: 36px 64px; }
+  h1, h2, h3 { font-family: var(--font-display); line-height: 1.15; text-wrap: balance; margin: 0; }
+  h1 { font-size: clamp(2rem, 5vw, 2.9rem); letter-spacing: -0.01em; }
+  h2 { font-size: 1.6rem; margin-top: 56px; }
+  h3 { font-size: 1.15rem; }
+  p { margin: 0; max-width: 68ch; }
+  .lede { color: var(--muted); font-size: 1.1rem; margin-top: 10px; }
+  .eyebrow { font-family: var(--font-mono); font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+  .stack { display: flex; flex-direction: column; gap: 14px; }
+  .mono { font-family: var(--font-mono); font-size: 0.92em; }
+
+  .parts { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-top: 20px; }
+  .part { background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .part .role { font-family: var(--font-mono); font-size: 0.8rem; color: var(--muted); }
+  .part.later { border-style: dashed; }
+
+  figure { margin: 22px 0 0; background: var(--mat); border-radius: 14px; padding: 14px; background-image:
+    linear-gradient(var(--mat-line) 1px, transparent 1px), linear-gradient(90deg, var(--mat-line) 1px, transparent 1px);
+    background-size: 24px 24px; }
+  .scroll { overflow-x: auto; }
+  figure svg { display: block; width: 100%; min-width: 640px; height: auto; }
+  figcaption { color: var(--muted); font-size: 0.92rem; margin-top: 10px; padding-inline: 4px; }
+
+  .story { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; margin-top: 18px; }
+  .story > div { background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; padding: 16px 18px; min-width: 0; }
+  .story ol { margin: 8px 0 0; padding-left: 20px; }
+  .story li + li { margin-top: 4px; }
+
+  .table-wrap { overflow-x: auto; margin-top: 18px; background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; }
+  table { border-collapse: collapse; width: 100%; min-width: 620px; font-size: 0.95rem; }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+  tr:last-child td { border-bottom: 0; }
+  td.n { font-family: var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; width: 2.5em; }
+  tr.group td { background: var(--mat); font-family: var(--font-display); font-weight: 600; }
+  .sw { display: inline-block; width: 22px; height: 6px; border-radius: 3px; vertical-align: middle; margin-right: 8px; }
+  .chip { display: inline-block; font-family: var(--font-mono); font-size: 0.74rem; padding: 2px 8px; border-radius: 99px; white-space: nowrap; }
+  .chip.now { background: var(--chip-now); color: var(--chip-now-ink); }
+  .chip.new { background: var(--chip-new); color: var(--chip-new-ink); }
+  .chip.later { background: var(--chip-later); color: var(--chip-later-ink); }
+
+  .steps { counter-reset: step; list-style: none; padding: 0; margin: 18px 0 0; display: flex; flex-direction: column; gap: 12px; }
+  .steps li { counter-increment: step; background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; padding: 14px 18px 14px 58px; position: relative; }
+  .steps li::before { content: counter(step); position: absolute; left: 18px; top: 13px; width: 28px; height: 28px; border-radius: 50%;
+    background: var(--accent); color: var(--panel); font-family: var(--font-display); font-weight: 700; display: grid; place-items: center; }
+  .steps li strong { font-family: var(--font-display); }
+  .note { border-left: 3px solid var(--accent); padding: 4px 0 4px 14px; color: var(--muted); margin-top: 16px; }
+
+  /* SVG styling through tokens, so both themes work */
+  .t { font-family: var(--font-body); font-size: 15px; fill: var(--ink); }
+  .t-s { font-family: var(--font-body); font-size: 13px; fill: var(--muted); }
+  .t-b { font-family: var(--font-display); font-weight: 700; font-size: 16px; fill: var(--ink); }
+  .t-m { font-family: var(--font-mono); font-size: 11px; fill: var(--board-ink); }
+  .t-mod { font-family: var(--font-mono); font-size: 11px; fill: var(--module-ink); }
+  .box { fill: var(--panel); stroke: var(--ink); stroke-width: 1.5; }
+  .box-hub { fill: var(--board); stroke: none; }
+  .box-later { fill: var(--panel); stroke: var(--w-later); stroke-width: 1.5; stroke-dasharray: 6 5; }
+  .hub-t { font-family: var(--font-display); font-weight: 700; font-size: 17px; fill: var(--board-ink); }
+  .hub-s { font-family: var(--font-body); font-size: 13px; fill: var(--board-ink); }
+  .arrow { fill: none; stroke: var(--ink); stroke-width: 2; }
+  .arrow-later { fill: none; stroke: var(--w-later); stroke-width: 2; stroke-dasharray: 6 5; }
+  .ir { fill: none; stroke: var(--w-out); stroke-width: 2.2; stroke-dasharray: 3 6; stroke-linecap: round; }
+  .pcb { fill: var(--board); }
+  .header { fill: var(--socket); }
+  .sock { fill: #2b3b52; stroke: #4c6283; stroke-width: 1; }
+  .usb { fill: #9aa3ad; stroke: #6c757f; }
+  .lead { fill: none; stroke-width: 2; }
+  .ring { fill: none; stroke-width: 3; }
+  .bb { fill: var(--breadboard); stroke: var(--hole); stroke-width: 1.5; }
+  .hole { fill: var(--hole); }
+  .mod { fill: var(--module); }
+  .relay { fill: var(--relay); }
+  .term { fill: #2f7fd0; stroke: #1b4f86; stroke-width: 1.5; }
+  .screw { fill: #c7ced6; stroke: #7d8791; stroke-width: 1; }
+  .pin { fill: #c9a548; }
+  .jumper { fill: #2f6fdb; }
+  .res { stroke: #6b5a3a; stroke-width: 1; fill: #e6d3a8; }
+  .c-5v { stroke: var(--w-5v); } .f-5v { fill: var(--w-5v); }
+  .c-gnd { stroke: var(--w-gnd); } .f-gnd { fill: var(--w-gnd); }
+  .c-out { stroke: var(--w-out); } .f-out { fill: var(--w-out); }
+  .c-in1 { stroke: var(--w-in1); } .f-in1 { fill: var(--w-in1); }
+  .c-in2 { stroke: var(--w-in2); } .f-in2 { fill: var(--w-in2); }
+  .c-sense { stroke: var(--w-sense); } .f-sense { fill: var(--w-sense); }
+  .c-btn { stroke: var(--w-button); }
+  .c-later { stroke: var(--w-later); }
+  .dash { stroke-dasharray: 7 5; }
+  .strip { opacity: 0.22; }
+  @media (max-width: 520px) { body { font-size: 16px; } .steps li { padding-left: 52px; } }
+</style>
+
+<div class="page">
+  <header class="stack">
+    <span class="eyebrow">CouchTV · the receiver box</span>
+    <h1>CouchIR Wiring</h1>
+    <p class="lede">Everything that connects to the little blue Arduino board behind the TV: what each part does, how they work together, and where every wire goes.</p>
+  </header>
+
+  <h2>The parts and their jobs</h2>
+  <div class="parts">
+    <div class="part"><h3>Leonardo board</h3><span class="role">the brain · already working</span>
+      <p>Plugged into the TV PC by USB. The cable powers it and carries its messages. With ErP disabled in the BIOS, it stays powered even while the PC is asleep or off.</p></div>
+    <div class="part"><h3>IR sensor</h3><span class="role">the ear · already working</span>
+      <p>Hears the phone's IR blaster (and other remotes) and passes every button to the board. Nothing about it changes except where its power wire plugs in.</p></div>
+    <div class="part"><h3>Relay module</h3><span class="role">two fingers · new</span>
+      <p>Two electric switches. Relay K1 "presses" the PC's power button, relay K2 the TV's, for a third of a second each time. You'll hear a soft click.</p></div>
+    <div class="part"><h3>Mini breadboard</h3><span class="role">a power strip · new</span>
+      <p>The board has only one 5 V socket, but the sensor and the relay module both need 5 V. The breadboard shares that one socket between them.</p></div>
+    <div class="part"><h3>Resistors + old USB cable</h3><span class="role">an eye on the TV · optional</span>
+      <p>The TV's power button only toggles, so the board needs to know whether the TV is already on. The TV's USB port has power only while the TV is on, and the two resistors let the board read that safely.</p></div>
+    <div class="part later"><h3>ESP32</h3><span class="role">Wi-Fi ear · arriving later</span>
+      <p>Lets the Oppo, which has no IR blaster, press Power over Wi-Fi. It isn't part of today's wiring; pins 0 and 1 are kept free for it.</p></div>
+  </div>
+
+  <h2>How it works</h2>
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 900 420" role="img" aria-label="Block diagram: the phone's infrared reaches the IR sensor, which feeds the Leonardo. The Leonardo talks to the TV PC over USB and drives the relay module, which presses the PC's and the TV's power buttons. Optionally the TV's USB port tells the Leonardo whether the TV is on. The ESP32 joins later.">
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-gnd"/></marker>
+        </defs>
+        <!-- phone and IR -->
+        <rect class="box" x="20" y="30" width="170" height="64" rx="10"/>
+        <text class="t-b" x="105" y="58" text-anchor="middle">Phone remote</text>
+        <text class="t-s" x="105" y="78" text-anchor="middle">IR blaster</text>
+        <path class="ir" d="M195 62 L262 62"/>
+        <text class="t-s" x="228" y="50" text-anchor="middle">infrared</text>
+        <rect class="box" x="268" y="30" width="150" height="64" rx="10"/>
+        <text class="t-b" x="343" y="58" text-anchor="middle">IR sensor</text>
+        <text class="t-s" x="343" y="78" text-anchor="middle">the ear</text>
+        <path class="arrow" d="M343 96 L343 150" marker-end="url(#ah)"/>
+        <!-- the brain -->
+        <rect class="box-hub" x="260" y="156" width="260" height="96" rx="14"/>
+        <text class="hub-t" x="390" y="196" text-anchor="middle">Leonardo board</text>
+        <text class="hub-s" x="390" y="218" text-anchor="middle">decides what each button does</text>
+        <text class="hub-s" x="390" y="236" text-anchor="middle">and when to press Power</text>
+        <!-- TV PC -->
+        <rect class="box" x="640" y="156" width="230" height="96" rx="10"/>
+        <text class="t-b" x="755" y="192" text-anchor="middle">TV PC</text>
+        <text class="t-s" x="755" y="212" text-anchor="middle">CouchTV runs here</text>
+        <path class="arrow" d="M528 204 L632 204" marker-start="url(#ah)" marker-end="url(#ah)"/>
+        <text class="t-s" x="580" y="194" text-anchor="middle">USB cable</text>
+        <text class="t-s" x="580" y="226" text-anchor="middle">power + buttons</text>
+        <!-- relay -->
+        <path class="arrow" d="M390 254 L390 300" marker-end="url(#ah)"/>
+        <rect class="box" x="300" y="306" width="180" height="64" rx="10"/>
+        <text class="t-b" x="390" y="334" text-anchor="middle">Relay module</text>
+        <text class="t-s" x="390" y="354" text-anchor="middle">two fingers</text>
+        <rect class="box" x="40" y="306" width="200" height="64" rx="10"/>
+        <text class="t-b" x="140" y="334" text-anchor="middle">PC power button</text>
+        <text class="t-s" x="140" y="354" text-anchor="middle">pressed by relay K1</text>
+        <path class="arrow" d="M298 338 L248 338" marker-end="url(#ah)"/>
+        <rect class="box" x="540" y="306" width="200" height="64" rx="10"/>
+        <text class="t-b" x="640" y="334" text-anchor="middle">TV power button</text>
+        <text class="t-s" x="640" y="354" text-anchor="middle">pressed by relay K2</text>
+        <path class="arrow" d="M482 338 L532 338" marker-end="url(#ah)"/>
+        <!-- optional TV sensing -->
+        <rect class="box-later" x="20" y="166" width="190" height="76" rx="10"/>
+        <text class="t-b" x="115" y="196" text-anchor="middle">TV's USB port</text>
+        <text class="t-s" x="115" y="216" text-anchor="middle">"is the TV on?"</text>
+        <text class="t-s" x="115" y="232" text-anchor="middle">optional</text>
+        <path class="arrow-later" d="M212 204 L252 204" marker-end="url(#ah)"/>
+        <!-- ESP32 later -->
+        <rect class="box-later" x="640" y="30" width="230" height="64" rx="10"/>
+        <text class="t-b" x="755" y="58" text-anchor="middle">ESP32 (later)</text>
+        <text class="t-s" x="755" y="78" text-anchor="middle">Wi-Fi Power for the Oppo</text>
+        <path class="arrow-later" d="M640 80 L522 172" marker-end="url(#ah)"/>
+        <text class="t-s" x="390" y="404" text-anchor="middle">Solid lines: today. Dashed: optional or later.</text>
+      </svg>
+    </div>
+  </figure>
+
+  <div class="story">
+    <div>
+      <h3>You press Power, everything is off</h3>
+      <ol>
+        <li>The sensor hears it and tells the board.</li>
+        <li>The board wakes the PC: over USB if it's asleep, or with relay K1 if it's fully off or after a power cut.</li>
+        <li>Relay K2 presses the TV's button, so the TV comes on too.</li>
+      </ol>
+    </div>
+    <div>
+      <h3>You press Power while watching</h3>
+      <ol>
+        <li>The board passes it to CouchTV, which puts the PC to sleep.</li>
+        <li>The board notices the PC's USB go quiet.</li>
+        <li>A few seconds later, relay K2 switches the TV off.</li>
+      </ol>
+    </div>
+    <div>
+      <h3>The PC sleeps or wakes by itself</h3>
+      <ol>
+        <li>Sleep timer, idle, Windows' menu: the PC goes to sleep.</li>
+        <li>The board notices, and K2 turns the TV off.</li>
+        <li>When the PC wakes, K2 turns the TV back on.</li>
+      </ol>
+    </div>
+  </div>
+
+  <h2>Wiring</h2>
+  <p style="margin-top:10px">Four pictures: the board, the breadboard, the relay module, then every wire in one table. Wire colours here only tell the wires apart; use whatever colours you have.</p>
+
+  <h3 style="margin-top:28px">1 · The board: which socket takes which wire</h3>
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 900 470" role="img" aria-label="The Leonardo as it sits in your photo, with the power header at the top and the digital header at the bottom. Top: 5V goes to the breadboard, the GND next to it takes the IR sensor's GND, the other GND goes to the breadboard for TV sensing. Bottom: pin 2 takes the IR sensor's OUT, pin 8 goes to relay IN1, pin 9 to relay IN2, pin 10 to TV sensing, GND after pin 13 goes to the relay's GND. Pins 0 and 1 stay free for the ESP32.">
+        <!-- board -->
+        <rect class="pcb" x="130" y="130" width="640" height="220" rx="14"/>
+        <text class="t-m" x="450" y="235" text-anchor="middle" style="font-size:16px; font-family: var(--font-display); font-weight:700">Arduino Leonardo</text>
+        <text class="t-m" x="450" y="256" text-anchor="middle" style="font-size:12px">turned as in your photo: USB on the right</text>
+        <rect class="usb" x="760" y="268" width="40" height="34" rx="4"/>
+        <text class="t-s" x="808" y="323">USB to</text>
+        <text class="t-s" x="808" y="339">the TV PC</text>
+        <!-- top header: A5..A0, then VIN GND GND 5V 3.3V RESET IOREF -->
+        <rect class="header" x="150" y="140" width="190" height="24" rx="3"/>
+        <rect class="header" x="364" y="140" width="250" height="24" rx="3"/>
+        <g>
+          <rect class="sock" x="157" y="145" width="14" height="14"/><rect class="sock" x="187" y="145" width="14" height="14"/>
+          <rect class="sock" x="217" y="145" width="14" height="14"/><rect class="sock" x="247" y="145" width="14" height="14"/>
+          <rect class="sock" x="277" y="145" width="14" height="14"/><rect class="sock" x="307" y="145" width="14" height="14"/>
+          <rect class="sock" x="371" y="145" width="14" height="14"/><rect class="sock" x="401" y="145" width="14" height="14"/>
+          <rect class="sock" x="431" y="145" width="14" height="14"/><rect class="sock" x="461" y="145" width="14" height="14"/>
+          <rect class="sock" x="491" y="145" width="14" height="14"/><rect class="sock" x="521" y="145" width="14" height="14"/>
+          <rect class="sock" x="551" y="145" width="14" height="14"/><rect class="sock" x="581" y="145" width="14" height="14"/>
+        </g>
+        <g class="t-m" text-anchor="middle">
+          <text x="164" y="180">A5</text><text x="194" y="180">A4</text><text x="224" y="180">A3</text><text x="254" y="180">A2</text>
+          <text x="284" y="180">A1</text><text x="314" y="180">A0</text>
+          <text x="378" y="180">VIN</text><text x="408" y="180">GND</text><text x="438" y="180">GND</text><text x="468" y="180">5V</text>
+          <text x="498" y="180">3.3V</text><text x="528" y="180">RST</text><text x="558" y="180">IORF</text>
+        </g>
+        <!-- bottom header: 0..7, then 8..13 GND AREF SDA SCL -->
+        <rect class="header" x="150" y="316" width="250" height="24" rx="3"/>
+        <rect class="header" x="420" y="316" width="310" height="24" rx="3"/>
+        <g>
+          <rect class="sock" x="157" y="321" width="14" height="14"/><rect class="sock" x="187" y="321" width="14" height="14"/>
+          <rect class="sock" x="217" y="321" width="14" height="14"/><rect class="sock" x="247" y="321" width="14" height="14"/>
+          <rect class="sock" x="277" y="321" width="14" height="14"/><rect class="sock" x="307" y="321" width="14" height="14"/>
+          <rect class="sock" x="337" y="321" width="14" height="14"/><rect class="sock" x="367" y="321" width="14" height="14"/>
+          <rect class="sock" x="427" y="321" width="14" height="14"/><rect class="sock" x="457" y="321" width="14" height="14"/>
+          <rect class="sock" x="487" y="321" width="14" height="14"/><rect class="sock" x="517" y="321" width="14" height="14"/>
+          <rect class="sock" x="547" y="321" width="14" height="14"/><rect class="sock" x="577" y="321" width="14" height="14"/>
+          <rect class="sock" x="607" y="321" width="14" height="14"/><rect class="sock" x="637" y="321" width="14" height="14"/>
+          <rect class="sock" x="667" y="321" width="14" height="14"/><rect class="sock" x="697" y="321" width="14" height="14"/>
+        </g>
+        <g class="t-m" text-anchor="middle">
+          <text x="164" y="310">0</text><text x="194" y="310">1</text><text x="224" y="310">2</text><text x="254" y="310">3</text>
+          <text x="284" y="310">4</text><text x="314" y="310">5</text><text x="344" y="310">6</text><text x="374" y="310">7</text>
+          <text x="434" y="310">8</text><text x="464" y="310">9</text><text x="494" y="310">10</text><text x="524" y="310">11</text>
+          <text x="554" y="310">12</text><text x="584" y="310">13</text><text x="614" y="310">GND</text><text x="644" y="310">AREF</text>
+          <text x="674" y="310">SDA</text><text x="704" y="310">SCL</text>
+        </g>
+        <!-- top callouts -->
+        <circle class="ring c-sense dash" cx="408" cy="152" r="12"/>
+        <path class="lead c-sense dash" d="M408 140 L408 128 L230 128 L230 86"/>
+        <text class="t" x="230" y="44" text-anchor="middle">GND → breadboard</text>
+        <text class="t" x="230" y="62" text-anchor="middle">"GND" column</text>
+        <text class="t-s" x="230" y="80" text-anchor="middle">optional, TV sensing</text>
+        <circle class="ring c-gnd" cx="438" cy="152" r="12"/>
+        <path class="lead c-gnd" d="M438 140 L438 86"/>
+        <text class="t" x="438" y="44" text-anchor="middle">GND ← IR sensor GND</text>
+        <text class="t-s" x="438" y="62" text-anchor="middle">as now</text>
+        <circle class="ring c-5v" cx="468" cy="152" r="12"/>
+        <path class="lead c-5v" d="M468 140 L468 112 L640 112 L640 86"/>
+        <text class="t" x="640" y="44" text-anchor="middle">5V → breadboard</text>
+        <text class="t" x="640" y="62" text-anchor="middle">"5 V" column</text>
+        <text class="t-s" x="640" y="80" text-anchor="middle">was the IR sensor's VCC</text>
+        <!-- bottom callouts -->
+        <circle class="ring c-later" cx="179" cy="328" r="26" style="stroke-width:2"/>
+        <path class="lead c-later dash" d="M179 354 L179 392"/>
+        <text class="t-s" x="179" y="410" text-anchor="middle">0 and 1: keep free</text>
+        <text class="t-s" x="179" y="426" text-anchor="middle">for the ESP32</text>
+        <circle class="ring c-out" cx="224" cy="328" r="12"/>
+        <path class="lead c-out" d="M224 340 L224 372 L320 372 L320 392"/>
+        <text class="t" x="320" y="410" text-anchor="middle">2 ← IR sensor OUT</text>
+        <text class="t-s" x="320" y="426" text-anchor="middle">as now</text>
+        <circle class="ring c-in1" cx="434" cy="328" r="12"/>
+        <path class="lead c-in1" d="M434 340 L434 376 L445 376 L445 392"/>
+        <text class="t" x="445" y="410" text-anchor="middle">8 → relay IN1</text>
+        <text class="t-s" x="445" y="426" text-anchor="middle">the PC's button</text>
+        <circle class="ring c-in2" cx="464" cy="328" r="12"/>
+        <path class="lead c-in2" d="M464 340 L464 362 L555 362 L555 392"/>
+        <text class="t" x="555" y="410" text-anchor="middle">9 → relay IN2</text>
+        <text class="t-s" x="555" y="426" text-anchor="middle">the TV's button</text>
+        <circle class="ring c-sense dash" cx="494" cy="328" r="12"/>
+        <path class="lead c-sense dash" d="M494 340 L494 354 L690 354 L690 392"/>
+        <text class="t" x="690" y="410" text-anchor="middle">10 ← "pin 10" column</text>
+        <text class="t-s" x="690" y="426" text-anchor="middle">optional, TV sensing</text>
+        <circle class="ring c-gnd" cx="614" cy="328" r="12"/>
+        <path class="lead c-gnd" d="M614 340 L614 346 L835 346 L835 392"/>
+        <text class="t" x="835" y="410" text-anchor="middle">GND → relay GND</text>
+        <text class="t-s" x="835" y="426" text-anchor="middle">new</text>
+      </svg>
+    </div>
+    <figcaption>The board as it sat in your earlier photo: the POWER and ANALOG header along the top, the DIGITAL header along the bottom, the USB plug on the right. The circled sockets are the only ones used.</figcaption>
+  </figure>
+
+  <h3 style="margin-top:32px">2 · The breadboard: one 5 V socket shared three ways</h3>
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 900 390" role="img" aria-label="A mini breadboard. Each column of five holes is joined inside. The 5 V column takes three wires: from the board's 5V, to the IR sensor's VCC and to the relay module's VCC. Optional TV sensing uses three more columns: the TV's USB 5 V goes into one, a 2.2 kilo-ohm resistor joins it to the pin 10 column, and a 10 kilo-ohm resistor joins the pin 10 column to the GND column.">
+        <rect class="bb" x="270" y="80" width="604" height="230" rx="10"/>
+        <g id="holes"></g>
+        <rect x="270" y="194" width="604" height="8" style="fill: var(--hole); opacity: 0.35"/>
+        <!-- the columns in use (top half) -->
+        <rect class="strip f-5v" x="286" y="92" width="28" height="100" rx="6"/>
+        <rect class="strip f-gnd" x="558" y="92" width="28" height="100" rx="6"/>
+        <rect class="strip f-sense" x="626" y="92" width="28" height="100" rx="6"/>
+        <rect class="strip f-out" x="694" y="92" width="28" height="100" rx="6"/>
+        <!-- 5 V: three wires in one column -->
+        <path class="lead c-5v" style="stroke-width:4" d="M300 104 L300 30"/>
+        <text class="t" x="300" y="22" text-anchor="middle">from the board's 5V</text>
+        <path class="lead c-5v" style="stroke-width:4" d="M300 124 L180 124"/>
+        <text class="t" x="170" y="129" text-anchor="end">to the IR sensor's VCC</text>
+        <path class="lead c-5v" style="stroke-width:4" d="M300 144 L180 144"/>
+        <text class="t" x="170" y="160" text-anchor="end">to the relay</text>
+        <text class="t" x="170" y="178" text-anchor="end">module's VCC</text>
+        <!-- optional TV sensing -->
+        <path class="lead" style="stroke:#8a7a5a; stroke-width:2" d="M572 144 L584 144 M628 144 L640 144"/>
+        <rect class="res" x="584" y="136" width="44" height="16" rx="7"/>
+        <text x="606" y="148" text-anchor="middle" style="font-family: var(--font-mono); font-size: 10px; fill: #3b2f16">10 kΩ</text>
+        <path class="lead" style="stroke:#8a7a5a; stroke-width:2" d="M640 164 L652 164 M696 164 L708 164"/>
+        <rect class="res" x="652" y="156" width="44" height="16" rx="7"/>
+        <text x="674" y="168" text-anchor="middle" style="font-family: var(--font-mono); font-size: 10px; fill: #3b2f16">2.2 kΩ</text>
+        <path class="lead c-gnd dash" style="stroke-width:3" d="M572 124 L500 124 L500 62"/>
+        <text class="t" x="500" y="54" text-anchor="middle">TV USB black</text>
+        <path class="lead c-gnd dash" style="stroke-width:3" d="M572 104 L572 30"/>
+        <text class="t" x="572" y="22" text-anchor="middle">board GND</text>
+        <path class="lead c-sense dash" style="stroke-width:3" d="M640 104 L640 62"/>
+        <text class="t" x="640" y="54" text-anchor="middle">board pin 10</text>
+        <path class="lead c-5v dash" style="stroke-width:3" d="M708 104 L708 30"/>
+        <text class="t" x="728" y="22" text-anchor="middle">TV USB red (5 V)</text>
+        <g class="t-b" text-anchor="middle" style="font-size:14px">
+          <text x="300" y="334">5 V</text><text x="572" y="334">GND</text><text x="640" y="334">pin 10</text><text x="708" y="334">TV 5 V</text>
+        </g>
+        <text class="t-s" x="572" y="372" text-anchor="middle">Dashed: optional TV sensing. The bottom half isn't used.</text>
+      </svg>
+    </div>
+    <figcaption>Inside a breadboard, each column of 5 holes is one metal strip, so wires plugged into the same column are connected. The top and bottom halves are separate. The 5 V column is the only part needed today. The resistors are for the optional TV sensing, and their legs can reach over other columns.</figcaption>
+  </figure>
+
+  <h3 style="margin-top:32px">3 · The relay module</h3>
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 900 500" role="img" aria-label="The relay module as in your photo, screw terminals at the top and pins at the bottom. Each relay has three screw terminals; the middle one is COM, and one of the outer two is NO, which the board's test finds. K1's go to the PC's power button wires, K2's to the TV's. The bottom pins: GND to the board's GND, IN1 to pin 8, IN2 to pin 9, VCC to the breadboard's 5 V column. The JD-VCC jumper stays on.">
+        <rect class="mod" x="290" y="40" width="320" height="390" rx="14"/>
+        <rect class="term" x="306" y="58" width="288" height="56" rx="4"/>
+        <g>
+          <circle class="screw" cx="330" cy="86" r="17"/><circle class="screw" cx="378" cy="86" r="17"/><circle class="screw" cx="426" cy="86" r="17"/>
+          <circle class="screw" cx="474" cy="86" r="17"/><circle class="screw" cx="522" cy="86" r="17"/><circle class="screw" cx="570" cy="86" r="17"/>
+        </g>
+        <g class="t-mod" text-anchor="middle" style="font-size:12px">
+          <text x="330" y="134">?</text><text x="378" y="134">COM</text><text x="426" y="134">?</text>
+          <text x="474" y="134">?</text><text x="522" y="134">COM</text><text x="570" y="134">?</text>
+        </g>
+        <rect class="relay" x="306" y="150" width="136" height="150" rx="6"/>
+        <rect class="relay" x="458" y="150" width="136" height="150" rx="6"/>
+        <text class="t-mod" x="374" y="230" text-anchor="middle" style="font-size:18px; font-weight:500">K1</text>
+        <text class="t-mod" x="526" y="230" text-anchor="middle" style="font-size:18px; font-weight:500">K2</text>
+        <g>
+          <rect class="pin" x="316" y="392" width="10" height="22"/><rect class="pin" x="340" y="392" width="10" height="22"/><rect class="pin" x="364" y="392" width="10" height="22"/>
+          <rect class="jumper" x="312" y="386" width="42" height="18" rx="3"/>
+          <rect class="pin" x="492" y="392" width="10" height="22"/><rect class="pin" x="516" y="392" width="10" height="22"/>
+          <rect class="pin" x="540" y="392" width="10" height="22"/><rect class="pin" x="564" y="392" width="10" height="22"/>
+        </g>
+        <g class="t-mod" text-anchor="middle" style="font-size:10px">
+          <text x="321" y="378">JD</text><text x="345" y="378">VCC</text><text x="369" y="378">GND</text>
+          <text x="497" y="380">GND</text><text x="521" y="380">IN1</text><text x="545" y="380">IN2</text><text x="569" y="380">VCC</text>
+        </g>
+        <path class="lead c-btn" style="stroke-width:3" d="M378 68 L378 30 L240 30"/>
+        <text class="t-b" x="230" y="26" text-anchor="end">PC power button</text>
+        <text class="t-s" x="230" y="44" text-anchor="end">one wire to COM, the other</text>
+        <text class="t-s" x="230" y="60" text-anchor="end">to K1's NO terminal</text>
+        <path class="lead c-btn" style="stroke-width:3" d="M522 68 L522 30 L660 30"/>
+        <text class="t-b" x="670" y="26">TV power button</text>
+        <text class="t-s" x="670" y="44">one wire to COM, the other</text>
+        <text class="t-s" x="670" y="60">to K2's NO terminal</text>
+        <text class="t-s" x="230" y="150" text-anchor="end">"?": one of the two outer</text>
+        <text class="t-s" x="230" y="168" text-anchor="end">terminals is NO (open until</text>
+        <text class="t-s" x="230" y="186" text-anchor="end">the relay clicks). The board's</text>
+        <text class="t-s" x="230" y="204" text-anchor="end">test tells us which.</text>
+        <path class="lead c-5v" d="M569 414 L569 420 L680 420"/>
+        <path class="lead c-in2" d="M545 414 L545 438 L680 438"/>
+        <path class="lead c-in1" d="M521 414 L521 456 L680 456"/>
+        <path class="lead c-gnd" d="M497 414 L497 474 L680 474"/>
+        <text class="t" x="690" y="425">VCC → breadboard 5 V</text>
+        <text class="t" x="690" y="443">IN2 → board pin 9</text>
+        <text class="t" x="690" y="461">IN1 → board pin 8</text>
+        <text class="t" x="690" y="479">GND → board GND</text>
+        <path class="lead c-later" d="M333 414 L333 456 L240 456"/>
+        <text class="t-s" x="230" y="460" text-anchor="end">leave this jumper on</text>
+      </svg>
+    </div>
+    <figcaption>As in your photo: screw terminals along the top, pins along the bottom. The buttons' wires are added alongside the buttons, so pressing the real buttons still works.</figcaption>
+  </figure>
+
+  <h3 style="margin-top:32px">4 · Every wire</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>#</th><th>Wire</th><th>From</th><th>To</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr class="group"><td colspan="5">IR sensor</td></tr>
+        <tr><td class="n">1</td><td><span class="sw" style="background:var(--w-out)"></span>OUT</td><td>IR sensor, left leg</td><td>board pin 2</td><td><span class="chip now">as now</span></td></tr>
+        <tr><td class="n">2</td><td><span class="sw" style="background:var(--w-gnd)"></span>GND</td><td>IR sensor, middle leg</td><td>board GND, top, next to 5V</td><td><span class="chip now">as now</span></td></tr>
+        <tr><td class="n">3</td><td><span class="sw" style="background:var(--w-5v)"></span>VCC</td><td>IR sensor, right leg</td><td>breadboard, 5 V column</td><td><span class="chip new">moves</span></td></tr>
+        <tr class="group"><td colspan="5">Sharing 5 V</td></tr>
+        <tr><td class="n">4</td><td><span class="sw" style="background:var(--w-5v)"></span>5 V</td><td>board 5V (top header)</td><td>breadboard, 5 V column</td><td><span class="chip new">new</span></td></tr>
+        <tr class="group"><td colspan="5">Relay module, to the board</td></tr>
+        <tr><td class="n">5</td><td><span class="sw" style="background:var(--w-5v)"></span>VCC</td><td>relay VCC pin</td><td>breadboard, 5 V column</td><td><span class="chip new">new</span></td></tr>
+        <tr><td class="n">6</td><td><span class="sw" style="background:var(--w-gnd)"></span>GND</td><td>relay GND pin</td><td>board GND, bottom, after 13</td><td><span class="chip new">new</span></td></tr>
+        <tr><td class="n">7</td><td><span class="sw" style="background:var(--w-in1)"></span>IN1</td><td>relay IN1 pin</td><td>board pin 8</td><td><span class="chip new">new</span></td></tr>
+        <tr><td class="n">8</td><td><span class="sw" style="background:var(--w-in2)"></span>IN2</td><td>relay IN2 pin</td><td>board pin 9</td><td><span class="chip new">new</span></td></tr>
+        <tr class="group"><td colspan="5">Relay module, to the buttons (at the TV PC, after the terminal test)</td></tr>
+        <tr><td class="n">9</td><td><span class="sw" style="background:var(--w-button)"></span>K1</td><td>K1 COM + NO</td><td>the PC's power button wires</td><td><span class="chip later">later today</span></td></tr>
+        <tr><td class="n">10</td><td><span class="sw" style="background:var(--w-button)"></span>K2</td><td>K2 COM + NO</td><td>the TV's power button wires</td><td><span class="chip later">later today</span></td></tr>
+        <tr class="group"><td colspan="5">TV sensing (optional, if the TV's USB passes the phone test)</td></tr>
+        <tr><td class="n">11</td><td><span class="sw" style="background:var(--w-5v)"></span>TV 5 V</td><td>old USB cable, red</td><td>breadboard, "TV 5 V" column</td><td><span class="chip later">optional</span></td></tr>
+        <tr><td class="n">12</td><td><span class="sw" style="background:#e6d3a8"></span>2.2 kΩ</td><td>"TV 5 V" column</td><td>"pin 10" column</td><td><span class="chip later">optional</span></td></tr>
+        <tr><td class="n">13</td><td><span class="sw" style="background:#e6d3a8"></span>10 kΩ</td><td>"pin 10" column</td><td>"GND" column</td><td><span class="chip later">optional</span></td></tr>
+        <tr><td class="n">14</td><td><span class="sw" style="background:var(--w-sense)"></span>sense</td><td>board pin 10</td><td>"pin 10" column</td><td><span class="chip later">optional</span></td></tr>
+        <tr><td class="n">15</td><td><span class="sw" style="background:var(--w-gnd)"></span>GND</td><td>board GND, top, the other one</td><td>"GND" column</td><td><span class="chip later">optional</span></td></tr>
+        <tr><td class="n">16</td><td><span class="sw" style="background:var(--w-gnd)"></span>TV GND</td><td>old USB cable, black</td><td>"GND" column</td><td><span class="chip later">optional</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">The PS/2 wires from the earlier attempt aren't needed any more. Unplug them from pins 3 and 4.</p>
+
+  <h2>What we do next</h2>
+  <ol class="steps">
+    <li><strong>At the laptop.</strong> Make wires 3 to 8 (the IR sensor stays as it is apart from wire 3). Plug the board into the laptop. Claude puts firmware version 4 on it and clicks each relay once to check.</li>
+    <li><strong>Find each relay's NO terminal.</strong> In the same session, two spare jumpers go on for a moment: relay K1's middle screw to a board GND, one outer screw to pin 10. The board reports whether that terminal is NO. Then the same for K2.</li>
+    <li><strong>At the TV PC.</strong> Plug the board back in by USB. Screw the PC button's two wires into K1 (COM + NO) and the TV button's into K2. Press Power on the phone to test.</li>
+    <li><strong>Check the TV's USB port.</strong> Plug a phone into it: it should charge only while the TV is on. If it does, add wires 11 to 16 and switch sensing on. If not, skip TV sensing; it works without it.</li>
+    <li><strong>When the ESP32 arrives.</strong> It connects to pins 0 and 1, and the Oppo gets a Power button that works over Wi-Fi.</li>
+  </ol>
+</div>
+
+<script>
+  // The breadboard's holes: 17 columns of 5 above the centre channel and 5 below it (the lower half dimmed: unused).
+  (function () {
+    var g = document.getElementById('holes');
+    if (!g) return;
+    var ns = 'http://www.w3.org/2000/svg';
+    var rows = [104, 124, 144, 164, 184, 214, 234, 254, 274, 294];
+    for (var c = 0; c < 17; c++) {
+      var x = 300 + c * 34;
+      rows.forEach(function (y, i) {
+        var r = document.createElementNS(ns, 'rect');
+        r.setAttribute('x', x - 4); r.setAttribute('y', y - 4);
+        r.setAttribute('width', 8); r.setAttribute('height', 8); r.setAttribute('rx', 1.5);
+        r.setAttribute('class', 'hole');
+        if (i >= 5) r.setAttribute('opacity', '0.45');
+        g.appendChild(r);
+      });
+    }
+  })();
+</script>
+
+</body></html>
