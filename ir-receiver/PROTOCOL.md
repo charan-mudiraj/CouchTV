@@ -122,10 +122,21 @@ The same remote also works over the home network, with no pointing, and on phone
 | `KEY <vk> D\|U` | | the keyboard page: a PC key down or up, as its Windows virtual-key code in hex (`A2` left Ctrl, `43` C, `70` F1…). Sent down again every 45 ms while held, since Windows only repeats real keyboards' keys. CouchTV lets go of keys a phone still held when it drops |
 | `EDIT <backspaces> [<base64 of UTF-8>]` | | typing with the phone's own keyboard: that many Backspaces, then the text, typed as characters (any language, emoji), whatever the PC's keyboard layout; a line break is Enter |
 | | `INPUT TEXT\|PASSWORD <name> <value>`, or `INPUT OFF` | a text box got the keyboard focus on the TV (its name and what's in it, base64; a password box's value is never sent), or none has it now. Told to the phone that sent something last, which pops up its keyboard. CouchTV watches the focus with UI Automation (Windows' accessibility interface) while a phone is connected; `TypeOnPhone = off` in couchtv.ini stops it |
+| | `SUGGESTIONS <count>`, then that many `SUGGEST M\|S <id> <title> <details> <app> <picture> <app colour> <text colour>` | the suggestions under the home screen's apps (*Suggestions* below), for the phone's first page: a film (`M`) or song (`S`), its title, details (year and length, or the singers) and app name, and its picture's address on the internet, in base64 (`-` for none), then the app's colours as `RRGGBB`. Sent after `WELCOME`, and again whenever the list changes |
+| `PLAY <id>` | | play that suggestion on the TV, as OK on it on the home screen does |
 
 Windows Firewall has to allow CouchTV in: the installer adds the rule *CouchTV phone remote* (CouchTV.exe, local network only). On a PC installed before Wi-Fi mode, CouchTV asks once and Windows shows its permission prompt; press F7 on the home screen to ask again. The code is `src/RemoteServer.cs` and `phone-remote/.../WifiLink.kt`.
 
 An app from before pairing that says `HELLO` straight away is answered `UPDATE` and nothing else, and keeps using infrared.
+
+## Suggestions
+
+Under the apps, the home screen shows what's popular, and the phone remote's first page (left of the remote) shows the same; OK, or a tap on the phone, plays it on the TV. CouchTV fetches the lists every 6 hours (`src/Suggestions.cs`), keeps them in `%LOCALAPPDATA%\CouchTV\suggestions\` with their pictures, and shows the saved ones at once after a restart or offline.
+
+- **Films:** JustWatch's popularity in India (the list its website shows, from its own GraphQL API at `apis.justwatch.com`), films from this year and last, available on the TV's apps (Netflix, Prime Video, JioHotstar, ZEE5, SonyLIV). Each comes with the best of your apps for it: one in couchtv.ini's `Subscriptions` (any, with none listed), else one that has it free; films only on apps you don't pay for are left out. JustWatch gives each film's own address in the app, so it plays straight away where the app allows it: Netflix's `/watch/<id>` page starts the film, JioHotstar's address gets `/watch`, Prime Video's (after its redirect) `?autoplay=1`; ZEE5 and SonyLIV open the film's page.
+- **Songs:** India's most-played songs on Apple Music (Apple's free chart feed, `rss.applemarketingtools.com`), at most two per singer, played on YouTube: CouchTV finds each song's video beforehand (as voice search does) and plays it as a mix of similar songs, full screen.
+
+`Suggestions = movies, music` in couchtv.ini chooses the rows (`off` for none). `CouchTV.exe --suggesttest report.txt` fetches the lists and reports them.
 
 ## Security
 

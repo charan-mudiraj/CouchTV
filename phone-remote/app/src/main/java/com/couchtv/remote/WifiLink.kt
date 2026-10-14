@@ -84,6 +84,13 @@ class WifiLink(context: Context) {
     /** Called on the main thread when a text box on the TV gets the focus, or (null) loses it, or the link drops. */
     var onTyping: ((TypingField?) -> Unit)? = null
 
+    /** What the TV suggests (films and songs, for the first page), as it last said; empty until it does. */
+    @Volatile var suggestions: List<Suggestion> = emptyList()
+        private set
+
+    /** Called on the main thread with a new list of suggestions. */
+    var onSuggestions: ((List<Suggestion>) -> Unit)? = null
+
     private val app = context.applicationContext
     private val connectivity = app.getSystemService(ConnectivityManager::class.java)
     private val main = Handler(Looper.getMainLooper())
@@ -100,6 +107,9 @@ class WifiLink(context: Context) {
     @Volatile private var pairAddress: InetAddress? = null   // where the unpaired TV answered
     @Volatile private var pairSocket: Socket? = null
     private val typed = LinkedBlockingQueue<String>()
+    private var incoming: MutableList<Suggestion>? = null   // a list of suggestions arriving (on the reading thread)
+    private var expected = 0
+    private var received = 0
 
     /**
      * The TV's address (reserved for the TV PC in the router): it's tried first, with no searching. If it doesn't
@@ -416,6 +426,17 @@ class WifiLink(context: Context) {
                 line.startsWith("POINTER ") -> pointerLook = line.removePrefix("POINTER ").trim()
                 line.startsWith("BOARD ") -> Secure.fromHex(line.removePrefix("BOARD ").trim())?.takeIf { it.size == 32 }?.let { onBoardKey?.invoke(it) }
                 line.startsWith("INPUT ") -> typing(line.removePrefix("INPUT "))
+                line.startsWith("SUGGESTIONS ") -> {
+                    // A new list: that many SUGGEST lines follow.
+                    expected = line.removePrefix("SUGGESTIONS ").trim().toIntOrNull() ?: 0
+                    received = 0
+                    incoming = mutableListOf()
+                    if (expected <= 0) setSuggestions(emptyList())
+                }
+                line.startsWith("SUGGEST ") -> incoming?.let { list ->
+                    Suggestion.parse(line.removePrefix("SUGGEST "))?.let { list.add(it) }
+                    if (++received >= expected) setSuggestions(list)
+                }
             }
         }
         return Outcome.CONNECTED
@@ -427,6 +448,15 @@ class WifiLink(context: Context) {
         fun decoded(i: Int) = p.getOrNull(i)?.let { runCatching { String(Base64.decode(it, Base64.DEFAULT), Charsets.UTF_8) }.getOrNull() } ?: ""
         val field = if (p[0] == "TEXT" || p[0] == "PASSWORD") TypingField(p[0] == "PASSWORD", decoded(1), decoded(2)) else null
         main.post { onTyping?.invoke(field) }
+    }
+
+    /** Plays a suggestion (a film or song from [suggestions]) on the TV. */
+    fun play(id: String) = send("PLAY $id")
+
+    private fun setSuggestions(list: List<Suggestion>) {
+        incoming = null
+        suggestions = list
+        main.post { onSuggestions?.invoke(list) }
     }
 
     private fun send(line: String) {

@@ -269,7 +269,7 @@ namespace CouchTV
             }
         }
 
-        static bool IsSubscribed(Tile t, List<string> subscriptions)
+        internal static bool IsSubscribed(Tile t, List<string> subscriptions)
         {
             return subscriptions.Exists(s => FindApp(s, new List<Tile> { t }, true) != null);
         }
@@ -520,7 +520,7 @@ Examples:
             RegexOptions.Singleline);
 
         /// <summary>Reads YouTube's own search page, as a browser would, and takes the first video.</summary>
-        static YouTubeVideo FirstYouTubeVideo(string query, bool newest)
+        internal static YouTubeVideo FirstYouTubeVideo(string query, bool newest)
         {
             // sp: videos only (no channels or playlists); CAISAhAB also sorts by upload date.
             string url = "https://www.youtube.com/results?search_query=" + Uri.EscapeDataString(query) + "&sp=" + (newest ? "CAISAhAB" : "EgIQAQ%3D%3D");
@@ -624,7 +624,7 @@ Examples:
             return b.ToString();
         }
 
-        static Tile FindHost(List<Tile> apps, string host)
+        internal static Tile FindHost(List<Tile> apps, string host)
         {
             foreach (Tile t in apps) if (IsHost(t, host)) return t;
             return null;

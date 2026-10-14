@@ -139,7 +139,17 @@
             android:layout_height="match_parent"
             android:orientation="horizontal">
 
-            <!-- 1. Remote: search, D-pad, the everyday keys -->
+            <!-- 0. Suggestions from the TV: popular films and top songs, to play there (left of the remote) -->
+            <LinearLayout style="@style/Page">
+
+                <com.couchtv.remote.SuggestionsView
+                    android:id="@+id/suggestions"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1" />
+            </LinearLayout>
+
+            <!-- 1. Remote: search, D-pad, the everyday keys (where the app opens) -->
             <LinearLayout style="@style/Page">
 
                 <!-- Search: the mic for voice search, or tap the bar to type -->

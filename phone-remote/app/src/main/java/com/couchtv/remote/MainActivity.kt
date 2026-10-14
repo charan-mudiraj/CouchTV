@@ -31,10 +31,12 @@ import java.util.concurrent.Executors
 
 /**
  * The remote, fitting the screen without scrolling: the status, the TV's sound here and power stay at the top, and
- * pages swipe sideways underneath (remote, apps, pointer, your own buttons), with dots to show which.
+ * pages swipe sideways underneath (remote, apps, pointer, your own buttons), with dots to show which. It opens on the
+ * remote; to its left, what the TV suggests (popular films and songs), to play there with a tap.
  */
 class MainActivity : Activity() {
     companion object {
+        private const val REMOTE_PAGE = 1                // the page it opens on; the suggestions are page 0
         private const val REQUEST_BLUETOOTH = 44       // the "Nearby devices" permission, to switch Bluetooth off
         private const val REQUEST_BLUETOOTH_OFF = 45   // Android's "turn off Bluetooth?" question
         private const val ACTION_REQUEST_DISABLE = "android.bluetooth.adapter.action.REQUEST_DISABLE"
@@ -65,7 +67,10 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         remote = Remote(this)
-        remote.wifi.onChange = { showStatus() }
+        remote.wifi.onChange = {
+            showStatus()
+            findViewById<SuggestionsView>(R.id.suggestions).show(remote.wifi.suggestions, remote.wifi.tvName != null)
+        }
         remote.board.onChange = { showStatus() }
         remote.onPowerNeedsIr = { toast(getString(R.string.power_needs_ir)) }
         store = CustomButtons(this)
@@ -77,6 +82,17 @@ class MainActivity : Activity() {
         voice.onStatus = { findViewById<TextView>(R.id.search_hint).text = it }
         findViewById<View>(R.id.voice_search).setOnClickListener { voice.start() }
         findViewById<View>(R.id.search_bar).setOnClickListener { voice.type() }
+
+        // The first page: what the TV suggests; a tap plays it there.
+        val suggestions = findViewById<SuggestionsView>(R.id.suggestions)
+        suggestions.onPlay = { s ->
+            if (remote.wifi.connected) {
+                remote.wifi.play(s.id)
+                toast(getString(R.string.suggestion_playing, s.title, s.app))
+            } else toast(getString(R.string.suggestion_needs_wifi))
+        }
+        suggestions.show(remote.wifi.suggestions, remote.wifi.tvName != null)
+        remote.wifi.onSuggestions = { suggestions.show(it, true) }
 
         // The screen mirror: the TV's screen here, full screen, touched like a touchscreen.
         mirrorView = findViewById(R.id.mirror_view)
@@ -174,6 +190,7 @@ class MainActivity : Activity() {
 
         val pager = findViewById<PagerView>(R.id.pager)
         val dots = findViewById<PageDots>(R.id.dots)
+        pager.go(REMOTE_PAGE, animate = false)
         dots.count = pager.pageCount
         dots.current = pager.page
         pager.onPageChanged = {
@@ -215,7 +232,7 @@ class MainActivity : Activity() {
         button.tooltipText = label
     }
 
-    /** Back on another page goes to the first; on the first, it leaves as usual. */
+    /** Back on another page goes to the remote; on the remote, it leaves as usual. */
     @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION")
     override fun onBackPressed() {
         if (mirroring) {
@@ -223,7 +240,7 @@ class MainActivity : Activity() {
             return
         }
         val pager = findViewById<PagerView>(R.id.pager)
-        if (pager.page > 0) pager.go(0) else super.onBackPressed()
+        if (pager.page != REMOTE_PAGE) pager.go(REMOTE_PAGE) else super.onBackPressed()
     }
 
     /**

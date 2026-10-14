@@ -65,6 +65,13 @@
     <string name="search_sent">“%1$s” is on the TV.</string>
 
     <string name="apps">Apps</string>
+    <string name="suggestions_title">Popular now</string>
+    <string name="suggestions_movies">Popular films</string>
+    <string name="suggestions_songs">Top songs</string>
+    <string name="suggestions_offline">Connect to the TV over Wi-Fi to see popular films and songs here, and play them on the TV with a tap.</string>
+    <string name="suggestions_waiting">The TV hasn\'t found any suggestions yet. It looks every few hours while it\'s on, and they show up here.</string>
+    <string name="suggestion_playing">Playing %1$s on %2$s</string>
+    <string name="suggestion_needs_wifi">Connect to the TV over Wi-Fi first</string>
     <string name="app_netflix">Netflix</string>
     <string name="app_youtube">YouTube</string>
     <string name="app_prime">Prime Video</string>

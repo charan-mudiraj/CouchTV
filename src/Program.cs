@@ -55,6 +55,8 @@ namespace CouchTV
                 if (vectors != null) return Diagnostics.SecurityVectors(vectors);
                 string pointerTest = Arg(args, "--pointertest");
                 if (pointerTest != null) return Diagnostics.PointerTest(pointerTest);
+                string suggestTest = Arg(args, "--suggesttest");
+                if (suggestTest != null) return Diagnostics.SuggestTest(suggestTest);
                 string searchTest = Arg(args, "--searchtest");
                 if (searchTest != null) return Diagnostics.SearchTest(args, searchTest);
                 string report = Arg(args, "--selftest");

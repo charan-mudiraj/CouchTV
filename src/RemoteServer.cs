@@ -20,7 +20,8 @@ namespace CouchTV
     ///     HELLO2 &lt;app&gt; &lt;version&gt; &lt;phone id&gt; &lt;phone key&gt;  →  HELLO2 &lt;TV id&gt; &lt;TV key&gt; KNOWN|PAIR &lt;name&gt;
     ///     (pairing: PAIR &lt;name&gt;  →  CODE, then 20 rounds of commitments to the code's bits)
     ///     AUTH &lt;proof&gt;           →  AUTH &lt;proof&gt;   and from here on every line is encrypted:
-    ///     HELLO &lt;app&gt; &lt;version&gt; →  WELCOME &lt;name&gt;, POINTER &lt;look&gt;, BOARD &lt;receiver box key&gt;, AUDIO &lt;session id&gt;
+    ///     HELLO &lt;app&gt; &lt;version&gt; →  WELCOME &lt;name&gt;, POINTER &lt;look&gt;, BOARD &lt;receiver box key&gt;, AUDIO &lt;session id&gt;,
+    ///                               SUGGESTIONS &lt;count&gt; and that many SUGGEST lines (again whenever the list changes)
     ///     PING                     →  PONG          (every second, so both sides notice a dead link quickly)
     ///     SOUND                    →  AUDIO &lt;session id&gt;   (the phone's sound service has a connection of its own)
     ///     BTN &lt;address&gt; &lt;command&gt; N|R   a button, exactly like the IR receiver's "NEC 00CE 00xx" codes
@@ -35,6 +36,7 @@ namespace CouchTV
     ///     EDIT &lt;backspaces&gt; &lt;base64 UTF-8&gt;   the phone's own keyboard: delete that many, then type the text
     ///                  →  INPUT TEXT|PASSWORD &lt;name&gt; &lt;value&gt;, INPUT OFF   a text box got (or lost) the focus on the
     ///                               TV, so the phone pops up its keyboard: told to the phone used last
+    ///     PLAY &lt;id&gt;                 play a suggestion (a film or song from the SUGGEST lines) on the TV
     /// Buttons go through the same remote.ini mapping as infrared ones, so both remotes behave the same.
     /// </summary>
     internal sealed class RemoteServer
@@ -54,9 +56,13 @@ namespace CouchTV
         public event Action<string, string> PairingEnded;   // its name and "paired", "wrong", "failed" or "cancelled" (UI thread)
         public event Action<int> PhonesChanged;              // how many phones are connected as remotes now (UI thread)
         public event Action<string, bool> Mirroring;         // a phone started (true) or stopped mirroring the screen: its name (UI thread)
+        public event Action<string> Play;                    // a phone chose a suggestion: its id (UI thread)
 
         /// <summary>The pointer's look now ("arrow 64 white"), told to each phone as it connects.</summary>
         internal Func<string> CurrentPointer;
+
+        /// <summary>The suggestions' lines (Suggestions.PhoneLines), told to each phone as it connects; from the network thread.</summary>
+        internal Func<List<string>> CurrentSuggestions;
 
         // What the trackpad lines do, straight from the network thread for the least delay. The self-test swaps
         // these to watch rather than move the real pointer.
@@ -515,6 +521,8 @@ namespace CouchTV
                                 welcome += "\n" + TypingLine(_typing);
                             }
                         }
+                        Func<List<string>> suggestions = CurrentSuggestions;
+                        if (suggestions != null) welcome += "\n" + string.Join("\n", suggestions());
                     }
                     return welcome;
                 case "PING":
@@ -582,6 +590,13 @@ namespace CouchTV
                         KeyChange(vk, down);
                     }
                     return null;
+                case "PLAY":
+                    if (parts.Length >= 2 && parts[1].Length > 0 && parts[1].Length <= 60)
+                    {
+                        string id = parts[1];
+                        Raise(() => { if (Play != null) Play(id); });
+                    }
+                    return null;
                 case "EDIT":
                     int backspaces;
                     if (parts.Length >= 2 && TryInt(parts[1], 1000, out backspaces) && backspaces >= 0)
@@ -628,6 +643,22 @@ namespace CouchTV
                 _typingTold = target;
                 if (target != null) TrySend(target, TypingLine(field));
             }
+        }
+
+        /// <summary>Tells every connected phone remote these lines (a new list of suggestions); from any thread.</summary>
+        public void SendToPhones(List<string> lines)
+        {
+            ThreadPool.QueueUserWorkItem(state =>
+            {
+                List<RemoteSession> open;
+                lock (_sessions) open = new List<RemoteSession>(_sessions.Values);
+                foreach (RemoteSession s in open)
+                {
+                    if (!s.Remote || s.Closed) continue;
+                    try { foreach (string line in lines) s.Send(line); }
+                    catch (Exception) { }   // it's going away; its own thread tidies up
+                }
+            });
         }
 
         static string TypingLine(TypingField field)

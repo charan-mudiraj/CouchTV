@@ -11,7 +11,10 @@ namespace CouchTV
     /// <summary>Command-line checks used while building and installing: screenshots and a self-test report.</summary>
     internal static class Diagnostics
     {
-        /// <summary>CouchTV.exe --screenshot out.png [--size 1366x768] [--focus row,col] [--state toast,launch,confirm,osd,update,sleep,bluetooth,btdevice,btadd] [--config file]</summary>
+        /// <summary>
+        /// CouchTV.exe --screenshot out.png [--size 1366x768] [--focus row,col] [--state toast,launch,confirm,osd,update,sleep,bluetooth,btdevice,btadd] [--config file]
+        /// Rows for --focus: 0 apps, 1 films, 2 songs, 3 settings &amp; power (the suggestions are the saved ones).
+        /// </summary>
         public static int Screenshot(string[] args, string path)
         {
             int width = 1920, height = 1080, row = 0, col = 0;
@@ -285,6 +288,64 @@ namespace CouchTV
 
             report.AppendLine(failures == 0 ? "All passed" : failures + " failed");
             File.WriteAllText(path, report.ToString());
+            return failures == 0 ? 0 : 1;
+        }
+
+        /// <summary>
+        /// CouchTV.exe --suggesttest report.txt: checks how titles and links are tidied, then fetches the suggestions as
+        /// the home screen does (and saves them, pictures and all), and lists them with what the phone would be told.
+        /// </summary>
+        public static int SuggestTest(string path)
+        {
+            var report = new StringBuilder();
+            int failures = 0;
+            Action<string, string, string> check = (what, got, expected) =>
+            {
+                bool ok = got == expected;
+                if (!ok) failures++;
+                report.AppendLine((ok ? "ok    " : "FAIL  ") + what + ": " + got + (ok ? "" : "   (expected " + expected + ")"));
+            };
+            check("song title", Suggestions.SongTitle("Radhimaa (feat. Sai Smriti) [From \"Think Indie\"]"), "Radhimaa");
+            check("song title", Suggestions.SongTitle("One Sun One Moon (From \"Jailer 2\")"), "One Sun One Moon");
+            check("song title", Suggestions.SongTitle("Arz Kiya Hai  Coke Studio Bharat"), "Arz Kiya Hai Coke Studio Bharat");
+            check("song title", Suggestions.SongTitle("KALYANI (Remix)"), "KALYANI (Remix)");
+            check("lead artist", Suggestions.LeadArtist("Karan Aujla & MXRCI"), "Karan Aujla");
+            check("lead artist", Suggestions.LeadArtist("Shashwat Sachdev, Arijit Singh, Irshad Kamil & Armaan Khan"), "Shashwat Sachdev");
+            check("Netflix plays", Suggestions.PlayableUrl("https://www.netflix.com/title/82034837"), "https://www.netflix.com/watch/82034837");
+            check("Netflix plays", Suggestions.PlayableUrl("https://www.netflix.com/in/title/82034837?s=a"), "https://www.netflix.com/watch/82034837");
+            check("JioHotstar plays", Suggestions.PlayableUrl("https://www.hotstar.com/in/movies/bethlehem-kudumba-unit/1271710275?search_query=Bethlehem+Kudumba+Unit"),
+                  "https://www.hotstar.com/in/movies/bethlehem-kudumba-unit/1271710275/watch");
+            check("ZEE5 as it is", Suggestions.PlayableUrl("https://www.zee5.com/movies/details/nude/0-0-70944"), "https://www.zee5.com/movies/details/nude/0-0-70944");
+
+            Config cfg = Config.Load();
+            DateTime fetched;
+            List<Suggestion> previous = Suggestions.Load(out fetched);
+            report.AppendLine();
+            report.AppendLine("Saved list: " + previous.Count + (fetched == DateTime.MinValue ? "" : ", fetched " + fetched.ToLocalTime()));
+            report.AppendLine("Settings: films " + (cfg.SuggestMovies ? "on" : "off") + ", songs " + (cfg.SuggestSongs ? "on" : "off") +
+                              ", subscriptions: " + (cfg.Subscriptions.Count == 0 ? "none" : string.Join(", ", cfg.Subscriptions)));
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var notes = new StringBuilder();
+            try
+            {
+                List<Suggestion> list = Suggestions.Fetch(cfg, previous, notes);
+                report.AppendLine("Fetched in " + watch.ElapsedMilliseconds + " ms. " + notes.ToString().Trim());
+                foreach (Suggestion s in list)
+                    report.AppendLine((s.Kind == SuggestionKind.Movie ? "Film  " : "Song  ") + s.Title + "  |  " + s.Subtitle + "  |  " + s.App + "  |  " +
+                                      (s.PlayUrl ?? "(looked for when chosen: " + s.Query + ")") + "  |  " + (s.ImageFile ?? "no picture"));
+                report.AppendLine();
+                report.AppendLine("To the phone:");
+                foreach (string line in Suggestions.PhoneLines(list, name => cfg.AppTiles.Find(t => t.Name == name)))
+                    report.AppendLine("  " + (line.Length > 150 ? line.Substring(0, 150) + "…" : line));
+                if (list.Count == 0) failures++;
+            }
+            catch (Exception ex)
+            {
+                report.AppendLine("FAIL  fetching: " + ex.Message);
+                failures++;
+            }
+            report.Insert(0, (failures == 0 ? "All good" : failures + " failed") + "\r\n\r\n");
+            File.WriteAllText(path, report.ToString(), Encoding.UTF8);
             return failures == 0 ? 0 : 1;
         }
 
@@ -1362,6 +1423,8 @@ namespace CouchTV
             server.LiftTouches = owner => { lock (touches) touches.Add("lift"); };
             server.PairingCode += (name, digits) => { lock (pairing) { shown = digits; pairing.Add(name + " shown"); } };
             server.PairingEnded += (name, outcome) => { lock (pairing) pairing.Add(name + " " + outcome); };
+            var played = new List<string>();
+            server.Play += id => { lock (played) played.Add(id); };
             Func<string> code = () => { lock (pairing) return shown; };
             Func<string> wrongCode = () => { lock (pairing) return ((int.Parse(shown) + 1) % 1000000).ToString("D6"); };
             Func<string> pairingLog = () => { lock (pairing) return string.Join(", ", pairing); };
@@ -1405,6 +1468,7 @@ namespace CouchTV
 
                 byte[] pairKey;
                 string session;
+                server.CurrentSuggestions = () => new List<string> { "SUGGESTIONS 1", "SUGGEST S s1 SGF3YXllaW4= - WW91VHViZQ== - FF0000 FFFFFF" };
                 using (var a = new TestPhone(idA))
                 {
                     a.Hello(47791);
@@ -1417,6 +1481,8 @@ namespace CouchTV
                     session = audio != null && audio.StartsWith("AUDIO ") ? audio.Substring(6) : null;
                     check("Wi-Fi: HELLO gets WELCOME, the receiver box's key and a sound session, encrypted",
                         welcome == "WELCOME " + RemoteServer.TvName && board == "BOARD " + Secure.Hex(phones.BoardKey) && server.FindSession(session) != null);
+                    string listed = a.Receive(), item = a.Receive();
+                    check("Wi-Fi: ...and the suggestions, for the phone's first page", listed == "SUGGESTIONS 1" && item == "SUGGEST S s1 SGF3YXllaW4= - WW91VHViZQ== - FF0000 FFFFFF");
                     a.Send("PING");
                     check("Wi-Fi: PING gets PONG", a.Receive() == "PONG");
                     a.Send("SOUND");
@@ -1427,6 +1493,10 @@ namespace CouchTV
                     check("Wi-Fi: ...a password box too (its value never sent)", a.Receive() == TypingLine("PASSWORD", "Password", ""));
                     server.ShowTyping(null);
                     check("Wi-Fi: ...and when it loses it", a.Receive() == "INPUT OFF");
+                    server.SendToPhones(new List<string> { "SUGGESTIONS 0" });
+                    check("Wi-Fi: a new list of suggestions goes to the phone", a.Receive() == "SUGGESTIONS 0");
+                    a.Send("PLAY s1");
+                    a.Send("PLAY " + new string('x', 61));   // ignored: no id is that long
                     a.Send("KEY A2 D");      // Ctrl, still held when the phone leaves
                     a.Send("KEY 43 D");
                     a.Send("KEY 43 U");
@@ -1456,7 +1526,9 @@ namespace CouchTV
                     a.Receive();             // everything before it has been handled
                 }
                 System.Threading.Thread.Sleep(300);    // the server notices the phone left
+                server.CurrentSuggestions = null;
                 check("Wi-Fi: its sound session ends with the connection", server.FindSession(session) == null);
+                lock (played) check("Wi-Fi: PLAY plays a suggestion (" + string.Join(", ", played) + ")", string.Join(", ", played) == "s1");
                 lock (buttons) check("Wi-Fi: buttons arrive as the IR receiver's codes", string.Join(", ", buttons) == "NEC 00CE 0005 N, NEC 00CE 0006 R");
                 lock (words) check("Wi-Fi: words arrive whole, Hindi included", words.Count == 1 && words[0] == "पंचायत season 3");
                 lock (pointer) check("Wi-Fi: the trackpad moves, scrolls and drags; a phone that leaves mid-drag lets go",

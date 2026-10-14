@@ -109,6 +109,8 @@ namespace CouchTV
             _wifi.Text += ReceiveSearchText;
             _wifi.Connected += who => { if (IsActive && !SearchOpen) Toast("Phone remote connected over Wi-Fi"); };
             _wifi.CurrentPointer = () => _cfg.PointerStyle + " " + _cfg.PointerSize + " " + _cfg.PointerColor;
+            _wifi.CurrentSuggestions = () => _phoneSuggestions;
+            _wifi.Play += PlaySuggestionById;
             _wifi.PointerLook += ChangePointer;
             _wifi.Start();
             ApplyPointer();
