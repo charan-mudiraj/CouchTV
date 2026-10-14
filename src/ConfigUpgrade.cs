@@ -11,7 +11,7 @@ namespace CouchTV
     /// </summary>
     internal static class ConfigUpgrade
     {
-        public const int Latest = 1;
+        public const int Latest = 2;
 
         /// <summary>The file's text with any pending changes applied; changes lists what was done.</summary>
         public static string Apply(string text, List<string> changes)
@@ -32,6 +32,18 @@ namespace CouchTV
                 }
                 text = Set(text, "CouchTV", "Subscriptions", "Netflix", true);
                 changes.Add("Subscriptions = Netflix");
+            }
+            if (version < 2)
+            {
+                // October 2026: the Bluetooth tile opens CouchTV's own Bluetooth screen (worked with the remote, and
+                // headphones play along with the TV speakers) instead of Windows' pairing wizard.
+                string exe = Get(text, "Bluetooth", "Exe");
+                if (exe != null && exe.IndexOf("DevicePairingWizard", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    text = Set(text, "Bluetooth", "Type", "action", false);
+                    text = Set(text, "Bluetooth", "Action", "bluetooth", false);
+                    changes.Add("Bluetooth tile opens CouchTV's Bluetooth screen");
+                }
             }
             return Set(text, "CouchTV", "ConfigVersion", Latest.ToString(), true);
         }

@@ -134,6 +134,7 @@ namespace CouchTV
             _timer.Tick += OnTick;
             _timer.Start();
             StartRemote();
+            StartBluetooth();
             StartUpdateChecks();
 
             if (_opt.ExitAfterSeconds > 0)
@@ -170,6 +171,7 @@ namespace CouchTV
             _layers.Children.Add(_launch = BuildLaunchOverlay());
             _layers.Children.Add(_confirm = BuildConfirm());
             _layers.Children.Add(_setup = BuildSetup());
+            _layers.Children.Add(_bt = BuildBluetooth());
             _layers.Children.Add(_search = BuildSearch());
             root.Children.Add(new Viewbox { Stretch = Stretch.Uniform, Child = _layers });
 
@@ -513,7 +515,7 @@ namespace CouchTV
             };
         }
 
-        bool Modal { get { return _confirm.Visibility == Visibility.Visible || SetupOpen || SearchOpen; } }
+        bool Modal { get { return _confirm.Visibility == Visibility.Visible || SetupOpen || SearchOpen || BluetoothOpen; } }
 
         List<TileView> Row(int r) { return r == 0 ? _apps : _sys; }
 
@@ -645,6 +647,12 @@ namespace CouchTV
             if (SetupOpen)
             {
                 SetupKey(key);
+                e.Handled = true;
+                return;
+            }
+            if (BluetoothOpen)
+            {
+                BluetoothKey(key);
                 e.Handled = true;
                 return;
             }
@@ -820,6 +828,9 @@ namespace CouchTV
                 case "remote":
                     OpenRemoteSetup();
                     break;
+                case "bluetooth":
+                    OpenBluetooth();
+                    break;
                 case "search":
                     OpenSearch(false);
                     break;
@@ -852,6 +863,7 @@ namespace CouchTV
             HideLaunch();
             _confirm.Visibility = Visibility.Collapsed;
             if (SetupOpen) FinishSetup(false);
+            if (BluetoothOpen) CloseBluetooth();
             if (SearchOpen) CloseSearch(false);
             if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
             Show();
@@ -1135,6 +1147,7 @@ namespace CouchTV
                 CheckForUpdatesSoon(45);
                 UpdateClock();
                 UpdateNetwork();
+                if (_bluetooth != null) _bluetooth.Kick();   // headphones set to connect automatically: now
             }));
         }
 
@@ -1388,6 +1401,7 @@ namespace CouchTV
             if (_ir != null) _ir.Stop();
             if (_wifi != null) _wifi.Stop();
             if (_typing != null) _typing.Stop();
+            if (_bluetooth != null) _bluetooth.Stop();
             if (_sound != null) _sound.Stop();
             Pointer.Restore();
             Mouse.OverrideCursor = null;
@@ -1432,6 +1446,7 @@ namespace CouchTV
                 OpenRemoteSetup();
                 SetupCapture(new IrSignal { Code = "Samsung 0707 0060" });
             }
+            if (state.Contains("bluetooth")) PreviewBluetooth(state.Contains("btdevice") ? "device" : state.Contains("btadd") ? "add" : "main");
             if (state.Contains("listening")) OpenSearch(true);
             else if (state.Contains("searchplan") || state.Contains("searchauto") || state.Contains("searchaction") || state.Contains("searchplay"))
             {

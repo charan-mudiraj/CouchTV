@@ -19,7 +19,7 @@ namespace CouchTV
             object enumerator = null, device = null, endpoint = null;
             try
             {
-                enumerator = new MMDeviceEnumerator();
+                enumerator = CoreAudio.NewEnumerator();
                 IMMDevice dev;
                 if (((IMMDeviceEnumerator)enumerator).GetDefaultAudioEndpoint(RenderFlow, MultimediaRole, out dev) != 0 || dev == null) return false;
                 device = dev;

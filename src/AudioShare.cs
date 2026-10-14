@@ -334,7 +334,7 @@ namespace CouchTV
             {
                 try
                 {
-                    _enumerator = new MMDeviceEnumerator();
+                    _enumerator = CoreAudio.NewEnumerator();
                     IMMDevice device;
                     Check(((IMMDeviceEnumerator)_enumerator).GetDefaultAudioEndpoint(RenderFlow, MultimediaRole, out device), "no speakers");
                     _device = device;
@@ -395,7 +395,12 @@ namespace CouchTV
             }
 
             /// <summary>Appends any new sound to pcm (16-bit stereo, interleaved). False if there was none yet.</summary>
-            public bool Read(List<short> pcm)
+            public bool Read(List<short> pcm) { return Read(pcm, null); }
+
+            /// <summary>The same at full precision (32-bit float stereo, interleaved): for a second output on this PC.</summary>
+            public bool ReadFloat(List<float> pcm) { return Read(null, pcm); }
+
+            bool Read(List<short> pcm, List<float> floats)
             {
                 if (_level != null && Environment.TickCount - _volumeChecked >= 50)
                 {
@@ -415,7 +420,7 @@ namespace CouchTV
                     uint frames, flags;
                     ulong position, qpc;
                     Check(_reader.GetBuffer(out data, out frames, out flags, out position, out qpc), "read");
-                    AppendStereo(data, (int)frames, (flags & BufferFlagsSilent) != 0, pcm);
+                    AppendStereo(data, (int)frames, (flags & BufferFlagsSilent) != 0, pcm, floats);
                     Check(_reader.ReleaseBuffer(frames), "release");
                     any = true;
                     Check(_reader.GetNextPacketSize(out next), "packet size");
@@ -424,12 +429,16 @@ namespace CouchTV
             }
 
             /// <summary>Converts to 16-bit stereo; 5.1 and 7.1 fold the centre (dialogue) and surrounds into left and right.</summary>
-            void AppendStereo(IntPtr data, int frames, bool silent, List<short> pcm)
+            void AppendStereo(IntPtr data, int frames, bool silent, List<short> pcm, List<float> floats)
             {
                 int bytes = _bits / 8, stride = bytes * _channels;
                 if (silent)
                 {
-                    for (int f = 0; f < frames * 2; f++) pcm.Add(0);
+                    for (int f = 0; f < frames * 2; f++)
+                    {
+                        if (pcm != null) pcm.Add(0);
+                        else floats.Add(0f);
+                    }
                     return;
                 }
                 if (_buffer.Length < frames * stride) _buffer = new byte[frames * stride * 2];
@@ -458,8 +467,16 @@ namespace CouchTV
                     float peak = Math.Max(Math.Abs(left), Math.Abs(right)) * _limit;
                     if (peak > Ceiling) _limit *= Ceiling / peak;
                     else _limit += (1f - _limit) * release;
-                    pcm.Add(ToShort(left * _limit));
-                    pcm.Add(ToShort(right * _limit));
+                    if (pcm != null)
+                    {
+                        pcm.Add(ToShort(left * _limit));
+                        pcm.Add(ToShort(right * _limit));
+                    }
+                    else
+                    {
+                        floats.Add(left * _limit);
+                        floats.Add(right * _limit);
+                    }
                 }
             }
 

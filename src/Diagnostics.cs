@@ -11,7 +11,7 @@ namespace CouchTV
     /// <summary>Command-line checks used while building and installing: screenshots and a self-test report.</summary>
     internal static class Diagnostics
     {
-        /// <summary>CouchTV.exe --screenshot out.png [--size 1366x768] [--focus row,col] [--state toast,launch,confirm,osd,update,sleep] [--config file]</summary>
+        /// <summary>CouchTV.exe --screenshot out.png [--size 1366x768] [--focus row,col] [--state toast,launch,confirm,osd,update,sleep,bluetooth,btdevice,btadd] [--config file]</summary>
         public static int Screenshot(string[] args, string path)
         {
             int width = 1920, height = 1080, row = 0, col = 0;
@@ -243,13 +243,19 @@ namespace CouchTV
             check("no subscriptions and nothing known: the plain app row", watch(unsubscribed, new KeyValuePair<Tile, string>[0]) == "");
 
             // ----- one-time settings changes on an installed couchtv.ini from before them
-            string oldIni = System.Text.RegularExpressions.Regex.Replace(Config.DefaultText(), @"(?m)^(Subscriptions = Netflix|ConfigVersion = 1|Enabled = false\r?\n(?=Type = app\r?\nExe = %ProgramFiles%\\VideoLAN))\r?\n?", "");
+            string oldIni = System.Text.RegularExpressions.Regex.Replace(Config.DefaultText(), @"(?m)^(Subscriptions = Netflix|ConfigVersion = 2|Enabled = false\r?\n(?=Type = app\r?\nExe = %ProgramFiles%\\VideoLAN))\r?\n?", "");
+            // ...and with the Bluetooth tile as it was: Windows' pairing wizard.
+            oldIni = oldIni.Replace("Type = action\r\nAction = bluetooth", "Type = app\r\nExe = %SystemRoot%\\System32\\DevicePairingWizard.exe")
+                           .Replace("Type = action\nAction = bluetooth", "Type = app\nExe = %SystemRoot%\\System32\\DevicePairingWizard.exe");
             var changes = new List<string>();
             string upgraded = ConfigUpgrade.Apply(oldIni, changes);
             Config after = Config.Parse(upgraded, "test");
             check("upgrade: test file really is the old kind", ConfigUpgrade.Get(oldIni, "CouchTV", "ConfigVersion") == null && ConfigUpgrade.Get(oldIni, "VLC", "Enabled") == null);
             check("upgrade: VLC hidden, Netflix subscribed, version recorded", ConfigUpgrade.Get(upgraded, "VLC", "Enabled") == "false"
-                && after.Subscriptions.Count == 1 && after.Subscriptions[0] == "Netflix" && ConfigUpgrade.Get(upgraded, "CouchTV", "ConfigVersion") == "1");
+                && after.Subscriptions.Count == 1 && after.Subscriptions[0] == "Netflix" && ConfigUpgrade.Get(upgraded, "CouchTV", "ConfigVersion") == ConfigUpgrade.Latest.ToString());
+            Tile bluetoothTile = after.SystemTiles.Find(t => t.Name == "Bluetooth");
+            check("upgrade: the Bluetooth tile opens CouchTV's Bluetooth screen, not Windows' wizard",
+                ConfigUpgrade.Get(oldIni, "Bluetooth", "Exe") != null && bluetoothTile != null && bluetoothTile.Kind == TileKind.Action && bluetoothTile.Action == "bluetooth");
             check("upgrade: the new line goes with the other settings, before the tiles' comments",
                 upgraded.IndexOf("Subscriptions = Netflix") < upgraded.IndexOf(";  Tiles: each"));
             check("upgrade: runs once (changing it back afterwards sticks)", ConfigUpgrade.Apply(ConfigUpgrade.Set(upgraded, "VLC", "Enabled", "true", false), new List<string>()).Contains("Enabled = true"));
@@ -738,6 +744,75 @@ namespace CouchTV
             put("board_reply_tag", BoardTag(boardKey, "R " + challenge + " STATE PC ON TV OFF SENSE ON " + next));
             File.WriteAllText(path, v.ToString().Replace("\r\n", "\n"), new UTF8Encoding(false));
             return 0;
+        }
+
+        /// <summary>
+        /// CouchTV.exe --bluetoothtest report.txt: what CouchTV sees of this PC's Bluetooth and sound outputs, without
+        /// changing anything (no pairing, connecting or switching); the resampler that keeps a copy in step; and, if
+        /// there's a second sound output, a few seconds of copying to it.
+        /// </summary>
+        public static int BluetoothTest(string path)
+        {
+            var report = new StringBuilder();
+            int failures = 0;
+            Action<string, bool> check = (name, ok) =>
+            {
+                report.AppendLine((ok ? "PASS  " : "FAIL  ") + name);
+                if (!ok) failures++;
+            };
+            try
+            {
+                bool? power = BluetoothPower.IsOn();
+                report.AppendLine("Bluetooth switch: " + (power == null ? "no adapter" : power.Value ? "on" : "off"));
+                string radio = Bluetooth.RadioName();
+                report.AppendLine("Bluetooth adapter: " + (radio ?? "none (switched off, or no adapter)"));
+                check("bluetooth: an adapter is found exactly when Bluetooth is on", (radio != null) == (power == true));
+                if (radio != null)
+                    foreach (BtDevice d in Bluetooth.Devices(false))
+                        report.AppendLine("  device: " + d.Label + " (" + d.AddressText + ", " + d.Kind + ", class " + d.ClassOfDevice.ToString("X6") + ")" +
+                                          (d.Paired ? ", paired" : "") + (d.Connected ? ", connected" : "") +
+                                          (d.LastUsed != DateTime.MinValue ? ", last used " + d.LastUsed.ToString("g") : ""));
+                string main = AudioOutputs.DefaultId();
+                List<AudioOutput> outputs = AudioOutputs.All();
+                foreach (AudioOutput o in outputs)
+                    report.AppendLine("  output: " + o.Name + (o.Id == main ? " [main]" : "") + (o.Active ? ", active" : ", unplugged") +
+                                      ", form " + o.FormFactor + (o.BtAddress != 0 ? ", Bluetooth " + Bluetooth.AddressText(o.BtAddress) + (o.HandsFree ? " hands-free" : " stereo") +
+                                      (AudioOutputs.CanConnect(o.Id) ? ", can connect/disconnect" : ", CAN'T connect/disconnect") : ""));
+                check("bluetooth: the sound outputs are listed, with the main one among them", outputs.Count > 0 && outputs.Exists(o => o.Id == main));
+                foreach (AudioOutput o in outputs.FindAll(x => x.BtAddress != 0 && !x.HandsFree))
+                    check("bluetooth: " + o.Name + " can be connected and disconnected", AudioOutputs.CanConnect(o.Id));
+                object policy = Activator.CreateInstance(Type.GetTypeFromCLSID(new Guid("870af99c-171d-4f9e-af0d-e63df40c2bc9")));
+                check("bluetooth: Windows' main-output switch is there", policy != null);
+                System.Runtime.InteropServices.Marshal.ReleaseComObject(policy);
+
+                // The resampler: exact at normal speed; at 0.1% faster, 0.1% fewer frames, with a tone kept intact.
+                var tone = new float[48000 * 2];
+                for (int i = 0; i < 48000; i++) tone[2 * i] = tone[2 * i + 1] = (float)Math.Sin(2 * Math.PI * 1000 * i / 48000.0) * 0.5f;
+                float[] same = new SincResampler().Process(tone, 48000, 1.0);
+                bool exact = same.Length > 47000 * 2;
+                for (int i = 0; i < 40000 && exact; i++) exact = Math.Abs(same[2 * i] - tone[2 * i]) < 1e-6f;
+                check("copy: at normal speed the sound comes through unchanged", exact);
+                float[] faster = new SincResampler().Process(tone, 48000, 1.001);
+                check("copy: 0.1% faster gives 0.1% fewer frames (" + faster.Length / 2 + ")", Math.Abs(faster.Length / 2 - 48000 / 1.001) < 20);
+                double peak = 0;
+                for (int i = 1000; i < faster.Length / 2 - 1000; i++) peak = Math.Max(peak, Math.Abs(faster[2 * i]));
+                check("copy: ...and keeps the tone's level (" + peak.ToString("0.000") + ")", Math.Abs(peak - 0.5) < 0.01);
+
+                AudioOutput other = outputs.Find(o => o.Active && o.Id != main && !o.HandsFree);
+                if (other == null) report.AppendLine("copy: no second sound output on this PC to copy to (not tried)");
+                else
+                {
+                    var copy = new AudioCopy(other.Id, other.Name);
+                    copy.Start();
+                    System.Threading.Thread.Sleep(3000);
+                    copy.Stop();
+                    check("copy: plays to " + other.Name + " (" + copy.Played + " frames in 3 s)", copy.Played > 48000);
+                }
+            }
+            catch (Exception ex) { check("bluetooth: " + ex.Message, false); }
+            report.AppendLine(failures == 0 ? "All passed" : failures + " failed");
+            File.WriteAllText(path, report.ToString());
+            return failures == 0 ? 0 : 1;
         }
 
         static string TypingLine(string kind, string name, string value)
