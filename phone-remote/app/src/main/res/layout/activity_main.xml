@@ -71,12 +71,23 @@
             android:layout_height="1dp"
             android:layout_weight="1" />
 
+        <ImageButton
+            android:id="@+id/settings_open"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="@drawable/listen_bg"
+            android:contentDescription="@string/settings_title"
+            android:paddingBottom="4dp"
+            android:src="@drawable/ic_settings"
+            android:stateListAnimator="@animator/key_press"
+            android:tooltipText="@string/settings_title" />
+
         <!-- The TV's screen here, to choose from across the room -->
         <ImageButton
             android:id="@+id/mirror"
-            android:layout_width="52dp"
-            android:layout_height="52dp"
-            android:layout_marginStart="10dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="8dp"
             android:background="@drawable/listen_bg"
             android:contentDescription="@string/mirror_start"
             android:paddingBottom="4dp"
@@ -86,9 +97,9 @@
 
         <ImageButton
             android:id="@+id/listen"
-            android:layout_width="52dp"
-            android:layout_height="52dp"
-            android:layout_marginStart="10dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="8dp"
             android:background="@drawable/listen_bg"
             android:contentDescription="@string/listen_start"
             android:paddingBottom="4dp"
@@ -98,9 +109,9 @@
 
         <com.couchtv.remote.PowerButton
             android:id="@+id/power"
-            android:layout_width="52dp"
-            android:layout_height="52dp"
-            android:layout_marginStart="10dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="8dp"
             android:background="@drawable/power_bg"
             android:contentDescription="@string/power"
             android:paddingBottom="4dp"
@@ -181,7 +192,7 @@
                     android:layout_weight="1" />
             </LinearLayout>
 
-            <!-- 1. Remote: search, D-pad, the everyday keys (where the app opens) -->
+            <!-- 1. Remote: search, the D-pad and the keys as on a real remote, the apps at the bottom (where the app opens) -->
             <LinearLayout style="@style/Page">
 
                 <!-- Search: the mic for voice search, or tap the bar to type -->
@@ -234,177 +245,201 @@
                     android:id="@+id/dpad"
                     android:layout_width="match_parent"
                     android:layout_height="0dp"
-                    android:layout_marginTop="14dp"
-                    android:layout_marginBottom="14dp"
+                    android:layout_marginTop="12dp"
+                    android:layout_marginBottom="12dp"
                     android:layout_weight="1" />
 
-                <!-- Back, Home, Menu -->
+                <!-- Back, Home, Menu, Exit: round keys -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="-5dp"
-                    android:layout_marginEnd="-5dp"
+                    android:gravity="center"
                     android:orientation="horizontal">
 
                     <ImageButton
                         android:id="@+id/back"
-                        style="@style/RemoteKey"
-                        android:layout_height="60dp"
+                        style="@style/RoundKey"
                         android:contentDescription="@string/back"
-                        android:src="@drawable/ic_back" />
+                        android:src="@drawable/ic_back"
+                        android:tooltipText="@string/back" />
 
                     <ImageButton
                         android:id="@+id/home"
-                        style="@style/RemoteKey"
-                        android:layout_height="60dp"
+                        style="@style/RoundKey"
                         android:contentDescription="@string/home"
-                        android:src="@drawable/ic_home" />
+                        android:src="@drawable/ic_home"
+                        android:tooltipText="@string/home" />
 
                     <ImageButton
                         android:id="@+id/menu"
-                        style="@style/RemoteKey"
-                        android:layout_height="60dp"
+                        style="@style/RoundKey"
                         android:contentDescription="@string/menu"
-                        android:src="@drawable/ic_menu" />
+                        android:src="@drawable/ic_menu"
+                        android:tooltipText="@string/menu" />
+
+                    <ImageButton
+                        android:id="@+id/exit"
+                        style="@style/RoundKey"
+                        android:contentDescription="@string/key_exit"
+                        android:src="@drawable/ic_exit"
+                        android:tooltipText="@string/key_exit" />
                 </LinearLayout>
 
-                <!-- Volume and play/pause -->
+                <!-- The volume rocker; mute, play/pause, full screen, delete; and the sleep timer, tall like the rocker -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="-5dp"
-                    android:layout_marginTop="10dp"
-                    android:layout_marginEnd="-5dp"
+                    android:layout_marginTop="12dp"
+                    android:gravity="center_vertical"
                     android:orientation="horizontal">
 
-                    <ImageButton
-                        android:id="@+id/volume_down"
-                        style="@style/RemoteKey"
-                        android:layout_height="60dp"
-                        android:contentDescription="@string/volume_down"
-                        android:src="@drawable/ic_volume_down" />
+                    <LinearLayout
+                        android:layout_width="64dp"
+                        android:layout_height="136dp"
+                        android:background="@drawable/key_bg"
+                        android:orientation="vertical"
+                        android:paddingBottom="4dp">
 
-                    <ImageButton
-                        android:id="@+id/mute"
-                        style="@style/RemoteKey"
-                        android:layout_height="60dp"
-                        android:contentDescription="@string/mute"
-                        android:src="@drawable/ic_volume_off" />
+                        <ImageButton
+                            android:id="@+id/volume_up"
+                            android:layout_width="match_parent"
+                            android:layout_height="0dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/rocker_half_bg"
+                            android:contentDescription="@string/volume_up"
+                            android:src="@drawable/ic_volume_up" />
 
-                    <ImageButton
-                        android:id="@+id/volume_up"
-                        style="@style/RemoteKey"
-                        android:layout_height="60dp"
-                        android:contentDescription="@string/volume_up"
-                        android:src="@drawable/ic_volume_up" />
+                        <View
+                            android:layout_width="24dp"
+                            android:layout_height="1dp"
+                            android:layout_gravity="center_horizontal"
+                            android:background="@color/key_edge" />
 
-                    <ImageButton
-                        android:id="@+id/play_pause"
-                        style="@style/RemoteKey"
-                        android:layout_height="60dp"
-                        android:contentDescription="@string/play_pause"
-                        android:src="@drawable/ic_play_pause" />
+                        <ImageButton
+                            android:id="@+id/volume_down"
+                            android:layout_width="match_parent"
+                            android:layout_height="0dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/rocker_half_bg"
+                            android:contentDescription="@string/volume_down"
+                            android:src="@drawable/ic_volume_down" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center"
+                            android:orientation="horizontal">
+
+                            <ImageButton
+                                android:id="@+id/mute"
+                                style="@style/RoundKey"
+                                android:contentDescription="@string/mute"
+                                android:src="@drawable/ic_volume_off"
+                                android:tooltipText="@string/mute" />
+
+                            <ImageButton
+                                android:id="@+id/play_pause"
+                                style="@style/RoundKey"
+                                android:contentDescription="@string/play_pause"
+                                android:src="@drawable/ic_play_pause"
+                                android:tooltipText="@string/play_pause" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:gravity="center"
+                            android:orientation="horizontal">
+
+                            <ImageButton
+                                android:id="@+id/full_screen"
+                                style="@style/RoundKey"
+                                android:contentDescription="@string/key_full_screen"
+                                android:src="@drawable/ic_fullscreen"
+                                android:tooltipText="@string/key_full_screen" />
+
+                            <ImageButton
+                                android:id="@+id/delete"
+                                style="@style/RoundKey"
+                                android:contentDescription="@string/key_delete"
+                                android:src="@drawable/ic_backspace"
+                                android:tooltipText="@string/key_delete" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <Button
+                        android:id="@+id/sleep_timer"
+                        style="@style/RemoteKey.Text"
+                        android:layout_width="64dp"
+                        android:layout_height="136dp"
+                        android:drawableTop="@drawable/ic_bedtime"
+                        android:drawablePadding="8dp"
+                        android:drawableTint="@color/ink"
+                        android:paddingTop="30dp"
+                        android:paddingBottom="30dp"
+                        android:text="@string/key_sleep_timer"
+                        android:textSize="12sp" />
                 </LinearLayout>
-            </LinearLayout>
 
-            <!-- 2. Apps, and the TV's other keys -->
-            <LinearLayout
-                style="@style/Page"
-                android:paddingTop="12dp">
-
+                <!-- The apps' own buttons, as on a real remote -->
                 <com.couchtv.remote.FitGrid
                     android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    app:columns="2"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:layout_marginBottom="6dp"
+                    app:columns="3"
                     app:fillLastRow="true"
-                    app:gap="12dp"
-                    app:rowHeight="136dp">
+                    app:gap="8dp"
+                    app:rowHeight="44dp">
 
                     <Button
                         android:id="@+id/app_netflix"
-                        style="@style/AppTile"
+                        style="@style/AppPill"
                         android:backgroundTint="@color/netflix"
                         android:text="@string/app_netflix" />
 
                     <Button
                         android:id="@+id/app_youtube"
-                        style="@style/AppTile"
+                        style="@style/AppPill"
                         android:backgroundTint="@color/youtube"
                         android:text="@string/app_youtube" />
 
                     <Button
                         android:id="@+id/app_prime"
-                        style="@style/AppTile"
+                        style="@style/AppPill"
                         android:backgroundTint="@color/prime"
                         android:text="@string/app_prime" />
 
                     <Button
                         android:id="@+id/app_hotstar"
-                        style="@style/AppTile"
+                        style="@style/AppPill"
                         android:backgroundTint="@color/hotstar"
                         android:text="@string/app_hotstar" />
 
                     <Button
                         android:id="@+id/app_web"
-                        style="@style/AppTile"
+                        style="@style/AppPill"
                         android:backgroundTint="@color/web"
                         android:text="@string/app_web" />
                 </com.couchtv.remote.FitGrid>
-
-                <com.couchtv.remote.FitGrid
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp"
-                    android:layout_marginBottom="6dp"
-                    app:columns="2"
-                    app:gap="10dp"
-                    app:rowHeight="56dp">
-
-                    <Button
-                        android:id="@+id/exit"
-                        style="@style/RemoteKey.Text"
-                        android:layout_width="0dp"
-                        android:layout_height="0dp"
-                        android:text="@string/key_exit" />
-
-                    <Button
-                        android:id="@+id/full_screen"
-                        style="@style/RemoteKey.Text"
-                        android:layout_width="0dp"
-                        android:layout_height="0dp"
-                        android:text="@string/key_full_screen" />
-
-                    <Button
-                        android:id="@+id/sleep_timer"
-                        style="@style/RemoteKey.Text"
-                        android:layout_width="0dp"
-                        android:layout_height="0dp"
-                        android:text="@string/key_sleep_timer" />
-
-                    <Button
-                        android:id="@+id/delete"
-                        style="@style/RemoteKey.Text"
-                        android:layout_width="0dp"
-                        android:layout_height="0dp"
-                        android:text="@string/key_delete" />
-                </com.couchtv.remote.FitGrid>
             </LinearLayout>
 
-            <!-- 3. Trackpad, like a laptop's, with its two buttons -->
+            <!-- 2. Trackpad, like a laptop's, with its two buttons -->
             <LinearLayout style="@style/Page">
-
-                <!-- The TV pointer's look -->
-                <TextView
-                    android:id="@+id/pointer_look"
-                    style="@style/PageAction"
-                    android:text="@string/pointer_look" />
 
                 <com.couchtv.remote.TrackpadView
                     android:id="@+id/trackpad"
                     android:layout_width="match_parent"
                     android:layout_height="0dp"
-                    android:layout_marginTop="10dp"
+                    android:layout_marginTop="8dp"
                     android:layout_marginBottom="12dp"
                     android:layout_weight="1" />
 
@@ -439,7 +474,7 @@
                 </LinearLayout>
             </LinearLayout>
 
-            <!-- 4. A PC keyboard, and typing with this phone's own -->
+            <!-- 3. A PC keyboard, and typing with this phone's own -->
             <LinearLayout
                 style="@style/Page"
                 android:paddingStart="6dp"
@@ -460,16 +495,6 @@
                     android:layout_marginBottom="6dp"
                     android:layout_weight="1"
                     android:contentDescription="@string/keyboard" />
-            </LinearLayout>
-
-            <!-- 5. Settings: the TV's (as it lists them) and this phone's -->
-            <LinearLayout style="@style/Page">
-
-                <com.couchtv.remote.SettingsView
-                    android:id="@+id/settings"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1" />
             </LinearLayout>
         </LinearLayout>
     </com.couchtv.remote.PagerView>
@@ -544,6 +569,12 @@
             android:src="@drawable/ic_close" />
     </LinearLayout>
 </FrameLayout>
+
+<!-- Settings, a screen of its own over the remote (like a phone's Settings app) -->
+<com.couchtv.remote.SettingsScreen
+    android:id="@+id/settings_screen"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent" />
 
 <!-- Power with the TV on: a big countdown in the middle, as on the TV, with Cancel within easy reach -->
 <FrameLayout

@@ -120,11 +120,14 @@ class MainActivity : Activity() {
         findViewById<View>(R.id.power_overlay).setOnClickListener { cancelPowerOff() }   // a tap outside the card: no
         for (id in intArrayOf(R.id.power_cancel, R.id.power_now)) Haptics.attach(findViewById(id))
 
-        // Settings: the TV's (it lists them) and this phone's.
-        val settingsView = findViewById<SettingsView>(R.id.settings)
-        settingsView.onTvChange = { key, value -> remote.wifi.setSetting(key, value) }
-        settingsView.onPhoneChange = { key, value -> changePhoneSetting(key, value) }
-        settingsView.onVersion = { checkForUpdate(manual = true) }
+        // Settings, a screen of its own (the gear at the top): the TV's (it lists them) and this phone's.
+        val settings = findViewById<SettingsScreen>(R.id.settings_screen)
+        settings.onTvChange = { key, value -> remote.wifi.setSetting(key, value) }
+        settings.onPhoneChange = { key, value -> changePhoneSetting(key, value) }
+        settings.onVersion = { checkForUpdate(manual = true) }
+        settings.onConnection = { openStatus() }
+        findViewById<View>(R.id.settings_open).setOnClickListener { settings.open() }
+        Haptics.attach(findViewById(R.id.settings_open))
         remote.wifi.onSettings = {
             remote.wifi.settings.find { it.key == "powercountdown" }?.value?.toIntOrNull()?.let { phone.powerCountdown = it }
             showSettings()
@@ -180,7 +183,6 @@ class MainActivity : Activity() {
             override fun onStop() = remote.pointerStop()
         }
         findViewById<TrackpadView>(R.id.trackpad).help = getString(R.string.trackpad_help)
-        findViewById<View>(R.id.pointer_look).setOnClickListener { choosePointer() }
 
         // The PC keyboard page, and typing into the TV's text boxes with this phone's own keyboard.
         keyboard = findViewById(R.id.keyboard)
@@ -252,6 +254,18 @@ class MainActivity : Activity() {
                 "close" -> {
                     statusPanel.dismiss()
                     sleepTimer.dismiss()
+                    findViewById<SettingsScreen>(R.id.settings_screen).close()
+                    true
+                }
+                "settings" -> {
+                    findViewById<SettingsScreen>(R.id.settings_screen).open()
+                    true
+                }
+                "pointer" -> {
+                    findViewById<SettingsScreen>(R.id.settings_screen).apply {
+                        if (!isOpen) open()
+                        showPointer(true)
+                    }
                     true
                 }
                 else -> false
@@ -366,6 +380,7 @@ class MainActivity : Activity() {
             cancelPowerOff()
             return
         }
+        if (findViewById<SettingsScreen>(R.id.settings_screen).back()) return
         if (mirroring) {
             setMirror(false)
             return
@@ -836,7 +851,7 @@ class MainActivity : Activity() {
                 "saver" to getString(R.string.set_mirror_saver), "balanced" to getString(R.string.set_mirror_balanced),
                 "sharp" to getString(R.string.set_mirror_sharp))),
         )
-        findViewById<SettingsView>(R.id.settings).show(remote.wifi.settings, mine,
+        findViewById<SettingsScreen>(R.id.settings_screen).show(remote.wifi.settings, mine,
             getString(R.string.version_label, BuildConfig.VERSION_NAME, BuildConfig.COMMIT))
     }
 
@@ -1107,78 +1122,5 @@ class MainActivity : Activity() {
             if (event.actionMasked == MotionEvent.ACTION_UP) v.performClick()
             handled
         }
-    }
-
-    // ---------------------------------------------------------------- the TV's pointer
-
-    /** The TV pointer's style, size and colour: it changes on the TV as you pick (over Wi-Fi). */
-    private fun choosePointer() {
-        if (!remote.viaWifi) {
-            toast(getString(R.string.pointer_needs_wifi))
-            return
-        }
-        val now = (remote.wifi.pointerLook ?: "arrow 64 white").split(" ")
-        var style = now.getOrNull(0) ?: "arrow"
-        var size = now.getOrNull(1)?.toIntOrNull() ?: 64
-        var color = now.getOrNull(2) ?: "white"
-        val send = { remote.wifi.setPointer(style, size, color) }
-
-        val padding = (20 * resources.displayMetrics.density).toInt()
-        val form = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(padding, padding / 2, padding, 0)
-        }
-        form.addView(caption(R.string.pointer_style))
-        form.addView(choices(listOf("arrow" to R.string.pointer_arrow, "dot" to R.string.pointer_dot, "ring" to R.string.pointer_ring),
-            3, { style }) { style = it; send() })
-        form.addView(caption(R.string.pointer_size))
-        form.addView(choices(listOf(48 to R.string.size_medium, 64 to R.string.size_large, 96 to R.string.size_huge, 128 to R.string.size_giant),
-            2, { size }) { size = it; send() })
-        form.addView(caption(R.string.pointer_color))
-        val colors = mapOf("white" to R.color.pointer_white, "yellow" to R.color.pointer_yellow, "blue" to R.color.pointer_blue,
-            "green" to R.color.pointer_green, "pink" to R.color.pointer_pink)
-        form.addView(choices(listOf("white" to R.string.color_white, "yellow" to R.string.color_yellow, "blue" to R.string.color_blue,
-            "green" to R.string.color_green, "pink" to R.string.color_pink), 3, { color }, colors) { color = it; send() })
-        form.addView(caption(R.string.pointer_help))
-        AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
-            .setTitle(R.string.pointer_title)
-            .setView(form)
-            .setPositiveButton(R.string.done, null)
-            .show()
-    }
-
-    /** Keys to pick one of [options] (value to label); the picked one is ticked. [colors] tints each label. */
-    private fun <T> choices(options: List<Pair<T, Int>>, columns: Int, picked: () -> T, colors: Map<T, Int>? = null, onPick: (T) -> Unit): FitGrid {
-        val density = resources.displayMetrics.density
-        val grid = FitGrid(this).apply {
-            this.columns = columns
-            rowHeight = (50 * density).toInt()
-            gap = (8 * density).toInt()
-        }
-        val keys = options.map { (value, label) -> Triple(value, getString(label), Button(this, null, 0, R.style.RemoteKey_Text)) }
-        fun show() {
-            for ((value, label, key) in keys) {
-                val on = value == picked()
-                key.text = if (on) "✓ $label" else label
-                key.setTextColor(getColor(colors?.get(value) ?: if (on) R.color.good else R.color.ink))
-            }
-        }
-        for ((value, _, key) in keys) {
-            key.setOnClickListener {
-                onPick(value)
-                show()
-            }
-            Haptics.attach(key)
-            grid.addView(key)
-        }
-        show()
-        return grid
-    }
-
-    private fun caption(text: Int) = TextView(this).apply {
-        setText(text)
-        setTextColor(getColor(R.color.muted))
-        textSize = 13f
-        setPadding(0, (12 * resources.displayMetrics.density).toInt(), 0, 0)
     }
 }
