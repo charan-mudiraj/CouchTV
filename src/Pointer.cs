@@ -15,10 +15,11 @@ namespace CouchTV
     /// Windows' own back when it closes. Over a link it turns a highlight colour, so you can see what's clickable.
     ///   Styles: arrow, dot, ring. Sizes: 32 to 128 pixels (Windows' own is 32). Colours: white, yellow, blue, green, pink.
     /// Set in couchtv.ini (PointerStyle, PointerSize, PointerColor) or from the phone remote's trackpad page.
-    /// On the TV it's only shown while it's in use: while a phone has its trackpad page open, and for a few seconds
-    /// after anything else moves it (the trackpad by infrared, an air mouse, a real mouse); otherwise it's hidden
-    /// everywhere, so it doesn't sit over a film or the home screen's tiles. Hidden means a blank pointer in place of
-    /// all of Windows' pointers.
+    /// On the TV it's only shown while it's in use: while a phone has its trackpad open (and not a moment after it
+    /// closes), and for a few seconds after anything else moves it (the trackpad by infrared, an air mouse, a real
+    /// mouse); otherwise it's hidden everywhere, so it doesn't sit over a film or the home screen's tiles. Hidden means
+    /// a blank pointer in place of all of Windows' pointers: every pixel see-through, and its mask saying so too (with
+    /// a mask of zeros Windows paints an all-see-through pointer as a black square).
     /// With no mouse plugged in, Windows draws no pointer at all, whatever moves it: CouchTV turns on Mouse Keys then
     /// (Windows' setting for moving it with the number pad), which counts as a mouse, until it closes.
     /// </summary>
@@ -29,7 +30,7 @@ namespace CouchTV
         public static readonly string[] ColorNames = { "white", "yellow", "blue", "green", "pink" };
         static readonly string[] ColorValues = { "#FFFFFF", "#FFD43B", "#4D8BFF", "#3DDC84", "#FF5FA2" };
         const string Outline = "#0B0E14", LinkBlue = "#3D7BFF";
-        const string Version = "1";   // bump when the drawing changes, so cached cursor files are redrawn
+        const string Version = "2";   // bump when the drawing changes, so cached cursor files are redrawn
         public const int ShowForMs = 5000;   // moved by something other than the phone's trackpad page: shown this long
 
         internal enum Kind { Normal, Link, Text }
@@ -147,11 +148,11 @@ namespace CouchTV
         internal static bool Hidden { get { return _hidden; } }
         internal static void ForgetUse() { _lastUse = unchecked(Environment.TickCount - ShowForMs - 1); }
 
-        /// <summary>A phone opened (true) or left (false) its trackpad page. UI thread.</summary>
+        /// <summary>A phone opened (true) or closed (false) its trackpad: shown while it's open, hidden the moment it closes. UI thread.</summary>
         public static void Trackpad(bool open)
         {
             _trackpad = open;
-            _lastUse = Environment.TickCount;   // just left it: hidden a few seconds later, like after any move
+            if (!open) ForgetUse();
             Update();
         }
 
@@ -378,7 +379,10 @@ namespace CouchTV
 
         static Color Hex(string hex) { return (Color)ColorConverter.ConvertFromString(hex); }
 
-        /// <summary>A .cur file holding one 32-bit image with transparency (the format Windows' own cursors use).</summary>
+        /// <summary>
+        /// A .cur file holding one 32-bit image with transparency (the format Windows' own cursors use), and a mask
+        /// marking its see-through pixels: Windows goes by the mask when every pixel's alpha is 0.
+        /// </summary>
         internal static byte[] CursorFile(byte[] pixels, int size, int hotX, int hotY)
         {
             int maskStride = (size + 31) / 32 * 4;
@@ -395,7 +399,11 @@ namespace CouchTV
             w.Write(size * size * 4 + maskStride * size);
             w.Write(0); w.Write(0); w.Write(0); w.Write(0);
             for (int y = size - 1; y >= 0; y--) w.Write(pixels, y * size * 4, size * 4);   // bottom row first
-            w.Write(new byte[maskStride * size]);                          // the mask: unused, transparency does it
+            var mask = new byte[maskStride * size];                        // 1: leave the screen as it is
+            for (int y = 0; y < size; y++)
+                for (int x = 0; x < size; x++)
+                    if (pixels[(y * size + x) * 4 + 3] == 0) mask[(size - 1 - y) * maskStride + x / 8] |= (byte)(0x80 >> (x % 8));
+            w.Write(mask);
             w.Flush();
             return stream.ToArray();
         }
@@ -425,6 +433,50 @@ namespace CouchTV
 
         [StructLayout(LayoutKind.Sequential)]
         struct MOUSEKEYS { public int cbSize; public uint dwFlags; public int iMaxSpeed, iTimeToMaxSpeed, iCtrlSpeed, dwReserved1, dwReserved2; }
+
+        /// <summary>
+        /// For the self-test: a cursor file drawn on white as Windows draws a pointer; true when it leaves it all white.
+        /// [zeroMask] blanks its mask first (cursor files from before Version 2).
+        /// </summary>
+        internal static bool DrawsNothing(byte[] file, int size, bool zeroMask)
+        {
+            if (zeroMask)
+            {
+                file = (byte[])file.Clone();
+                int maskBytes = (size + 31) / 32 * 4 * size;
+                Array.Clear(file, file.Length - maskBytes, maskBytes);
+            }
+            string path = Path.Combine(Path.GetTempPath(), "couchtv-pointer-test.cur");
+            File.WriteAllBytes(path, file);
+            IntPtr cursor = LoadImage(IntPtr.Zero, path, IMAGE_CURSOR, size, size, LR_LOADFROMFILE);
+            if (cursor == IntPtr.Zero) return false;
+            try
+            {
+                using (var bitmap = new System.Drawing.Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+                using (var g = System.Drawing.Graphics.FromImage(bitmap))
+                {
+                    g.Clear(System.Drawing.Color.White);
+                    IntPtr dc = g.GetHdc();
+                    try { DrawIconEx(dc, 0, 0, cursor, size, size, 0, IntPtr.Zero, DI_NORMAL); }
+                    finally { g.ReleaseHdc(dc); }
+                    for (int y = 0; y < size; y++)
+                        for (int x = 0; x < size; x++)
+                        {
+                            System.Drawing.Color c = bitmap.GetPixel(x, y);
+                            if (c.R != 255 || c.G != 255 || c.B != 255) return false;
+                        }
+                }
+                return true;
+            }
+            finally
+            {
+                DestroyCursor(cursor);
+                try { File.Delete(path); } catch (IOException) { }
+            }
+        }
+
+        const uint DI_NORMAL = 3;
+        [DllImport("user32.dll")] static extern bool DrawIconEx(IntPtr dc, int x, int y, IntPtr icon, int width, int height, uint step, IntPtr brush, uint flags);
 
         // For the self-test: how big Windows' arrow is right now.
         internal static int CurrentArrowSize()

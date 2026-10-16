@@ -591,11 +591,11 @@ namespace CouchTV
                     }
                     return null;
                 case "MOVE":
-                    Pointer.Used();   // a phone too old to say TRACKPAD: shown while it moves
+                    if (session == null || !session.SaidTrackpad) Pointer.Used();   // a phone too old to say TRACKPAD: shown while it moves
                     if (parts.Length >= 3 && TryInt(parts[1], 2000, out dx) && TryInt(parts[2], 2000, out dy)) Move(dx, dy);
                     return null;
                 case "WHEEL":
-                    Pointer.Used();
+                    if (session == null || !session.SaidTrackpad) Pointer.Used();
                     if (parts.Length >= 2 && TryInt(parts[1], 2400, out dy) && dy != 0) Wheel(dy, false);
                     if (parts.Length >= 3 && TryInt(parts[2], 2400, out dx) && dx != 0) Wheel(dx, true);
                     return null;
@@ -603,6 +603,7 @@ namespace CouchTV
                     if (session != null && parts.Length >= 2 && (parts[1] == "ON" || parts[1] == "OFF"))
                     {
                         session.Trackpad = parts[1] == "ON";
+                        session.SaidTrackpad = true;   // its trackpad says when the pointer's wanted: its moves don't keep it up
                         TellTrackpad();
                     }
                     return null;
@@ -615,7 +616,7 @@ namespace CouchTV
                     }
                     return null;
                 case "MOUSE":
-                    Pointer.Used();
+                    if (session == null || !session.SaidTrackpad) Pointer.Used();
                     if (parts.Length >= 3 && (parts[1] == "L" || parts[1] == "R") && (parts[2] == "D" || parts[2] == "U"))
                     {
                         bool right = parts[1] == "R", down = parts[2] == "D";
@@ -871,7 +872,8 @@ namespace CouchTV
         public long LastListen;        // the number of its last sound request: each must be higher (no replays)
         public volatile bool Closed;
         public volatile bool Remote;   // said HELLO: the remote itself (not the phone's sound service)
-        public volatile bool Trackpad; // its trackpad page is open
+        public volatile bool Trackpad; // its trackpad is open
+        public volatile bool SaidTrackpad;   // it says when its trackpad opens and closes (TRACKPAD)
         public DateTime LastUsed;      // when it last sent a button, words, a pointer move... (to tell it about text boxes)
         internal TcpClient Client;
         internal Stream Stream;

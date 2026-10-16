@@ -467,6 +467,12 @@ namespace CouchTV
             check("a 96-pixel arrow is 96 x 96, pointing from its tip", pixels.Length == 96 * 96 * 4 && hotX == 12 && hotY == 9);
             check("its .cur file has the cursor header and hotspot", cur.Length == 6 + 16 + 40 + 96 * 96 * 4 + 12 * 96
                 && BitConverter.ToInt16(cur, 2) == 2 && BitConverter.ToInt16(cur, 10) == hotX && BitConverter.ToInt16(cur, 12) == hotY);
+            // The blank pointer (hidden): every pixel see-through. Its mask has to say so too, or Windows paints a black
+            // square where the pointer is (what the TV showed before).
+            byte[] blank = Pointer.CursorFile(new byte[32 * 32 * 4], 32, 0, 0);
+            check("the blank pointer draws nothing where the pointer is", Pointer.DrawsNothing(blank, 32, false));
+            check("...which needs its mask: without one Windows draws a black square", !Pointer.DrawsNothing(blank, 32, true));
+            check("...and the drawn pointer still shows", !Pointer.DrawsNothing(cur, 96, false));
 
             int before = Pointer.CurrentArrowSize();
             Pointer.Apply("arrow", 96, "yellow");
@@ -483,10 +489,7 @@ namespace CouchTV
             Pointer.Update();
             check("...and stays shown while it's open, however long", !Pointer.Hidden);
             Pointer.Trackpad(false);
-            check("the page left: still shown for a few seconds", !Pointer.Hidden);
-            Pointer.ForgetUse();
-            Pointer.Update();
-            check("...then hidden", Pointer.Hidden);
+            check("the trackpad closed: hidden at once", Pointer.Hidden);
             Pointer.Used();
             for (int i = 0; i < 20 && Pointer.Hidden; i++) System.Threading.Thread.Sleep(50);
             check("a mouse moving shows it again", !Pointer.Hidden && Pointer.CurrentArrowSize() == 96);
