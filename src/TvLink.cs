@@ -43,7 +43,8 @@ namespace CouchTV
             Diagnostics.TestPhone link = null, mirror = null;
             var canvasLock = new object();
             Bitmap canvas = null;
-            int pictures = 0;
+            int pictures = 0, cursorX = -1, cursorY = -1;
+            bool cursorShown = false;
             var writeLock = new object();
             bool done = false;
             try
@@ -128,6 +129,12 @@ namespace CouchTV
                                                     draw.DrawImage(tile, message[1] << 8 | message[2], message[3] << 8 | message[4], tile.Width, tile.Height);
                                             }
                                             else if (message[0] == 3) pictures++;
+                                            else if (message[0] == 4)
+                                            {
+                                                cursorX = message[1] << 8 | message[2];
+                                                cursorY = message[3] << 8 | message[4];
+                                                cursorShown = message[5] == 1;
+                                            }
                                         }
                                     }
                                 }) { IsBackground = true }.Start();
@@ -145,7 +152,8 @@ namespace CouchTV
                             {
                                 if (canvas == null) throw new Exception("no picture of the TV's screen came");
                                 canvas.Save(file, ImageFormat.Png);
-                                Say("The TV's screen (" + canvas.Width + "x" + canvas.Height + ") is in " + file);
+                                Say("The TV's screen (" + canvas.Width + "x" + canvas.Height + ") is in " + file + "; the pointer " +
+                                    (cursorShown ? "is drawn at " + cursorX + "," + cursorY : "isn't drawn by Windows" + (cursorX >= 0 ? " (last at " + cursorX + "," + cursorY + ")" : "")));
                             }
                             break;
                         }
