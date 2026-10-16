@@ -205,6 +205,7 @@ namespace CouchTV
             string codeFile = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(_report)), "tvlink-code.txt");
             File.Delete(codeFile);
             using (var phone = new Diagnostics.TestPhone(id))
+            try
             {
                 string hello = phone.Hello(IPAddress.Parse(address), RemoteServer.ControlPort);
                 if (hello != "PAIR")
@@ -226,7 +227,7 @@ namespace CouchTV
                         }
                         Thread.Sleep(250);
                     }
-                    return "000000";
+                    throw new TimeoutException("no code came in time, so nothing was typed (the TV doesn't count it as a wrong code)");
                 });
                 File.Delete(codeFile);
                 if (result != "OK" || !phone.Auth(phone.PairKey))
@@ -236,6 +237,11 @@ namespace CouchTV
                 }
                 Say("Paired with the TV at " + address);
                 return phone.PairKey;
+            }
+            catch (TimeoutException ex)
+            {
+                Say("FAILED: " + ex.Message);
+                return null;
             }
         }
 
