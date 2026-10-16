@@ -39,6 +39,11 @@ class LevelSlider @JvmOverloads constructor(context: Context, attrs: AttributeSe
         const val FOLLOW = 0.45f           // how much of the way to the finger the fill moves each frame
         const val GLIDE = 0.16f            // ...and to a level the TV reported
         const val CORNER_DP = 14f          // its corners: rounded, not a pill
+        const val REST_X_DP = 19f          // at rest the bar sits this far inside the view at each end...
+        const val REST_Y_DP = 4f           // ...and above and below it (the view reaches into the page's margins)
+        const val GROW_X_DP = 4f           // under the finger it grows this much at each end...
+        const val GROW_Y_DP = 3f           // ...and above and below
+        const val MOST_STRETCH_DP = 12f    // past 0 or 100, it stretches at most this far
     }
 
     /** The level while dragging (a few times a second) and when let go: 0 to 100. */
@@ -114,7 +119,6 @@ class LevelSlider @JvmOverloads constructor(context: Context, attrs: AttributeSe
     private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = context.getColor(R.color.slot_shadow) }
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val sheenPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val edgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() }
     private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val numberPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textAlign = Paint.Align.RIGHT
@@ -211,7 +215,7 @@ class LevelSlider @JvmOverloads constructor(context: Context, attrs: AttributeSe
         val clamped = raw.coerceIn(0f, 100f)
         // Past either end the bar stretches, less and less the further the finger goes.
         val over = (raw - clamped) / 100f * width
-        val most = 12 * density
+        val most = MOST_STRETCH_DP * density
         stretchAnimator?.cancel()
         stretch = if (over == 0f) 0f else most * (1 - exp(-abs(over) / (most * 3))) * if (over > 0) 1 else -1
         val before = level
@@ -264,7 +268,7 @@ class LevelSlider @JvmOverloads constructor(context: Context, attrs: AttributeSe
         swellAnimator?.cancel()
         swellAnimator = ValueAnimator.ofFloat(swell, to).apply {
             duration = if (to > 0) 260 else 220
-            interpolator = if (to > 0) OvershootInterpolator(2.2f) else DecelerateInterpolator()
+            interpolator = if (to > 0) OvershootInterpolator(1.6f) else DecelerateInterpolator()
             addUpdateListener {
                 swell = it.animatedValue as Float
                 invalidate()
@@ -299,11 +303,11 @@ class LevelSlider @JvmOverloads constructor(context: Context, attrs: AttributeSe
     override fun onDraw(canvas: Canvas) {
         val w = width.toFloat()
         val h = height.toFloat()
-        // At rest the bar sits a little inside the view, leaving room to swell under the finger and stretch at the ends.
-        val rest = 6 * density
-        val inset = rest * (1 - swell * 0.75f)
-        val vertical = 3 * density * (1 - swell)
-        pill.set(inset, vertical, w - inset, h - vertical)
+        // At rest the bar sits inside the view, which reaches into the page's margins: room to swell under the finger
+        // and stretch at the ends without being cut off.
+        val growX = GROW_X_DP * density * swell
+        val growY = GROW_Y_DP * density * swell
+        pill.set(REST_X_DP * density - growX, REST_Y_DP * density - growY, w - REST_X_DP * density + growX, h - REST_Y_DP * density + growY)
         if (stretch > 0) pill.right += stretch else pill.left += stretch
         val radius = minOf(pill.height() / 2, CORNER_DP * density)
         val faded = !available
@@ -319,7 +323,7 @@ class LevelSlider @JvmOverloads constructor(context: Context, attrs: AttributeSe
         fill.top += 2 * density
         canvas.drawRoundRect(fill, radius, radius, slotPaint)
 
-        // The fill, clipped to the bar, with a sheen along its top and a bright edge where it ends.
+        // The fill, clipped to the bar, with a sheen along its top, and a soft light at its end under the finger.
         val inner = innerRect.apply { set(fill) }
         clip.reset()
         clip.addRoundRect(inner, radius, radius, Path.Direction.CW)
@@ -337,15 +341,11 @@ class LevelSlider @JvmOverloads constructor(context: Context, attrs: AttributeSe
             canvas.drawRoundRect(fill.left - radius, fill.top, fill.right, fill.bottom, radius, radius, fillPaint)
             sheenPaint.alpha = if (grey || faded) 60 else 255
             canvas.drawRoundRect(fill.left - radius, fill.top, fill.right, fill.bottom, radius, radius, sheenPaint)
-            if (!grey && !faded && end > inner.left + radius) {
-                // A soft light at the fill's edge, brighter under the finger.
-                val glowRadius = inner.height() * (0.9f + 0.5f * swell)
+            if (!grey && !faded && swell > 0.02f && end > inner.left + radius) {
+                val glowRadius = inner.height() * 1.2f
                 glowPaint.shader = RadialGradient(end, inner.centerY(), glowRadius,
-                    (((0x30 + 0x40 * swell).toInt().coerceIn(0, 255)) shl 24) or 0xFFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP)
+                    (((0x48 * swell).toInt().coerceIn(0, 255)) shl 24) or 0xFFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP)
                 canvas.drawCircle(end, inner.centerY(), glowRadius, glowPaint)
-                edgePaint.alpha = (110 + 120 * swell).toInt().coerceIn(0, 255)
-                val bar = 1.5f * density
-                canvas.drawRoundRect(end - bar - 4 * density, inner.top + inner.height() * 0.28f, end - 4 * density, inner.bottom - inner.height() * 0.28f, bar, bar, edgePaint)
             }
         }
         canvas.restore()

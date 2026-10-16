@@ -19,9 +19,9 @@ import android.widget.LinearLayout
 import android.widget.TextView
 
 /**
- * The dock at the bottom of the remote, five across: [home] in the middle, bigger than the rest (a round blue key
- * standing up out of the dock, easy to find without looking), and the TV's first four streaming apps either side of
- * it on a panel, each a rounded square with the app's own logo on its own colours (an app without a logo here gets
+ * The dock at the bottom of the remote, five across: [home] in the middle, much bigger than the rest (a round blue
+ * key standing up out of the dock, easy to find without looking), and the TV's first four streaming apps either side
+ * of it on a panel, each a rounded square with the app's own logo on its own colours (an app without a logo here gets
  * its initial on the TV's colours for its tile), its name under it. A tap opens it on the TV ([onOpen]). The TV's
  * other apps are with the shortcuts on the first page.
  */
@@ -30,8 +30,8 @@ class AppsGrid @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
         /** How many apps the dock has room for, beside Home. */
         const val ROOM = 4
         private const val TILE_DP = 54
-        private const val HOME_DP = 76
-        private const val HOME_WEIGHT = 1.4f   // Home's column, against an app's 1
+        private const val HOME_DP = 96
+        private const val HOME_WEIGHT = 1.7f   // Home's column, against an app's 1
     }
 
     var onOpen: ((TvApp) -> Unit)? = null
@@ -46,24 +46,30 @@ class AppsGrid @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
         strokeWidth = 1 * resources.displayMetrics.density
     }
 
-    /** Home, in the middle: held like the remote's other keys. Its key sinks as it's pressed (it shares the press). */
-    val home: View = cell(FrameLayout(context).apply {
+    /**
+     * Home, in the middle: the biggest key on the remote, with no name under it (the house says it), its bottom on the
+     * names' line so it stands up out of the dock. Held like the remote's other keys; it sinks while pressed.
+     */
+    val home: View = FrameLayout(context).apply {
         background = context.getDrawable(R.drawable.home_bg)
-        isDuplicateParentStateEnabled = true
         stateListAnimator = AnimatorInflater.loadStateListAnimator(context, R.animator.key_press)
+        contentDescription = context.getString(R.string.home)
         addView(ImageView(context).apply {
             setImageResource(R.drawable.ic_home)
             imageTintList = ColorStateList.valueOf(context.getColor(R.color.ink))
             scaleType = ImageView.ScaleType.FIT_CENTER
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             // On the key's face, which sits a little above the middle (its side shows below).
-            setPadding(dp(23), dp(21), dp(23), dp(25))
+            setPadding(dp(29), dp(28), dp(29), dp(32))
         }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
-    }, context.getString(R.string.home), HOME_DP, bright = true)
+    }
 
     init {
         orientation = HORIZONTAL
         gravity = Gravity.BOTTOM   // the names line up; Home stands taller
         setWillNotDraw(false)
+        clipChildren = false
+        clipToPadding = false
         setPadding(dp(2), 0, dp(2), dp(8))
         show(emptyList())
     }
@@ -76,12 +82,15 @@ class AppsGrid @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
         (home.parent as? android.view.ViewGroup)?.removeView(home)
         for (i in 0 until ROOM + 1) {
             val app = if (i < 2) list.getOrNull(i) else list.getOrNull(i - 1)
-            val view = when {
-                i == 2 -> home
-                app != null -> tile(app)
-                else -> View(context)
+            if (i == 2) {
+                // Its own size, in the middle of a wider column.
+                addView(FrameLayout(context).apply {
+                    clipChildren = false   // Home sinks a little below it as it's pressed
+                    addView(home, FrameLayout.LayoutParams(dp(HOME_DP), dp(HOME_DP), Gravity.CENTER_HORIZONTAL))
+                }, LayoutParams(0, LayoutParams.WRAP_CONTENT, HOME_WEIGHT))
+                continue
             }
-            addView(view, LayoutParams(0, LayoutParams.WRAP_CONTENT, if (i == 2) HOME_WEIGHT else 1f))
+            addView(if (app != null) tile(app) else View(context), LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
         }
     }
 
@@ -97,7 +106,7 @@ class AppsGrid @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
 
     /** How tall a name under a tile is. */
     private fun label(): Int {
-        val child = (0 until childCount).map { getChildAt(it) }.firstOrNull { it is LinearLayout && it !== home } as? LinearLayout
+        val child = (0 until childCount).map { getChildAt(it) }.firstOrNull { it is LinearLayout } as? LinearLayout
         return child?.getChildAt(1)?.height ?: dp(19)
     }
 
@@ -137,13 +146,12 @@ class AppsGrid @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
         }
     }
 
-    /** A square [size] dp across with its name under it ([bright]: in white, for Home). */
-    private fun cell(square: View, name: String, size: Int, bright: Boolean = false): LinearLayout {
+    /** A square [size] dp across with its name under it. */
+    private fun cell(square: View, name: String, size: Int): LinearLayout {
         val label = TextView(context).apply {
             text = name
-            setTextColor(context.getColor(if (bright) R.color.ink else R.color.muted))
+            setTextColor(context.getColor(R.color.muted))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
-            if (bright) typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             gravity = Gravity.CENTER
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END

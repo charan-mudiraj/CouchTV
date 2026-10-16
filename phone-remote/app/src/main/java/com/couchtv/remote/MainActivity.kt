@@ -64,7 +64,7 @@ class MainActivity : Activity() {
     private var pulsing: ObjectAnimator? = null
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var keyboard: KeyboardView
-    private var keyboardMode = false                          // the keyboard sideways, filling the screen
+    private var keyboardMode = false                          // the keyboard's page in front, sideways
     private var trackpadShown = false
     private lateinit var volumeSlider: LevelSlider
     private lateinit var brightnessSlider: LevelSlider
@@ -267,8 +267,6 @@ class MainActivity : Activity() {
         findViewById<View>(R.id.keyboard_type).setOnClickListener {
             if (remote.wifi.connected) typingBox.show(null) else toast(getString(R.string.keyboard_offline))
         }
-        findViewById<View>(R.id.keyboard_close).setOnClickListener { setKeyboardMode(false) }
-        Haptics.attach(findViewById(R.id.keyboard_close))
         remote.wifi.onTyping = { field ->
             when {
                 field == null -> {
@@ -365,9 +363,10 @@ class MainActivity : Activity() {
         pager.onPageChanged = {
             dots.current = it
             keyboard.releaseAll()   // nothing stays held down on the TV after leaving the keyboard
-            // On the keyboard's page, once it has slid into place, the app turns sideways.
+            // On the keyboard's page, once it has slid into place, the app turns sideways; off it, upright again.
             handler.removeCallbacks(enterKeyboard)
             if (it == KEYBOARD_PAGE) handler.postDelayed(enterKeyboard, 320)
+            else if (keyboardMode) setKeyboardMode(false, toRemote = false)
         }
         dots.onPick = { pager.go(it) }
         InstallReceiver.onFailure = { message ->
@@ -489,31 +488,31 @@ class MainActivity : Activity() {
     private val enterKeyboard = Runnable { setKeyboardMode(true) }
 
     /**
-     * The keyboard's page in front: the app turns to landscape and the keyboard has the screen to itself, its keys
-     * going down the moment they're touched (nothing turns the page). Its close key or Back turns it upright again,
-     * on the remote.
+     * The keyboard's page in front: the app turns to landscape, and the keyboard fits in its page like any other, with
+     * the phone's bars, the remote's top (with Type, for this phone's own keyboard) and the page dots round it; the top
+     * and the dots slim down to leave the keys as much height as they can have. Back, or swiping to another page,
+     * turns it upright again ([toRemote]: and goes to the remote).
      */
-    private fun setKeyboardMode(on: Boolean) {
+    private fun setKeyboardMode(on: Boolean, toRemote: Boolean = true) {
         handler.removeCallbacks(enterKeyboard)
         if (on == keyboardMode) return
         keyboardMode = on
-        val pager = findViewById<PagerView>(R.id.pager)
-        pager.locked = on
-        keyboard.instant = on
         keyboard.releaseAll()
-        for (id in intArrayOf(R.id.top_bar, R.id.dots)) findViewById<View>(id).visibility = if (on) View.GONE else View.VISIBLE
         findViewById<View>(R.id.keyboard_preview).visibility = if (on) View.GONE else View.VISIBLE
         findViewById<View>(R.id.keyboard_panel).visibility = if (on) View.VISIBLE else View.GONE
-        if (on) {
-            findViewById<View>(R.id.update_banner).visibility = View.GONE
-            findViewById<View>(R.id.power_note).visibility = View.GONE
-        } else {
-            showUpdate(availableUpdate)
-            showPowerNote()
+        findViewById<View>(R.id.keyboard_type).visibility = if (on) View.VISIBLE else View.GONE
+        val density = resources.displayMetrics.density
+        fun dp(v: Int) = (v * density + 0.5f).toInt()
+        val top = findViewById<View>(R.id.top_bar)
+        top.setPadding(top.paddingLeft, dp(if (on) 4 else 10), top.paddingRight, dp(if (on) 2 else 6))
+        val dots = findViewById<View>(R.id.dots)
+        (dots.layoutParams as ViewGroup.MarginLayoutParams).apply {
+            height = dp(if (on) 20 else 32)
+            bottomMargin = dp(if (on) 0 else 4)
         }
+        dots.requestLayout()
         requestedOrientation = if (on) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-        fullScreen(on, keepOn = false)
-        if (!on) pager.go(REMOTE_PAGE, animate = false)
+        if (!on && toRemote) findViewById<PagerView>(R.id.pager).go(REMOTE_PAGE, animate = false)
     }
 
     // ---------------------------------------------------------------- volume and brightness
@@ -612,7 +611,7 @@ class MainActivity : Activity() {
         findViewById<View>(R.id.main_ui).visibility = if (on) View.GONE else View.VISIBLE
         findViewById<View>(R.id.mirror_layer).visibility = if (on) View.VISIBLE else View.GONE
         requestedOrientation = if (on) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-        fullScreen(on, keepOn = true)
+        fullScreen(on)
         if (on) startMirror()
         else {
             screen.stop()
@@ -625,9 +624,9 @@ class MainActivity : Activity() {
         screen.start({ remote.wifi.tvAddress?.hostAddress ?: remote.wifi.manualAddress }, { if (ListenService.running) minOf(2500, phone.mirrorKbps) else phone.mirrorKbps })
     }
 
-    /** The status and navigation bars hidden (or back); [keepOn]: the screen stays on meanwhile, too. */
+    /** The status and navigation bars hidden (or back), and the screen kept on meanwhile (the screen mirror). */
     @Suppress("DEPRECATION")
-    private fun fullScreen(on: Boolean, keepOn: Boolean) {
+    private fun fullScreen(on: Boolean) {
         if (Build.VERSION.SDK_INT >= 30) {
             window.insetsController?.let { c ->
                 if (on) {
@@ -640,7 +639,7 @@ class MainActivity : Activity() {
                 View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
                 View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
         }
-        if (on && keepOn) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        if (on) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
 

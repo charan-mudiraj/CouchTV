@@ -67,6 +67,15 @@
                 android:src="@drawable/ic_ir" />
         </LinearLayout>
 
+        <!-- With the keyboard's page in front (sideways): type into the TV with this phone's own keyboard -->
+        <TextView
+            android:id="@+id/keyboard_type"
+            style="@style/PageAction"
+            android:layout_gravity="center_vertical"
+            android:layout_marginStart="12dp"
+            android:text="@string/keyboard_type"
+            android:visibility="gone" />
+
         <Space
             android:layout_width="0dp"
             android:layout_height="1dp"
@@ -234,26 +243,25 @@
                 </LinearLayout>
 
                 <!-- The TV's volume (tap the speaker to mute), and under it the brightness: drag along either. Each
-                     sits 6 dp inside its view at rest (room to swell under the finger), so they line up with the search
-                     bar. -->
+                     bar sits 19 dp inside its view at the ends and 4 dp above and below (room to swell under the finger
+                     and stretch past the ends, into the page's margins), so the bars line up with the search bar. -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="-6dp"
+                    android:layout_marginStart="-19dp"
                     android:layout_marginTop="6dp"
-                    android:layout_marginEnd="-6dp"
+                    android:layout_marginEnd="-19dp"
                     android:orientation="vertical">
 
                     <com.couchtv.remote.LevelSlider
                         android:id="@+id/volume"
                         android:layout_width="match_parent"
-                        android:layout_height="50dp" />
+                        android:layout_height="54dp" />
 
                     <com.couchtv.remote.LevelSlider
                         android:id="@+id/brightness"
                         android:layout_width="match_parent"
-                        android:layout_height="50dp"
-                        android:layout_marginTop="2dp" />
+                        android:layout_height="54dp" />
                 </LinearLayout>
 
                 <!-- As big as the width allows, with a key in each corner round it -->
@@ -273,7 +281,7 @@
 
             </com.couchtv.remote.RemoteColumn>
 
-            <!-- 2. A PC keyboard, sideways: landing here turns the app to landscape, the keyboard filling the screen -->
+            <!-- 2. A PC keyboard, sideways: landing here turns the app to landscape, the keyboard filling its page -->
             <LinearLayout
                 style="@style/Page"
                 android:paddingStart="6dp"
@@ -318,40 +326,10 @@
                     android:orientation="vertical"
                     android:visibility="gone">
 
-                    <!-- Type into the TV with this phone's own keyboard; back to the remote -->
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal">
-
-                        <TextView
-                            android:id="@+id/keyboard_type"
-                            style="@style/PageAction"
-                            android:layout_marginStart="4dp"
-                            android:text="@string/keyboard_type" />
-
-                        <Space
-                            android:layout_width="0dp"
-                            android:layout_height="1dp"
-                            android:layout_weight="1" />
-
-                        <ImageButton
-                            android:id="@+id/keyboard_close"
-                            android:layout_width="44dp"
-                            android:layout_height="40dp"
-                            android:layout_marginEnd="4dp"
-                            android:background="@drawable/status_bg"
-                            android:contentDescription="@string/keyboard_close"
-                            android:src="@drawable/ic_close" />
-                    </LinearLayout>
-
                     <com.couchtv.remote.KeyboardView
                         android:id="@+id/keyboard"
                         android:layout_width="match_parent"
                         android:layout_height="0dp"
-                        android:layout_marginTop="6dp"
-                        android:layout_marginBottom="4dp"
                         android:layout_weight="1"
                         android:contentDescription="@string/keyboard" />
                 </LinearLayout>

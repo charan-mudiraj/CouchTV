@@ -9,7 +9,8 @@ import kotlin.math.min
 /**
  * The remote page's column, top to bottom: each part at its own height, the D-pad as big as the width allows (smaller
  * on a short screen), and the height left over shared out evenly between the parts, so a tall phone has no hole round
- * the D-pad. Past [MOST_GAP_DP] a gap, what's still left goes above and below the whole column.
+ * the D-pad. Past [MOST_GAP_DP] a gap, what's still left goes above and below the whole column. Its parts may draw
+ * into its padding (the sliders swell into the page's margins under the finger).
  */
 class RemoteColumn @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : ViewGroup(context, attrs) {
     private companion object {
@@ -19,6 +20,10 @@ class RemoteColumn @JvmOverloads constructor(context: Context, attrs: AttributeS
     private val density = resources.displayMetrics.density
     private var gap = 0
     private var lead = 0   // above the first part
+
+    init {
+        clipToPadding = false
+    }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec)
