@@ -8,7 +8,6 @@ import android.os.SystemClock
 import android.text.format.DateFormat
 import android.util.TypedValue
 import android.view.Gravity
-import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.NumberPicker
 import android.widget.TextView
@@ -17,10 +16,10 @@ import java.util.Date
 
 /**
  * The TV's sleep timer, for any length: hours and minutes on two wheels, with when that'll be. Over Wi-Fi the TV is
- * told the minutes and says back how long is left, which the key on the Apps page shows ("Sleep · 42 min"). By
+ * told the minutes and says back how long is left, which its shortcut on the first page shows ("42 min"). By
  * infrared only the TV's own steps work (30, 60, 90, 120 minutes, then off), a step a tap.
  */
-class SleepTimer(private val context: Context, private val remote: Remote, private val key: Button) {
+class SleepTimer(private val context: Context, private val remote: Remote, private val key: TextView) {
     private companion object {
         const val MOST_HOURS = 12
     }

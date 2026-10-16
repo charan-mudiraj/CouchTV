@@ -43,21 +43,19 @@
         <item name="android:maxLines">2</item>
     </style>
 
-    <!-- A round key, as on a TV remote: Back, Home, Menu, Exit, mute, play... -->
-    <style name="RoundKey">
-        <item name="android:layout_width">60dp</item>
-        <item name="android:layout_height">64dp</item>
-        <item name="android:layout_marginStart">8dp</item>
-        <item name="android:layout_marginEnd">8dp</item>
-        <item name="android:background">@drawable/round_key_bg</item>
-        <item name="android:scaleType">center</item>
-        <item name="android:paddingBottom">4dp</item>
-        <item name="android:stateListAnimator">@animator/key_press</item>
-    </style>
-
-    <!-- An app's own button at the bottom of the remote, in its colours (chip_bg's greys multiplied by them). -->
+    <!-- An app's own button on the remote, a coloured lozenge (chip_bg's greys multiplied by its colours). -->
     <style name="AppPill" parent="AppTile">
-        <item name="android:textSize">14sp</item>
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">46dp</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:layout_marginStart">4dp</item>
+        <item name="android:layout_marginEnd">4dp</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:autoSizeTextType">uniform</item>
+        <item name="android:autoSizeMinTextSize">9sp</item>
+        <item name="android:autoSizeMaxTextSize">14sp</item>
+        <item name="android:paddingStart">6dp</item>
+        <item name="android:paddingEnd">6dp</item>
     </style>
 
     <!-- A big app tile on the Apps page: chip_bg's greys multiplied by the app's colour; the grid sets its size. -->

@@ -39,6 +39,13 @@ class SuggestionsView @JvmOverloads constructor(context: Context, attrs: Attribu
     private val column = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
     private var list: List<Suggestion> = emptyList()
     private var connected = false
+    /** Shown above the suggestions (the shortcuts). */
+    var header: View? = null
+        set(value) {
+            field = value
+            build()
+        }
+
     private val waiting = ArrayList<View>()   // cards still to rise into place
     private var entrance = true               // the next build's cards rise in (a new list, not just the TV coming or going)
 
@@ -72,6 +79,13 @@ class SuggestionsView @JvmOverloads constructor(context: Context, attrs: Attribu
         waiting.clear()
         val rise = entrance && list.isNotEmpty()
         if (rise) entrance = false
+        header?.let { top ->
+            (top.parent as? android.view.ViewGroup)?.removeView(top)
+            column.addView(top, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(4)
+                bottomMargin = dp(18)
+            })
+        }
         // A style's layout_ settings only apply in a layout file: the margins are set here.
         column.addView(TextView(context, null, 0, R.style.PageTitle).apply { setText(R.string.suggestions_title) }, wrap(0, 12))
         if (list.isEmpty()) {

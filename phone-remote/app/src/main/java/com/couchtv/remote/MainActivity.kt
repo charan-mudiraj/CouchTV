@@ -126,8 +126,6 @@ class MainActivity : Activity() {
         settings.onPhoneChange = { key, value -> changePhoneSetting(key, value) }
         settings.onVersion = { checkForUpdate(manual = true) }
         settings.onConnection = { openStatus() }
-        findViewById<View>(R.id.settings_open).setOnClickListener { settings.open() }
-        Haptics.attach(findViewById(R.id.settings_open))
         remote.wifi.onSettings = {
             remote.wifi.settings.find { it.key == "powercountdown" }?.value?.toIntOrNull()?.let { phone.powerCountdown = it }
             showSettings()
@@ -174,8 +172,29 @@ class MainActivity : Activity() {
         ListenService.onChange = { showListen() }
         showListen()
 
-        findViewById<DpadView>(R.id.dpad).listener = dpadListener(
-            Codes.UP, Codes.DOWN, Codes.LEFT, Codes.RIGHT, Codes.OK)
+        findViewById<DpadView>(R.id.dpad).apply {
+            listener = dpadListener(Codes.UP, Codes.DOWN, Codes.LEFT, Codes.RIGHT, Codes.OK)
+            // The curved keys round it, as on a TV remote: Home and Menu above, Back and Exit below, the volume rocker
+            // on the left, play/pause and mute on the right (degrees clockwise from the right).
+            ring = listOf(
+                DpadView.RingKey("playpause", -42f, 40f, R.drawable.ic_play_pause),
+                DpadView.RingKey("mute", 2f, 40f, R.drawable.ic_volume_off),
+                DpadView.RingKey("exit", 49f, 38f, R.drawable.ic_exit),
+                DpadView.RingKey("back", 93f, 38f, R.drawable.ic_back),
+                DpadView.RingKey("volumedown", 138f, 40f, R.drawable.ic_volume_down),
+                DpadView.RingKey("volumeup", 182f, 40f, R.drawable.ic_volume_up),
+                DpadView.RingKey("home", 229f, 38f, R.drawable.ic_home),
+                DpadView.RingKey("menu", 273f, 38f, R.drawable.ic_menu),
+            )
+            val codes = mapOf(
+                "playpause" to Codes.PLAY_PAUSE, "mute" to Codes.MUTE, "exit" to Codes.EXIT, "back" to Codes.BACK,
+                "volumedown" to Codes.VOLUME_DOWN, "volumeup" to Codes.VOLUME_UP, "home" to Codes.HOME, "menu" to Codes.MENU,
+            )
+            var press = 0
+            onRingKey = { key, down ->
+                if (down) press = remote.press(Codes.ADDRESS, codes.getValue(key.name)) else remote.release(press)
+            }
+        }
         findViewById<TrackpadView>(R.id.trackpad).listener = object : TrackpadView.Listener {
             override fun onMove(dx: Int, dy: Int) = remote.pointerMove(dx, dy)
             override fun onWheel(dy: Int, dx: Int) = remote.pointerWheel(dy, dx)
@@ -209,30 +228,32 @@ class MainActivity : Activity() {
         bindHold(findViewById<View>(R.id.right_click), { remote.pointerButton(true, true) }, { remote.pointerButton(true, false) })
 
         mapOf(
-            R.id.back to Codes.BACK,
-            R.id.home to Codes.HOME,
-            R.id.menu to Codes.MENU,
-            R.id.volume_down to Codes.VOLUME_DOWN,
-            R.id.mute to Codes.MUTE,
-            R.id.volume_up to Codes.VOLUME_UP,
             R.id.mirror_back to Codes.BACK,
             R.id.mirror_home to Codes.HOME,
             R.id.mirror_volume_down to Codes.VOLUME_DOWN,
             R.id.mirror_volume_up to Codes.VOLUME_UP,
-            R.id.play_pause to Codes.PLAY_PAUSE,
-            R.id.exit to Codes.EXIT,
-            R.id.full_screen to Codes.FULL_SCREEN,
-            R.id.delete to Codes.DELETE,
             R.id.app_netflix to Codes.NETFLIX,
             R.id.app_youtube to Codes.YOUTUBE,
             R.id.app_prime to Codes.PRIME_VIDEO,
             R.id.app_hotstar to Codes.JIOHOTSTAR,
-            R.id.app_web to Codes.WEB,
         ).forEach { (id, command) -> bindHold(findViewById<View>(id), Codes.ADDRESS, command) }
 
-        // The sleep timer: any length, picked on the phone (over Wi-Fi); the key shows how long is left.
-        sleepTimer = SleepTimer(this, remote, findViewById(R.id.sleep_timer))
-        findViewById<View>(R.id.sleep_timer).setOnClickListener { sleepTimer.open() }
+        // The keys used now and then, as round shortcuts at the top of the first page (as in a Xiaomi phone's App
+        // Vault): Settings, the Web app, the sleep timer (its label shows how long is left), full screen, delete.
+        val sleepLabel = TextView(this)
+        sleepTimer = SleepTimer(this, remote, sleepLabel)
+        suggestions.header = shortcuts(listOf(
+            Shortcut(R.drawable.ic_settings, R.color.surface_pressed, getString(R.string.settings_title), null) { settings.open() },
+            Shortcut(R.drawable.ic_web, R.color.web, getString(R.string.app_web), null) { remote.press(Codes.ADDRESS, Codes.WEB, hold = false) },
+            Shortcut(R.drawable.ic_bedtime, R.color.voice, getString(R.string.key_sleep_timer), sleepLabel) { sleepTimer.open() },
+            Shortcut(R.drawable.ic_fullscreen, R.color.good_bottom, getString(R.string.key_full_screen), null) {
+                remote.press(Codes.ADDRESS, Codes.FULL_SCREEN, hold = false)
+            },
+            Shortcut(R.drawable.ic_backspace, R.color.power_bottom, getString(R.string.key_delete), null) {
+                remote.press(Codes.ADDRESS, Codes.DELETE, hold = false)
+            },
+        ))
+        sleepTimer.showKey()
 
         // Testing from a PC over adb (TestHooks): pages, the mirror and the dialogs, besides fingers.
         tests = TestHooks(this) { command ->
@@ -275,7 +296,7 @@ class MainActivity : Activity() {
         updater = AppUpdater(this)
         findViewById<Button>(R.id.update_now).setOnClickListener { startUpdate() }
         // Keys that act on a tap still click under the finger (the held ones do in bindHold).
-        for (id in intArrayOf(R.id.listen, R.id.voice_search, R.id.search_bar, R.id.update_now, R.id.status, R.id.power, R.id.sleep_timer)) {
+        for (id in intArrayOf(R.id.listen, R.id.voice_search, R.id.search_bar, R.id.update_now, R.id.status, R.id.power)) {
             Haptics.attach(findViewById(id))
         }
 
@@ -837,6 +858,61 @@ class MainActivity : Activity() {
         for (id in intArrayOf(R.id.power_cancel, R.id.power_now)) findViewById<View>(id).isEnabled = false
         handler.postDelayed(hideOverlay, 700)
         sendPower(turningOff = true)
+    }
+
+    // ---------------------------------------------------------------- shortcuts
+
+    /** A shortcut: its icon on a coloured circle, its name under it ([label], when given, is the one to use), what it does. */
+    private class Shortcut(val icon: Int, val colour: Int, val name: String, val label: TextView?, val act: () -> Unit)
+
+    /** The shortcuts, five to a row on a card. */
+    private fun shortcuts(all: List<Shortcut>): View {
+        val density = resources.displayMetrics.density
+        fun dp(v: Int) = (v * density + 0.5f).toInt()
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(6), dp(14), dp(6), dp(12))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = dp(22).toFloat()
+                setColor(getColor(R.color.surface))
+            }
+        }
+        for (s in all) {
+            val icon = ImageView(this).apply {
+                setImageResource(s.icon)
+                imageTintList = ColorStateList.valueOf(getColor(R.color.ink))
+                setPadding(dp(12), dp(12), dp(12), dp(12))
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.OVAL
+                    setColor(getColor(s.colour))
+                }
+            }
+            val label = (s.label ?: TextView(this)).apply {
+                text = s.name
+                setTextColor(getColor(R.color.ink))
+                textSize = 12f
+                gravity = Gravity.CENTER
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                setPadding(0, dp(6), 0, 0)
+            }
+            val cell = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_HORIZONTAL
+                isClickable = true
+                isFocusable = true
+                contentDescription = s.name
+                stateListAnimator = android.animation.AnimatorInflater.loadStateListAnimator(this@MainActivity, R.animator.card_press)
+                addView(icon, LinearLayout.LayoutParams(dp(50), dp(50)))
+                addView(label, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+                setOnClickListener {
+                    Haptics.press(it)
+                    s.act()
+                }
+            }
+            row.addView(cell, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        }
+        return row
     }
 
     // ---------------------------------------------------------------- settings
