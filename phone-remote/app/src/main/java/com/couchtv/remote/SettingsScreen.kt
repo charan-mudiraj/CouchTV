@@ -258,6 +258,7 @@ class SettingsScreen @JvmOverloads constructor(context: Context, attrs: Attribut
 
     private fun iconFor(key: String) = when (key) {
         "powercountdown" -> R.drawable.ic_timer
+        "clock" -> R.drawable.ic_schedule
         "films" -> R.drawable.ic_movie
         "songs" -> R.drawable.ic_music
         "typeonphone" -> R.drawable.ic_keyboard
@@ -270,6 +271,7 @@ class SettingsScreen @JvmOverloads constructor(context: Context, attrs: Attribut
 
     private fun colourFor(key: String) = when (key) {
         "powercountdown" -> R.color.power
+        "clock" -> R.color.prime
         "films" -> R.color.netflix
         "songs" -> R.color.pointer_pink
         "typeonphone" -> R.color.voice

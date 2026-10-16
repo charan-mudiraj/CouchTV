@@ -50,6 +50,13 @@ namespace CouchTV
                 },
                 new TvSetting
                 {
+                    Key = "clock", Label = "Clock", Note = "On the home screen",
+                    Values = new[] { "12", "24" }, Names = new[] { "12-hour (11:30 PM)", "24-hour (23:30)" },
+                    Get = () => _cfg.Clock24 ? "24" : "12",
+                    Set = v => { _cfg.Clock24 = v == "24"; UpdateClock(); SaveSetting("Clock", v); },
+                },
+                new TvSetting
+                {
                     Key = "films", Label = "Popular films", Note = "Under the apps, and on the phone's first page",
                     Values = OnOffValues, Names = OnOffNames, Get = () => OnOff(_cfg.SuggestMovies),
                     Set = v => { _cfg.SuggestMovies = v == "on"; SuggestionChoiceChanged(); },

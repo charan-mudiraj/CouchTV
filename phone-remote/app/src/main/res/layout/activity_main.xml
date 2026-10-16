@@ -233,7 +233,7 @@
                         android:stateListAnimator="@animator/key_press" />
                 </LinearLayout>
 
-                <!-- The TV's volume (tap the speaker to mute), and under it the brightness: drag along either. Each
+                <!-- The TV's brightness, and under it the volume (tap the speaker to mute): drag along either. Each
                      bar sits 19 dp inside its view at the ends and 4 dp above and below (room to swell under the finger
                      and stretch past the ends, into the page's margins), so the bars line up with the search bar. -->
                 <LinearLayout
@@ -245,12 +245,12 @@
                     android:orientation="vertical">
 
                     <com.couchtv.remote.LevelSlider
-                        android:id="@+id/volume"
+                        android:id="@+id/brightness"
                         android:layout_width="match_parent"
                         android:layout_height="54dp" />
 
                     <com.couchtv.remote.LevelSlider
-                        android:id="@+id/brightness"
+                        android:id="@+id/volume"
                         android:layout_width="match_parent"
                         android:layout_height="54dp" />
                 </LinearLayout>

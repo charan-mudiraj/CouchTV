@@ -1260,9 +1260,11 @@ namespace CouchTV
         {
             DateTime now = DateTime.Now;
             CultureInfo culture = CultureInfo.CurrentCulture;
-            bool h24 = culture.DateTimeFormat.ShortTimePattern.Contains("H");
+            // 12-hour with AM or PM beside it, unless the TV's Settings say 24-hour (Clock in couchtv.ini).
+            bool h24 = _cfg.Clock24;
+            CultureInfo ampm = culture.DateTimeFormat.PMDesignator.Length > 0 ? culture : CultureInfo.InvariantCulture;
             SetText(_time, now.ToString(h24 ? "HH:mm" : "h:mm", culture));
-            SetText(_ampm, h24 ? "" : now.ToString("tt", culture).ToUpperInvariant());
+            SetText(_ampm, h24 ? "" : now.ToString("tt", ampm).ToUpperInvariant());
             SetText(_date, now.ToString("dddd, d MMMM", culture));
             int h = now.Hour;
             SetText(_greeting, h >= 5 && h < 12 ? "Good morning" : h >= 12 && h < 17 ? "Good afternoon" : "Good evening");

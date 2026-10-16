@@ -51,6 +51,7 @@ namespace CouchTV
         public bool SmartSearch = true;                       // AI search, when a Gemini key is set
         public bool TypeOnPhone = true;                       // a text box gets focus: the phone's keyboard pops up
         public int PowerCountdown = 5;                        // Power on the phone with the TV on: seconds to cancel in (0: at once)
+        public bool Clock24;                                  // the home screen's clock: 24-hour (else 12-hour, with AM or PM)
         public bool MirrorTouchAsMouse;                       // the screen mirror's fingers: real touches, or the mouse
         public bool SuggestMovies = true, SuggestSongs = true;   // the suggestion rows under the apps
         public string AiModel = "gemini-flash-lite-latest";
@@ -175,6 +176,7 @@ namespace CouchTV
             TypeOnPhone = GetBool(v, "TypeOnPhone", true);
             int countdown;
             if (int.TryParse(Get(v, "PowerCountdown", "5"), out countdown)) PowerCountdown = Math.Max(0, Math.Min(30, countdown));
+            Clock24 = Get(v, "Clock", "12").Trim() == "24";
             MirrorTouchAsMouse = string.Equals(Get(v, "MirrorTouch", "touch"), "mouse", StringComparison.OrdinalIgnoreCase);
             string suggest = Get(v, "Suggestions", "movies, music").ToLowerInvariant();
             SuggestMovies = suggest.Contains("movie") || suggest.Contains("film");
