@@ -52,8 +52,9 @@ class PowerButton @JvmOverloads constructor(context: Context, attrs: AttributeSe
     /** Whole seconds left to wait (0 when it isn't). */
     val secondsLeft: Int get() = ceil((until - SystemClock.elapsedRealtime()).coerceAtLeast(0) / 1000.0).toInt()
 
-    /** Waits until [untilMs] (SystemClock.elapsedRealtime), of [totalMs] in all; 0 stops waiting. */
-    fun waitUntil(untilMs: Long, totalMs: Long) {
+    /** Waits until [untilMs] (SystemClock.elapsedRealtime), of [totalMs] in all, its ring in [color]; 0 stops waiting. */
+    fun waitUntil(untilMs: Long, totalMs: Long, color: Int = 0xFFFFFFFF.toInt()) {
+        ring.color = color
         until = untilMs
         total = totalMs.coerceAtLeast(1)
         if (busy) {

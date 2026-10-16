@@ -112,6 +112,13 @@ namespace CouchTV
             _wifi.CurrentSuggestions = () => _phoneSuggestions;
             _wifi.Play += PlaySuggestionById;
             _wifi.CurrentSleepTimer = SleepSecondsLeft;
+            // Power on the phone, with a few seconds to change your mind: said on the TV meanwhile.
+            _wifi.PowerSoon += seconds =>
+            {
+                Log.Info(seconds > 0 ? "Power on a phone: going in " + seconds + " s" : "Power on a phone: cancelled");
+                Osd.ShowMessage('\uE7E8', seconds > 0 ? "Turning off in " + seconds + " seconds (Cancel on the phone)" : "Cancelled: the TV stays on",
+                    seconds > 0 ? seconds : 2);
+            };
             _wifi.SleepTimer += minutes =>
             {
                 string message = SetSleepTimer(minutes);

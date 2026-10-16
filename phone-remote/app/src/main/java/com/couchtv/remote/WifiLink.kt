@@ -474,6 +474,9 @@ class WifiLink(context: Context) {
     /** Plays a suggestion on the TV: one from its own list, or one this phone fetched. */
     fun play(s: Suggestion) = send(s.playLine())
 
+    /** Power was tapped with the TV on: it goes in this many seconds unless cancelled (0), and the TV says so meanwhile. */
+    fun powerSoon(seconds: Int) = send("POWERSOON $seconds")
+
     /** The TV goes to sleep this many minutes from now (0: the timer's off). */
     fun setSleepTimer(minutes: Int) = send("SLEEPTIMER $minutes")
 

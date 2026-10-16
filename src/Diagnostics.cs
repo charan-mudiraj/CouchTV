@@ -1606,6 +1606,8 @@ namespace CouchTV
             server.Trackpad += open => { lock (trackpads) trackpads.Add(open); };
             var sleepTimers = new List<int>();
             server.SleepTimer += minutes => { lock (sleepTimers) sleepTimers.Add(minutes); };
+            var powerSoon = new List<int>();
+            server.PowerSoon += seconds => { lock (powerSoon) powerSoon.Add(seconds); };
             Func<string> code = () => { lock (pairing) return shown; };
             Func<string> wrongCode = () => { lock (pairing) return ((int.Parse(shown) + 1) % 1000000).ToString("D6"); };
             Func<string> pairingLog = () => { lock (pairing) return string.Join(", ", pairing); };
@@ -1685,6 +1687,9 @@ namespace CouchTV
                     a.Send("SLEEPTIMER 0");
                     a.Send("SLEEPTIMER -5");                  // ignored
                     a.Send("SLEEPTIMER 99999");               // ignored: more than a day
+                    a.Send("POWERSOON 5");
+                    a.Send("POWERSOON 0");
+                    a.Send("POWERSOON 600");                  // ignored: more than a minute
                     a.Send("KEY A2 D");      // Ctrl, still held when the phone leaves
                     a.Send("KEY 43 D");
                     a.Send("KEY 43 U");
@@ -1720,6 +1725,8 @@ namespace CouchTV
                 lock (played) check("Wi-Fi: PLAY plays a suggestion (" + string.Join(", ", played) + ")", string.Join(", ", played) == "s1");
                 lock (sleepTimers) check("Wi-Fi: SLEEPTIMER sets the sleep timer, any number of minutes, or 0 for off (" + string.Join(", ", sleepTimers) + ")",
                     string.Join(", ", sleepTimers) == "95, 0");
+                lock (powerSoon) check("Wi-Fi: POWERSOON says a phone's Power is counting down, and when it's cancelled (" + string.Join(", ", powerSoon) + ")",
+                    string.Join(", ", powerSoon) == "5, 0");
                 lock (trackpads) check("Wi-Fi: the trackpad page open shows the pointer; the phone leaving hides it (" + string.Join(", ", trackpads) + ")",
                     string.Join(", ", trackpads) == "True, False");
                 lock (buttons) check("Wi-Fi: buttons arrive as the IR receiver's codes", string.Join(", ", buttons) == "NEC 00CE 0005 N, NEC 00CE 0006 R");

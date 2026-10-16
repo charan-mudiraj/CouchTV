@@ -40,6 +40,7 @@ namespace CouchTV
     ///     PLAY &lt;id&gt; [&lt;what it is&gt;]   play a suggestion (from the SUGGEST lines, or one the phone found) on the TV
     ///     TRACKPAD ON|OFF           the phone's trackpad page is open (or not): the TV shows its pointer meanwhile
     ///     SLEEPTIMER &lt;minutes&gt;      the sleep timer: the TV goes to sleep that many minutes from now (0: off)
+    ///     POWERSOON &lt;seconds&gt;      Power was tapped on the phone with the TV on: it goes in that many seconds (0: cancelled)
     ///     LOG [&lt;lines&gt;]             →  LOG &lt;count&gt;, then that many lines "| &lt;line&gt;": the end of the TV's log (CouchTV.exe --tv)
     /// Buttons go through the same remote.ini mapping as infrared ones, so both remotes behave the same.
     /// </summary>
@@ -63,6 +64,7 @@ namespace CouchTV
         public event Action<string> Play;                    // a phone chose a suggestion: its id and what it is (UI thread)
         public event Action<bool> Trackpad;                  // a phone has its trackpad page open (true), or none has now (UI thread)
         public event Action<int> SleepTimer;                 // a phone set the sleep timer: minutes from now, 0 for off (UI thread)
+        public event Action<int> PowerSoon;                  // a phone's Power counts down: seconds left, 0 when cancelled (UI thread)
 
         /// <summary>The pointer's look now ("arrow 64 white"), told to each phone as it connects.</summary>
         internal Func<string> CurrentPointer;
@@ -611,6 +613,11 @@ namespace CouchTV
                         }
                         KeyChange(vk, down);
                     }
+                    return null;
+                case "POWERSOON":
+                    int seconds;
+                    if (parts.Length >= 2 && TryInt(parts[1], 60, out seconds) && seconds >= 0)
+                        Raise(() => { if (PowerSoon != null) PowerSoon(seconds); });
                     return null;
                 case "LOG":
                     // The end of couchtv.log, for looking into the TV from a laptop (CouchTV.exe --tv); paired only.

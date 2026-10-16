@@ -45,6 +45,7 @@ class MainActivity : Activity() {
         private const val REQUEST_BLUETOOTH_OFF = 45   // Android's "turn off Bluetooth?" question
         private const val ACTION_REQUEST_DISABLE = "android.bluetooth.adapter.action.REQUEST_DISABLE"
         private const val TV_GAP_MS = 15_000L          // the TV ignores its power button this long after switching
+        private const val OFF_DELAY_MS = 5_000L        // Power with the TV on: this long to change your mind
     }
 
     private lateinit var remote: Remote
@@ -71,6 +72,9 @@ class MainActivity : Activity() {
     private var powerTurningOff = false
     private var powerBlocked = false                          // pressed again too soon
     private var powerTvOn: Boolean? = null
+    private var offAt = 0L                                    // turning off, counting down: when it goes (0: not)
+    private var started = false                               // between onStart and onStop
+    private var boardAfterPower = false                       // the receiver box link stays up until a turn-off is sent
 
     // Updates from GitHub
     private lateinit var updater: AppUpdater
@@ -108,6 +112,9 @@ class MainActivity : Activity() {
             setOnClickListener { pressPower() }
             onReady = { hidePowerNote() }
         }
+        findViewById<View>(R.id.power_cancel).setOnClickListener { cancelPowerOff() }
+        findViewById<View>(R.id.power_now).setOnClickListener { powerOffNow() }
+        for (id in intArrayOf(R.id.power_cancel, R.id.power_now)) Haptics.attach(findViewById(id))
 
         voice = VoiceSearch(this, remote)
         voice.onStatus = { findViewById<TextView>(R.id.search_hint).text = it }
@@ -415,6 +422,8 @@ class MainActivity : Activity() {
     // off meanwhile (BluetoothGuard).
     override fun onStart() {
         super.onStart()
+        started = true
+        boardAfterPower = false
         remote.wifi.start()
         remote.board.start()
         fetchSuggestionsSoon()
@@ -424,8 +433,10 @@ class MainActivity : Activity() {
     }
 
     override fun onStop() {
+        started = false
         remote.wifi.stop()
-        remote.board.stop()
+        // A turn-off counting down still goes (Power, then the phone locked): the box link waits for it.
+        if (offAt != 0L) boardAfterPower = true else remote.board.stop()
         screen.stop()
         BluetoothGuard.askUser = null
         BluetoothGuard.release("screen")
@@ -696,12 +707,18 @@ class MainActivity : Activity() {
     // ---------------------------------------------------------------- power
 
     /**
-     * Power, through the receiver box (or by infrared). For about 15 s after switching, the TV ignores its own power
-     * button (which the box presses), so the key counts that down with a line under the top saying what's going on;
-     * a press meanwhile shakes the key and says why, instead of being lost.
+     * Power, through the receiver box (or by infrared). With the TV on it doesn't go at once: for 5 s the key counts
+     * down and a card offers Cancel and Turn off now (tapping Power again cancels too), and the TV shows it's about to
+     * go, so a tap by mistake does nothing. Switching on is at once. For about 15 s after switching, the TV ignores
+     * its own power button (which the box presses), so then the key counts that down with a line under the top
+     * saying what's going on; a press meanwhile shakes the key and says why, instead of being lost.
      */
     private fun pressPower() {
         val power = findViewById<PowerButton>(R.id.power)
+        if (offAt != 0L) {
+            cancelPowerOff()   // tapped again while it counts down: that's a no
+            return
+        }
         if (power.busy) {
             power.shake()
             powerBlocked = true
@@ -712,13 +729,73 @@ class MainActivity : Activity() {
             toast(getString(R.string.power_needs_ir))
             return
         }
-        powerTurningOff = remote.wifi.connected || remote.board.pcOn == true
+        if (remote.wifi.connected || remote.board.pcOn == true) startPowerOff() else sendPower(turningOff = false)
+    }
+
+    private val offNow = Runnable { powerOffNow() }
+    private val offTick = Runnable { showPowerOff() }
+
+    private fun startPowerOff() {
+        offAt = SystemClock.elapsedRealtime() + OFF_DELAY_MS
+        // The ring runs a moment past the turn-off, so the key goes straight on to the TV's 15 s.
+        findViewById<PowerButton>(R.id.power).waitUntil(offAt + 300, OFF_DELAY_MS + 300, getColor(R.color.warn))
+        handler.postDelayed(offNow, OFF_DELAY_MS)
+        remote.wifi.powerSoon((OFF_DELAY_MS / 1000).toInt())
+        showPowerOff()
+    }
+
+    /** The card under the top while a turn-off counts down: the seconds left, Cancel, Turn off now. */
+    private fun showPowerOff() {
+        handler.removeCallbacks(offTick)
+        val card = findViewById<View>(R.id.power_off)
+        if (offAt == 0L) {
+            if (card.visibility == View.VISIBLE) card.animate().alpha(0f).setDuration(180).withEndAction { card.visibility = View.GONE }.start()
+            return
+        }
+        val left = ((offAt - SystemClock.elapsedRealtime() + 999) / 1000).toInt().coerceAtLeast(1)
+        findViewById<TextView>(R.id.power_off_text).text = getString(R.string.power_off_soon, left)
+        if (card.visibility != View.VISIBLE) {
+            hidePowerNote()
+            card.animate().cancel()
+            card.alpha = 0f
+            card.visibility = View.VISIBLE
+            card.animate().alpha(1f).setDuration(180).start()
+        }
+        handler.postDelayed(offTick, 200)
+    }
+
+    private fun cancelPowerOff() {
+        if (offAt == 0L) return
+        handler.removeCallbacks(offNow)
+        offAt = 0L
+        findViewById<PowerButton>(R.id.power).waitUntil(0, 1)
+        showPowerOff()
+        remote.wifi.powerSoon(0)
+        toast(getString(R.string.power_cancelled))
+    }
+
+    private fun powerOffNow() {
+        handler.removeCallbacks(offNow)
+        if (offAt == 0L) return
+        offAt = 0L
+        showPowerOff()
+        sendPower(turningOff = true)
+    }
+
+    private fun sendPower(turningOff: Boolean) {
+        val power = findViewById<PowerButton>(R.id.power)
+        powerTurningOff = turningOff
         powerBlocked = false
         powerTvOn = remote.board.tvOn
         powerPressedAt = SystemClock.elapsedRealtime()
         remote.press(Codes.ADDRESS, Codes.POWER, hold = false)
         power.waitUntil(powerPressedAt + TV_GAP_MS, TV_GAP_MS)
         showPowerNote()
+        if (boardAfterPower) {
+            // Sent while the app's in the background: the box link closes once the box has had it.
+            boardAfterPower = false
+            handler.postDelayed({ if (!started) remote.board.stop() }, 3000)
+        }
     }
 
     private val powerTick = Runnable { showPowerNote() }
@@ -768,7 +845,7 @@ class MainActivity : Activity() {
         val power = findViewById<PowerButton>(R.id.power)
         val before = powerTvOn
         powerTvOn = tvOn
-        if (!power.busy || before == null || before == tvOn) return
+        if (offAt != 0L || !power.busy || before == null || before == tvOn) return
         val until = minOf(SystemClock.elapsedRealtime() + TV_GAP_MS, powerPressedAt + 45_000)
         power.waitUntil(until, until - powerPressedAt)
         showPowerNote()

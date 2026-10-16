@@ -108,6 +108,54 @@
             android:stateListAnimator="@animator/key_press" />
     </LinearLayout>
 
+    <!-- Power with the TV on: a few seconds to change your mind -->
+    <LinearLayout
+        android:id="@+id/power_off"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="20dp"
+        android:layout_marginTop="4dp"
+        android:layout_marginEnd="20dp"
+        android:layout_marginBottom="4dp"
+        android:background="@drawable/update_bg"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="14dp"
+        android:paddingTop="10dp"
+        android:paddingEnd="10dp"
+        android:paddingBottom="10dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/power_off_text"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textColor="@color/ink"
+            android:textSize="15sp" />
+
+        <Button
+            android:id="@+id/power_cancel"
+            style="@style/RemoteKey.Text"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:text="@string/power_cancel"
+            android:textColor="@color/good" />
+
+        <Button
+            android:id="@+id/power_now"
+            style="@style/RemoteKey.Text"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:layout_marginStart="8dp"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:text="@string/power_now"
+            android:textColor="@color/power" />
+    </LinearLayout>
+
     <!-- After Power: what's happening, and how long until the TV listens to its power button again -->
     <TextView
         android:id="@+id/power_note"
