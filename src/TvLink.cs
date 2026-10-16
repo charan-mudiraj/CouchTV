@@ -22,6 +22,7 @@ namespace CouchTV
     ///   btn &lt;address&gt; &lt;command&gt;          a remote button (hex), e.g. "btn CE 05"
     ///   key &lt;vk&gt;                          a PC key pressed and let go (Windows' virtual-key code, hex), e.g. "key 75" for F6
     ///   send &lt;line&gt;                       any line, as the phone would send it (e.g. "send 'TOUCH 0 D 100 200'")
+    ///   hear &lt;start&gt;                      the next line from the TV that starts so (e.g. "hear VOLUME"), within 5 s
     ///   wait &lt;ms&gt;
     /// The report says how each went, line by line as it happens. The pairing (this PC's id, the TV's address and the
     /// key) is kept in %LOCALAPPDATA%\CouchTV\tvlink.dat, readable only by this Windows user.
@@ -197,6 +198,19 @@ namespace CouchTV
                             lock (writeLock) link.Send(args[++i]);
                             Say("Sent " + args[i]);
                             break;
+                        case "hear":
+                        {
+                            string wanted = args[++i], heard = null;
+                            var clock = System.Diagnostics.Stopwatch.StartNew();
+                            while (clock.ElapsedMilliseconds < 5000)
+                            {
+                                string line = link.Receive();
+                                if (line == null) break;
+                                if (line.StartsWith(wanted)) { heard = line; break; }
+                            }
+                            Say(heard != null ? "Heard " + heard : "Heard nothing starting \"" + wanted + "\"");
+                            break;
+                        }
                         case "wait":
                             Thread.Sleep(int.Parse(args[++i]));
                             break;
