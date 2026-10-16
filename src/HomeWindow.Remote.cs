@@ -23,6 +23,7 @@ namespace CouchTV
 
         IrLink _ir;
         RemoteServer _wifi;
+        PowerCountdownWindow _powerCountdown;
         PhoneStore _phones;
         TypingWatch _typing;
         AudioShare _sound;
@@ -112,12 +113,13 @@ namespace CouchTV
             _wifi.CurrentSuggestions = () => _phoneSuggestions;
             _wifi.Play += PlaySuggestionById;
             _wifi.CurrentSleepTimer = SleepSecondsLeft;
-            // Power on the phone, with a few seconds to change your mind: said on the TV meanwhile.
+            // Power on the phone, with a few seconds to change your mind: a big countdown on the TV meanwhile.
             _wifi.PowerSoon += seconds =>
             {
                 Log.Info(seconds > 0 ? "Power on a phone: going in " + seconds + " s" : "Power on a phone: cancelled");
-                Osd.ShowMessage('\uE7E8', seconds > 0 ? "Turning off in " + seconds + " seconds (Cancel on the phone)" : "Cancelled: the TV stays on",
-                    seconds > 0 ? seconds : 2);
+                if (_powerCountdown == null) _powerCountdown = new PowerCountdownWindow();
+                if (seconds > 0) _powerCountdown.Start(seconds);
+                else _powerCountdown.Cancel();
             };
             _wifi.SleepTimer += minutes =>
             {

@@ -1267,6 +1267,32 @@ namespace CouchTV
             return ok ? 0 : 1;
         }
 
+        /// <summary>The TV's turn-off countdown on this screen, to look at: 5 seconds, cancelled after 3, gone at 6.</summary>
+        public static int CountdownTest()
+        {
+            var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+            var countdown = new PowerCountdownWindow();
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
+            bool cancelled = false;
+            timer.Tick += (s, e) =>
+            {
+                if (!cancelled && clock.ElapsedMilliseconds > 3200)
+                {
+                    cancelled = true;
+                    countdown.Cancel();
+                }
+                if (clock.ElapsedMilliseconds > 6500) app.Shutdown();
+            };
+            app.Startup += (s, e) =>
+            {
+                countdown.Start(5);
+                timer.Start();
+            };
+            app.Run();
+            return 0;
+        }
+
         public static int TouchTest(string path, bool asMouse)
         {
             TouchInjector.AsMouse = asMouse;
