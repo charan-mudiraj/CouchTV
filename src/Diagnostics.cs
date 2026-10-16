@@ -1640,6 +1640,8 @@ namespace CouchTV
             server.PowerSoon += seconds => { lock (powerSoon) powerSoon.Add(seconds); };
             var settingsSet = new List<string>();
             server.SetSetting += (key, value) => { lock (settingsSet) settingsSet.Add(key + "=" + value); };
+            var opened = new List<string>();
+            server.OpenApp += name => { lock (opened) opened.Add(name); };
             Func<string> code = () => { lock (pairing) return shown; };
             Func<string> wrongCode = () => { lock (pairing) return ((int.Parse(shown) + 1) % 1000000).ToString("D6"); };
             Func<string> pairingLog = () => { lock (pairing) return string.Join(", ", pairing); };
@@ -1686,6 +1688,7 @@ namespace CouchTV
                 server.CurrentSuggestions = () => new List<string> { "SUGGESTIONS 1", "SUGGEST S s1 SGF3YXllaW4= - WW91VHViZQ== - FF0000 FFFFFF" };
                 server.CurrentSleepTimer = () => 2700;
                 server.CurrentSettings = () => new List<string> { "SETTINGS 1", "SETTING powercountdown 5 UG93ZXI= - 0:T2Zm,5:NSBz" };
+                server.CurrentApps = () => new List<string> { "APPS 1", "APP TmV0ZmxpeA== TmV0ZmxpeA== E50914 FFFFFF" };
                 using (var a = new TestPhone(idA))
                 {
                     a.Hello(47791);
@@ -1703,6 +1706,8 @@ namespace CouchTV
                     check("Wi-Fi: ...and the sleep timer", a.Receive() == "SLEEPTIMER 2700");
                     string settingsHead = a.Receive(), settingLine = a.Receive();
                     check("Wi-Fi: ...and the TV's settings", settingsHead == "SETTINGS 1" && settingLine == "SETTING powercountdown 5 UG93ZXI= - 0:T2Zm,5:NSBz");
+                    string appsHead = a.Receive(), appLine = a.Receive();
+                    check("Wi-Fi: ...and the home screen's apps", appsHead == "APPS 1" && appLine == "APP TmV0ZmxpeA== TmV0ZmxpeA== E50914 FFFFFF");
                     a.Send("PING");
                     check("Wi-Fi: PING gets PONG", a.Receive() == "PONG");
                     a.Send("SOUND");
@@ -1723,6 +1728,8 @@ namespace CouchTV
                     a.Send("SLEEPTIMER -5");                  // ignored
                     a.Send("SLEEPTIMER 99999");               // ignored: more than a day
                     a.Send("SET powercountdown 10");
+                    a.Send("OPEN TmV0ZmxpeA==");
+                    a.Send("OPEN !!!");                       // ignored: not base64
                     a.Send("SET " + new string('k', 41) + " 1");    // ignored: no key is that long
                     a.Send("POWERSOON 5");
                     a.Send("POWERSOON 0");
@@ -1759,10 +1766,12 @@ namespace CouchTV
                 server.CurrentSuggestions = null;
                 server.CurrentSleepTimer = null;
                 server.CurrentSettings = null;
+                server.CurrentApps = null;
                 check("Wi-Fi: its sound session ends with the connection", server.FindSession(session) == null);
                 lock (played) check("Wi-Fi: PLAY plays a suggestion (" + string.Join(", ", played) + ")", string.Join(", ", played) == "s1");
                 lock (sleepTimers) check("Wi-Fi: SLEEPTIMER sets the sleep timer, any number of minutes, or 0 for off (" + string.Join(", ", sleepTimers) + ")",
                     string.Join(", ", sleepTimers) == "95, 0");
+                lock (opened) check("Wi-Fi: OPEN opens one of the home screen's apps (" + string.Join(", ", opened) + ")", string.Join(", ", opened) == "Netflix");
                 lock (settingsSet) check("Wi-Fi: SET changes one of the TV's settings (" + string.Join(", ", settingsSet) + ")", string.Join(", ", settingsSet) == "powercountdown=10");
                 lock (powerSoon) check("Wi-Fi: POWERSOON says a phone's Power is counting down, and when it's cancelled (" + string.Join(", ", powerSoon) + ")",
                     string.Join(", ", powerSoon) == "5, 0");

@@ -174,26 +174,27 @@ class MainActivity : Activity() {
 
         findViewById<DpadView>(R.id.dpad).apply {
             listener = dpadListener(Codes.UP, Codes.DOWN, Codes.LEFT, Codes.RIGHT, Codes.OK)
-            // The curved keys round it, as on a TV remote: Home and Menu above, Back and Exit below, the volume rocker
-            // on the left, play/pause and mute on the right (degrees clockwise from the right).
-            ring = listOf(
-                DpadView.RingKey("playpause", -42f, 40f, R.drawable.ic_play_pause),
-                DpadView.RingKey("mute", 2f, 40f, R.drawable.ic_volume_off),
-                DpadView.RingKey("exit", 49f, 38f, R.drawable.ic_exit),
-                DpadView.RingKey("back", 93f, 38f, R.drawable.ic_back),
-                DpadView.RingKey("volumedown", 138f, 40f, R.drawable.ic_volume_down),
-                DpadView.RingKey("volumeup", 182f, 40f, R.drawable.ic_volume_up),
-                DpadView.RingKey("home", 229f, 38f, R.drawable.ic_home),
-                DpadView.RingKey("menu", 273f, 38f, R.drawable.ic_menu),
+            // A key in each corner of the square round it: Back and Home above, Menu and play/pause below.
+            corners = listOf(
+                DpadView.CornerKey("back", 0, R.drawable.ic_back),
+                DpadView.CornerKey("home", 1, R.drawable.ic_home),
+                DpadView.CornerKey("menu", 2, R.drawable.ic_menu),
+                DpadView.CornerKey("playpause", 3, R.drawable.ic_play_pause),
             )
-            val codes = mapOf(
-                "playpause" to Codes.PLAY_PAUSE, "mute" to Codes.MUTE, "exit" to Codes.EXIT, "back" to Codes.BACK,
-                "volumedown" to Codes.VOLUME_DOWN, "volumeup" to Codes.VOLUME_UP, "home" to Codes.HOME, "menu" to Codes.MENU,
-            )
+            val codes = mapOf("back" to Codes.BACK, "home" to Codes.HOME, "menu" to Codes.MENU, "playpause" to Codes.PLAY_PAUSE)
             var press = 0
-            onRingKey = { key, down ->
+            onCornerKey = { key, down ->
                 if (down) press = remote.press(Codes.ADDRESS, codes.getValue(key.name)) else remote.release(press)
             }
+        }
+        // The TV's streaming apps at the bottom, with their logos: the TV's own list once it's given it (kept for
+        // next time), else the ones the remote's keys open.
+        val appsGrid = findViewById<AppsGrid>(R.id.apps)
+        appsGrid.onOpen = { openApp(it) }
+        appsGrid.show(streamingApps(savedApps()))
+        remote.wifi.onApps = {
+            getSharedPreferences("apps", MODE_PRIVATE).edit().putString("list", remote.wifi.apps.joinToString("\n") { it.line() }).apply()
+            appsGrid.show(streamingApps(remote.wifi.apps))
         }
         findViewById<TrackpadView>(R.id.trackpad).listener = object : TrackpadView.Listener {
             override fun onMove(dx: Int, dy: Int) = remote.pointerMove(dx, dy)
@@ -228,29 +229,33 @@ class MainActivity : Activity() {
         bindHold(findViewById<View>(R.id.right_click), { remote.pointerButton(true, true) }, { remote.pointerButton(true, false) })
 
         mapOf(
+            R.id.volume_down to Codes.VOLUME_DOWN,
+            R.id.mute to Codes.MUTE,
+            R.id.volume_up to Codes.VOLUME_UP,
             R.id.mirror_back to Codes.BACK,
             R.id.mirror_home to Codes.HOME,
             R.id.mirror_volume_down to Codes.VOLUME_DOWN,
             R.id.mirror_volume_up to Codes.VOLUME_UP,
-            R.id.app_netflix to Codes.NETFLIX,
-            R.id.app_youtube to Codes.YOUTUBE,
-            R.id.app_prime to Codes.PRIME_VIDEO,
-            R.id.app_hotstar to Codes.JIOHOTSTAR,
         ).forEach { (id, command) -> bindHold(findViewById<View>(id), Codes.ADDRESS, command) }
 
         // The keys used now and then, as round shortcuts at the top of the first page (as in a Xiaomi phone's App
-        // Vault): Settings, the Web app, the sleep timer (its label shows how long is left), full screen, delete.
+        // Vault): always five in a row, the fifth opening the rest when there are more than four.
         val sleepLabel = TextView(this)
         sleepTimer = SleepTimer(this, remote, sleepLabel)
         suggestions.header = shortcuts(listOf(
             Shortcut(R.drawable.ic_settings, R.color.surface_pressed, getString(R.string.settings_title), null) { settings.open() },
-            Shortcut(R.drawable.ic_web, R.color.web, getString(R.string.app_web), null) { remote.press(Codes.ADDRESS, Codes.WEB, hold = false) },
+            Shortcut(R.drawable.ic_web, R.color.web, getString(R.string.app_web), null) {
+                openApp(remote.wifi.apps.find { it.name == "Web" } ?: TvApp("Web", getString(R.string.app_web), 0, 0))
+            },
             Shortcut(R.drawable.ic_bedtime, R.color.voice, getString(R.string.key_sleep_timer), sleepLabel) { sleepTimer.open() },
             Shortcut(R.drawable.ic_fullscreen, R.color.good_bottom, getString(R.string.key_full_screen), null) {
                 remote.press(Codes.ADDRESS, Codes.FULL_SCREEN, hold = false)
             },
             Shortcut(R.drawable.ic_backspace, R.color.power_bottom, getString(R.string.key_delete), null) {
                 remote.press(Codes.ADDRESS, Codes.DELETE, hold = false)
+            },
+            Shortcut(R.drawable.ic_exit, R.color.hotstar, getString(R.string.key_exit), null) {
+                remote.press(Codes.ADDRESS, Codes.EXIT, hold = false)
             },
         ))
         sleepTimer.showKey()
@@ -865,7 +870,7 @@ class MainActivity : Activity() {
     /** A shortcut: its icon on a coloured circle, its name under it ([label], when given, is the one to use), what it does. */
     private class Shortcut(val icon: Int, val colour: Int, val name: String, val label: TextView?, val act: () -> Unit)
 
-    /** The shortcuts, five to a row on a card. */
+    /** The shortcuts panel: always five in a row on a card; with more than five, four and a "More" opening the rest. */
     private fun shortcuts(all: List<Shortcut>): View {
         val density = resources.displayMetrics.density
         fun dp(v: Int) = (v * density + 0.5f).toInt()
@@ -877,7 +882,46 @@ class MainActivity : Activity() {
                 setColor(getColor(R.color.surface))
             }
         }
-        for (s in all) {
+        val shown = if (all.size <= 5) all else all.take(4) + Shortcut(R.drawable.ic_apps, R.color.surface_pressed,
+            getString(R.string.more_shortcuts), null) { moreShortcuts(all.drop(4)) }
+        for (s in shown) row.addView(shortcutCell(s), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        return row
+    }
+
+    /** The shortcuts beyond the first four, in a dialog, four to a row. */
+    private fun moreShortcuts(rest: List<Shortcut>) {
+        val density = resources.displayMetrics.density
+        fun dp(v: Int) = (v * density + 0.5f).toInt()
+        var dialog: AlertDialog? = null
+        val column = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(16), dp(12), dp(8))
+        }
+        for (start in rest.indices step 4) {
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            for (i in start until start + 4) {
+                val cell = if (i < rest.size) shortcutCell(Shortcut(rest[i].icon, rest[i].colour, rest[i].name, null) {
+                    dialog?.dismiss()
+                    rest[i].act()
+                }) else View(this)
+                row.addView(cell, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            }
+            column.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(14)
+            })
+        }
+        dialog = AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+            .setTitle(R.string.more_shortcuts)
+            .setView(column)
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    /** One shortcut: its icon on a coloured circle, its name under it. */
+    private fun shortcutCell(s: Shortcut): View {
+        val density = resources.displayMetrics.density
+        fun dp(v: Int) = (v * density + 0.5f).toInt()
+        return run {
             val icon = ImageView(this).apply {
                 setImageResource(s.icon)
                 imageTintList = ColorStateList.valueOf(getColor(R.color.ink))
@@ -910,9 +954,37 @@ class MainActivity : Activity() {
                     s.act()
                 }
             }
-            row.addView(cell, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            cell
         }
-        return row
+    }
+
+    /** The streaming apps for the grid: the TV's (the Web app is a shortcut on the first page instead). */
+    private fun streamingApps(apps: List<TvApp>): List<TvApp> = apps.ifEmpty { TvApp.DEFAULTS }.filter { it.name != "Web" }
+
+    /** The TV's apps as it last listed them, or none. */
+    private fun savedApps(): List<TvApp> =
+        getSharedPreferences("apps", MODE_PRIVATE).getString("list", null)?.split("\n")?.mapNotNull { TvApp.parse(it) } ?: emptyList()
+
+    /**
+     * Opens one of the TV's apps: over Wi-Fi by its name, any of them; by infrared only those the remote has keys for
+     * (Netflix, YouTube, Prime Video, JioHotstar, Web).
+     */
+    private fun openApp(app: TvApp) {
+        if (remote.wifi.connected) {
+            remote.wifi.openApp(app.name)
+            return
+        }
+        val name = app.name.lowercase()
+        val code = when {
+            "netflix" in name -> Codes.NETFLIX
+            "youtube" in name && "tv" !in name -> Codes.YOUTUBE
+            "prime" in name -> Codes.PRIME_VIDEO
+            "hotstar" in name -> Codes.JIOHOTSTAR
+            name == "web" -> Codes.WEB
+            else -> null
+        }
+        if (code == null) toast(getString(R.string.app_needs_wifi, app.label))
+        else remote.press(Codes.ADDRESS, code, hold = false)
     }
 
     // ---------------------------------------------------------------- settings

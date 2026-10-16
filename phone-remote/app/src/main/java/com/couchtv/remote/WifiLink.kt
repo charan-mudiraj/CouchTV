@@ -90,6 +90,13 @@ class WifiLink(context: Context) {
     /** Called on the main thread with what the TV has ("SUGGESTSETUP", without its name), for fetching them here while it's off. */
     var onSuggestSetup: ((String) -> Unit)? = null
 
+    /** Called on the main thread when the TV's apps arrive (see [apps]). */
+    var onApps: (() -> Unit)? = null
+
+    /** The home screen's apps, as the TV last listed them; empty until it has. */
+    @Volatile var apps: List<TvApp> = emptyList()
+        private set
+
     /** Called on the main thread when the TV's settings arrive or change (see [settings]). */
     var onSettings: (() -> Unit)? = null
 
@@ -134,6 +141,8 @@ class WifiLink(context: Context) {
     private val typed = LinkedBlockingQueue<String>()
     private var incoming: MutableList<String>? = null   // a list of suggestions arriving (on the reading thread)
     private var settingsArriving: MutableList<TvSetting>? = null
+    private var appsArriving: MutableList<TvApp>? = null
+    private var appsExpected = 0
     private var settingsExpected = 0
     private var expected = 0
 
@@ -453,6 +462,16 @@ class WifiLink(context: Context) {
                 line.startsWith("POINTER ") -> pointerLook = line.removePrefix("POINTER ").trim()
                 line.startsWith("BOARD ") -> Secure.fromHex(line.removePrefix("BOARD ").trim())?.takeIf { it.size == 32 }?.let { onBoardKey?.invoke(it) }
                 line.startsWith("INPUT ") -> typing(line.removePrefix("INPUT "))
+                line.startsWith("APPS ") -> {
+                    // The home screen's apps: that many APP lines follow.
+                    appsExpected = line.removePrefix("APPS ").trim().toIntOrNull() ?: 0
+                    appsArriving = mutableListOf()
+                    if (appsExpected <= 0) setApps(emptyList())
+                }
+                line.startsWith("APP ") -> appsArriving?.let { arriving ->
+                    TvApp.parse(line.removePrefix("APP "))?.let { arriving.add(it) } ?: appsExpected--
+                    if (arriving.size >= appsExpected) setApps(arriving)
+                }
                 line.startsWith("SETTINGS ") -> {
                     // The TV's settings: that many SETTING lines follow.
                     settingsExpected = line.removePrefix("SETTINGS ").trim().toIntOrNull() ?: 0
@@ -495,6 +514,15 @@ class WifiLink(context: Context) {
 
     /** Power was tapped with the TV on: it goes in this many seconds unless cancelled (0), and the TV says so meanwhile. */
     fun powerSoon(seconds: Int) = send("POWERSOON $seconds")
+
+    /** Opens one of the home screen's apps, by its name (from [apps]). */
+    fun openApp(name: String) = send("OPEN " + java.util.Base64.getEncoder().encodeToString(name.toByteArray(Charsets.UTF_8)))
+
+    private fun setApps(list: List<TvApp>) {
+        appsArriving = null
+        apps = list
+        main.post { onApps?.invoke() }
+    }
 
     /** Changes one of the TV's settings (to one of its choices); the TV lists them all again. */
     fun setSetting(key: String, value: String) = send("SET $key $value")

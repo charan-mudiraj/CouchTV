@@ -181,8 +181,8 @@
                     android:layout_weight="1" />
             </LinearLayout>
 
-            <!-- 1. Remote, shaped like a TV remote's: search, the apps' coloured buttons, and the D-pad in its ring of curved
-                 keys (Home, Menu, Back, Exit, the volume rocker, play/pause and mute). Where the app opens. -->
+            <!-- 1. Remote: search, volume keys, the D-pad as big as fits with a key in each of its corners (Back, Home,
+                 Menu, play/pause), and the TV's streaming apps with their logos. Where the app opens. -->
             <LinearLayout style="@style/Page">
 
                 <!-- Search: the mic for voice search, or tap the bar to type -->
@@ -230,48 +230,48 @@
                         android:stateListAnimator="@animator/key_press" />
                 </LinearLayout>
 
-                <!-- The apps' own buttons, as a remote's coloured lozenges -->
+                <!-- Volume down, mute, volume up -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="-4dp"
-                    android:layout_marginTop="16dp"
-                    android:layout_marginEnd="-4dp"
+                    android:layout_marginTop="14dp"
+                    android:gravity="center"
                     android:orientation="horizontal">
 
-                    <Button
-                        android:id="@+id/app_netflix"
-                        style="@style/AppPill"
-                        android:backgroundTint="@color/netflix"
-                        android:text="@string/app_netflix" />
+                    <ImageButton
+                        android:id="@+id/volume_down"
+                        style="@style/RoundKey"
+                        android:contentDescription="@string/volume_down"
+                        android:src="@drawable/ic_volume_down" />
 
-                    <Button
-                        android:id="@+id/app_youtube"
-                        style="@style/AppPill"
-                        android:backgroundTint="@color/youtube"
-                        android:text="@string/app_youtube" />
+                    <ImageButton
+                        android:id="@+id/mute"
+                        style="@style/RoundKey"
+                        android:contentDescription="@string/mute"
+                        android:src="@drawable/ic_volume_off" />
 
-                    <Button
-                        android:id="@+id/app_prime"
-                        style="@style/AppPill"
-                        android:backgroundTint="@color/prime"
-                        android:text="@string/app_prime" />
-
-                    <Button
-                        android:id="@+id/app_hotstar"
-                        style="@style/AppPill"
-                        android:backgroundTint="@color/hotstar"
-                        android:text="@string/app_hotstar" />
+                    <ImageButton
+                        android:id="@+id/volume_up"
+                        style="@style/RoundKey"
+                        android:contentDescription="@string/volume_up"
+                        android:src="@drawable/ic_volume_up" />
                 </LinearLayout>
 
-                <!-- As big as the space left allows -->
+                <!-- As big as the space left allows, with a key in each corner round it -->
                 <com.couchtv.remote.DpadView
                     android:id="@+id/dpad"
                     android:layout_width="match_parent"
                     android:layout_height="0dp"
-                    android:layout_marginTop="10dp"
-                    android:layout_marginBottom="6dp"
+                    android:layout_marginTop="12dp"
+                    android:layout_marginBottom="12dp"
                     android:layout_weight="1" />
+
+                <!-- The TV's streaming apps, four to a row, with their logos -->
+                <com.couchtv.remote.AppsGrid
+                    android:id="@+id/apps"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="8dp" />
 
             </LinearLayout>
 

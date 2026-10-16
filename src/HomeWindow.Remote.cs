@@ -108,6 +108,16 @@ namespace CouchTV
             // The TV's settings, on the phone's Settings page too.
             TvSettings();
             _wifi.CurrentSettings = SettingsLines;
+            // The home screen's apps, for the phone remote's grid of them; it opens one by its name.
+            var appLines = AppLines();
+            _wifi.CurrentApps = () => appLines;
+            _wifi.OpenApp += name =>
+            {
+                Tile tile = _cfg.AppTiles.Find(t => t.Name == name);
+                if (tile == null) return;
+                Log.Info("Opened from a phone: " + name);
+                OpenFromAnywhere(tile);
+            };
             _wifi.SetSetting += ApplySetting;
             _wifi.Button += OnIrSignal;
             _wifi.Text += ReceiveSearchText;
@@ -425,6 +435,18 @@ namespace CouchTV
         /// A remote button that opens a tile directly. Like switching channels: close what's open first. The old
         /// browser must finish quitting before the new tile starts, or the launch is handed to the dying browser.
         /// </summary>
+        /// <summary>"APPS n", then "APP name label background foreground" for each app tile (texts in base64, colours RRGGBB).</summary>
+        List<string> AppLines()
+        {
+            var lines = new List<string> { "APPS " + _cfg.AppTiles.Count };
+            foreach (Tile t in _cfg.AppTiles)
+                lines.Add("APP " + Convert.ToBase64String(Secure.Utf8(t.Name)) + " " + Convert.ToBase64String(Secure.Utf8(t.Label ?? t.Name)) + " " +
+                          Hex(t.Background) + " " + Hex(t.Foreground));
+            return lines;
+        }
+
+        static string Hex(Color c) { return c.R.ToString("X2") + c.G.ToString("X2") + c.B.ToString("X2"); }
+
         void OpenFromAnywhere(Tile t)
         {
             if (t.Kind == TileKind.Action)

@@ -173,6 +173,8 @@
     <string name="power_wait">Wait %1$d s: TVs ignore their power button for a few seconds after switching, so a press now would be missed.</string>
 
     <string name="settings_title">Settings</string>
+    <string name="more_shortcuts">More</string>
+    <string name="app_needs_wifi">%1$s opens over Wi-Fi: connect to the TV first</string>
     <string name="settings_tv">TV</string>
     <string name="settings_tv_offline">Connect to the TV over Wi-Fi to change its settings.</string>
     <string name="settings_phone">This phone</string>

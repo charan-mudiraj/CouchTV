@@ -14,27 +14,26 @@ import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
 import kotlin.math.atan2
-import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.min
-import kotlin.math.sin
 
 /**
- * A round D-pad: four direction segments around a centre button, and (with [ring]) curved keys hugging it, as on a TV
- * remote: Home, Menu, Back, Exit and two rockers. Reports press and release, so holding a key keeps repeating on the
- * TV. Drawn like a real one, matching the keys (key_bg): raised, with their side showing below and a light rim on
- * top; a pressed key darkens and sinks, and the centre button stands a little proud of the ring.
+ * A round D-pad: four direction segments around a centre button, and (with [corners]) a key in each corner of the
+ * square round it, shaped like a right-angled triangle whose long side curves along the pad. Reports press and
+ * release, so holding a key keeps repeating on the TV. Drawn like a real one, matching the keys (key_bg): raised,
+ * with their side showing below and a light rim on top; a pressed key darkens and sinks, and the centre button stands
+ * a little proud of the ring.
  */
 class DpadView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : View(context, attrs) {
 
     enum class Part { UP, DOWN, LEFT, RIGHT, CENTER }
 
-    /** A curved key round the pad, from [start] degrees (clockwise from the right) for [sweep] degrees, showing [icon]. */
-    class RingKey(val name: String, val start: Float, val sweep: Float, val icon: Int)
+    /** A key in one corner of the square round the pad: 0 top left, 1 top right, 2 bottom left, 3 bottom right. */
+    class CornerKey(val name: String, val corner: Int, val icon: Int)
 
     private companion object {
-        const val MOST_DP = 320f        // the widest the pad gets on its own...
-        const val MOST_RING_DP = 440f   // ...and with its ring
+        const val MOST_DP = 320f          // the widest the pad gets on its own...
+        const val MOST_CORNERS_DP = 440f  // ...and with its corner keys
     }
 
     interface Listener {
@@ -44,8 +43,8 @@ class DpadView @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
 
     var listener: Listener? = null
 
-    /** The curved keys round the pad; none by default. */
-    var ring: List<RingKey> = emptyList()
+    /** The keys in the corners round the pad; none by default. */
+    var corners: List<CornerKey> = emptyList()
         set(value) {
             field = value
             icons.clear()
@@ -53,8 +52,8 @@ class DpadView @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
             invalidate()
         }
 
-    /** A ring key pressed (true) or let go. */
-    var onRingKey: ((RingKey, Boolean) -> Unit)? = null
+    /** A corner key pressed (true) or let go. */
+    var onCornerKey: ((CornerKey, Boolean) -> Unit)? = null
 
     /** Text in the middle, e.g. "OK" or "Click". */
     var centerLabel: String = "OK"
@@ -65,8 +64,8 @@ class DpadView @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
 
     private var pressed: Part? = null   // held down now (what the TV is told)
     private var shown: Part? = null     // drawn down while the view is pressed (a quick tap stays down a moment)
-    private var pressedKey: RingKey? = null
-    private var shownKey: RingKey? = null
+    private var pressedKey: CornerKey? = null
+    private var shownKey: CornerKey? = null
     private val density = resources.displayMetrics.density
     private val depth = 5 * density     // how far the ring's side shows below it
     private val travel = 3 * density    // how far a key goes down
@@ -82,13 +81,13 @@ class DpadView @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
     private val pressedFacePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val centerFacePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val centerPressedFacePaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    // The ring's keys: the same, with rounded corners.
-    private val corners = CornerPathEffect(10 * density)
-    private val keyEdgePaint = paint(R.color.key_edge).apply { pathEffect = corners }
-    private val keyRimPaint = paint(R.color.key_rim).apply { pathEffect = corners }
-    private val keyPressedRimPaint = paint(R.color.key_pressed_rim).apply { pathEffect = corners }
-    private val keyFacePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { pathEffect = corners }
-    private val keyPressedFacePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { pathEffect = corners }
+    // The corner keys: the same, with their sharp points rounded.
+    private val rounding = CornerPathEffect(12 * density)
+    private val keyEdgePaint = paint(R.color.key_edge).apply { pathEffect = rounding }
+    private val keyRimPaint = paint(R.color.key_rim).apply { pathEffect = rounding }
+    private val keyPressedRimPaint = paint(R.color.key_pressed_rim).apply { pathEffect = rounding }
+    private val keyFacePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { pathEffect = rounding }
+    private val keyPressedFacePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { pathEffect = rounding }
     private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x66000000 }
     private val gapPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = context.getColor(R.color.background)
@@ -109,12 +108,13 @@ class DpadView @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
     }
     private val oval = RectF()
     private val chevron = Path()
-    private val sector = Path()
+    private val pieces = arrayOfNulls<Path>(4)   // the corner keys' outlines, made in onSizeChanged
+    private val gap = 7 * density                // between the keys, and between them and the pad
 
-    private val most: Float get() = if (ring.isEmpty()) MOST_DP else MOST_RING_DP
+    private val most: Float get() = if (corners.isEmpty()) MOST_DP else MOST_CORNERS_DP
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        // Square, as wide as allowed but at most 320 dp (440 with its ring); given a height (the space left on its page),
+        // Square, as wide as allowed but at most 320 dp (440 with corner keys); given a height (the space left on its page),
         // it fills that and the pad sits in the middle, as big as fits.
         val width = if (MeasureSpec.getMode(widthMeasureSpec) == MeasureSpec.UNSPECIFIED) (240 * density).toInt()
                     else MeasureSpec.getSize(widthMeasureSpec)
@@ -130,10 +130,10 @@ class DpadView @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
     // Everything is centred at (centerX, centerY); sides show below, down to centerY + depth.
     private val centerX get() = width / 2f
     private val centerY get() = (height - depth) / 2f
-    private val wholeRadius get() = min(min(width.toFloat(), height - depth) / 2f, most / 2 * density) - 2 * density
-    private val ringOuter get() = wholeRadius
-    private val ringInner get() = wholeRadius * 0.66f
-    private val outerRadius get() = if (ring.isEmpty()) wholeRadius else ringInner - 8 * density   // the pad's
+    private val half get() = min(min(width.toFloat(), height - depth) / 2f, most / 2 * density) - 2 * density   // half the square
+    // The pad's: with corner keys, its circle (and the gap round it) reaches the square's sides, so each corner key is
+    // the square's corner outside it.
+    private val outerRadius get() = if (corners.isEmpty()) half else half - gap
     private val innerRadius get() = outerRadius * 0.40f
     private val centerTop get() = centerY - 1 * density   // the centre button stands a little above the ring
 
@@ -145,8 +145,22 @@ class DpadView @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
         pressedFacePaint.shader = gradient(centerY - outer, centerY + outer, R.color.key_pressed_top, R.color.key_pressed_bottom)
         centerFacePaint.shader = gradient(centerTop - inner, centerTop + inner, R.color.key_raised_top, R.color.key_raised_bottom)
         centerPressedFacePaint.shader = gradient(centerTop - inner, centerTop + inner, R.color.key_pressed_top, R.color.key_pressed_bottom)
-        keyFacePaint.shader = gradient(centerY - ringOuter, centerY + ringOuter, R.color.key_top, R.color.key_bottom)
-        keyPressedFacePaint.shader = gradient(centerY - ringOuter, centerY + ringOuter, R.color.key_pressed_top, R.color.key_pressed_bottom)
+        keyFacePaint.shader = gradient(centerY - half, centerY + half, R.color.key_top, R.color.key_bottom)
+        keyPressedFacePaint.shader = gradient(centerY - half, centerY + half, R.color.key_pressed_top, R.color.key_pressed_bottom)
+        // Each corner key: its quarter of the square, less the pad and a gap round it.
+        val round = Path().apply { addCircle(centerX, centerY, outer + gap, Path.Direction.CW) }
+        for (corner in 0..3) {
+            val right = corner % 2 == 1
+            val top = corner < 2
+            val quarter = RectF(
+                if (right) centerX + gap / 2 else centerX - half, if (top) centerY - half else centerY + gap / 2,
+                if (right) centerX + half else centerX - gap / 2, if (top) centerY - gap / 2 else centerY + half,
+            )
+            pieces[corner] = Path().apply {
+                addRoundRect(quarter, 18 * density, 18 * density, Path.Direction.CW)
+                op(round, Path.Op.DIFFERENCE)
+            }
+        }
     }
 
     private fun gradient(top: Float, bottom: Float, from: Int, to: Int) =
@@ -165,7 +179,7 @@ class DpadView @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
         val down = if (isPressed) shown else null
         val face = cy + 1 * density
 
-        for (key in ring) drawRingKey(canvas, key, if (isPressed) shownKey == key else false)
+        for (key in corners) drawCornerKey(canvas, key, if (isPressed) shownKey == key else false)
 
         // The ring: its side, a light rim along the top, then the face.
         canvas.drawCircle(cx, cy + depth, outer, edgePaint)
@@ -206,37 +220,27 @@ class DpadView @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
         drawChevron(canvas, cx + r, face + sink(Part.RIGHT), 1f, 0f, s)
     }
 
-    /** One curved key: its side below, its rim, its face (sunk while pressed), and its icon in the middle of it. */
-    private fun drawRingKey(canvas: Canvas, key: RingKey, isDown: Boolean) {
-        val cx = centerX
-        val cy = centerY
+    /** One corner key: its side below, its rim, its face (sunk while pressed), and its icon towards its corner. */
+    private fun drawCornerKey(canvas: Canvas, key: CornerKey, isDown: Boolean) {
+        val piece = pieces[key.corner.coerceIn(0, 3)] ?: return
         val sink = if (isDown) travel else 0f
-        sector(cx, cy + depth, key)
-        canvas.drawPath(sector, keyEdgePaint)
-        sector(cx, cy + sink, key)
-        canvas.drawPath(sector, if (isDown) keyPressedRimPaint else keyRimPaint)
-        sector(cx, cy + 1 * density + sink, key)
-        canvas.drawPath(sector, if (isDown) keyPressedFacePaint else keyFacePaint)
+        canvas.save()
+        canvas.translate(0f, depth)
+        canvas.drawPath(piece, keyEdgePaint)
+        canvas.translate(0f, sink - depth)
+        canvas.drawPath(piece, if (isDown) keyPressedRimPaint else keyRimPaint)
+        canvas.translate(0f, 1 * density)
+        canvas.drawPath(piece, if (isDown) keyPressedFacePaint else keyFacePaint)
+        canvas.restore()
+        // The icon sits along the diagonal, between the pad and the corner.
         val icon = icons.getOrPut(key.icon) { context.getDrawable(key.icon)!!.mutate().apply { setTint(context.getColor(R.color.ink)) } }
-        val angle = Math.toRadians((key.start + key.sweep / 2).toDouble())
-        val mid = (ringInner + ringOuter) / 2
-        val x = cx + mid * cos(angle).toFloat()
-        val y = cy + 1 * density + sink + mid * sin(angle).toFloat()
-        val half = (ringOuter - ringInner) * 0.22f
-        icon.setBounds((x - half).toInt(), (y - half).toInt(), (x + half).toInt(), (y + half).toInt())
+        val reach = outerRadius + gap + (half * 1.4142f - outerRadius - gap) * 0.42f
+        val along = reach * 0.7071f
+        val x = centerX + if (key.corner % 2 == 1) along else -along
+        val y = centerY + 1 * density + sink + if (key.corner < 2) -along else along
+        val size = half * 0.11f
+        icon.setBounds((x - size).toInt(), (y - size).toInt(), (x + size).toInt(), (y + size).toInt())
         icon.draw(canvas)
-    }
-
-    /** The key's outline, between the ring's two circles, centred at (cx, cy). */
-    private fun sector(cx: Float, cy: Float, key: RingKey) {
-        sector.reset()
-        val outer = ringOuter
-        val inner = ringInner
-        oval.set(cx - outer, cy - outer, cx + outer, cy + outer)
-        sector.arcTo(oval, key.start, key.sweep, true)
-        oval.set(cx - inner, cy - inner, cx + inner, cy + inner)
-        sector.arcTo(oval, key.start + key.sweep, -key.sweep, false)
-        sector.close()
     }
 
     /** A ">" shape pointing along (dx, dy). */
@@ -255,18 +259,14 @@ class DpadView @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
         else -> 225f   // UP
     }
 
-    private fun angleAt(dx: Float, dy: Float): Float {
-        val angle = Math.toDegrees(atan2(dy, dx).toDouble()).toFloat()   // 0 = right, 90 = down
-        return (angle + 360f) % 360f
-    }
-
-    private fun keyAt(x: Float, y: Float): RingKey? {
+    private fun keyAt(x: Float, y: Float): CornerKey? {
         val dx = x - centerX
         val dy = y - centerY
-        val distance = hypot(dx, dy)
-        if (ring.isEmpty() || distance < ringInner - 4 * density || distance > ringOuter + 6 * density) return null
-        val angle = angleAt(dx, dy)
-        return ring.firstOrNull { ((angle - it.start) % 360f + 360f) % 360f < it.sweep }
+        if (corners.isEmpty() || hypot(dx, dy) < outerRadius + gap / 2) return null
+        val reach = half + 6 * density
+        if (dx < -reach || dx > reach || dy < -reach || dy > reach) return null
+        val corner = (if (dy < 0) 0 else 2) + (if (dx < 0) 0 else 1)
+        return corners.firstOrNull { it.corner == corner }
     }
 
     private fun partAt(x: Float, y: Float): Part? {
@@ -287,7 +287,7 @@ class DpadView @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
     // A swipe that starts on the pad turns the page; holding still or tapping presses (PressGesture, which also
     // shows the view pressed and clicks under the finger).
     private var touchedPart: Part? = null
-    private var touchedKey: RingKey? = null
+    private var touchedKey: CornerKey? = null
     private val gesture = PressGesture(
         this,
         onPress = {
@@ -295,7 +295,7 @@ class DpadView @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
                 pressedKey = key
                 shownKey = key
                 shown = null
-                onRingKey?.invoke(key, true)
+                onCornerKey?.invoke(key, true)
                 invalidate()
             }
             touchedPart?.let { part ->
@@ -309,7 +309,7 @@ class DpadView @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
         onRelease = {
             pressedKey?.let { key ->
                 pressedKey = null
-                onRingKey?.invoke(key, false)
+                onCornerKey?.invoke(key, false)
             }
             pressed?.let { part ->
                 pressed = null
