@@ -27,6 +27,7 @@ If you ever want the genuine Android TV experience, a ₹3,000–5,000 streaming
 - **The power button sleeps instead of shutting down**, like a TV's standby. Waking takes about 2 seconds. A cold boot takes 15–30 seconds even on a fast SSD.
 - **No password on wake, and (optionally) automatic sign-in**, so you go from power button to home screen with no typing.
 - **Volume keys show a TV-style volume bar.** Windows normally draws that, but its usual code isn't running in TV mode.
+- **Brightness from the phone.** The remote's brightness slider turns down a screen's own backlight when it takes DDC/CI commands over its cable (most monitors, a few TVs), and otherwise dims the picture with a see-through black layer over everything (left out of screenshots and the screen mirror). `CouchTV.exe --brightnesstest report.txt` checks the layer.
 - **No pop-ups.** Notifications, "finish setting up your PC" screens and Windows Update restarts between 8 AM and 2 AM are switched off.
 - **Browser clean-up.** Edge and Brave skip their welcome, sign-in and sync screens, sidebars and crypto/VPN/AI prompts, and quit fully when you leave an app.
 

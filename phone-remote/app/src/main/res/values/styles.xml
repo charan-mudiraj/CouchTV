@@ -43,18 +43,6 @@
         <item name="android:maxLines">2</item>
     </style>
 
-    <!-- A round key, as on a TV remote (the volume keys). -->
-    <style name="RoundKey">
-        <item name="android:layout_width">64dp</item>
-        <item name="android:layout_height">64dp</item>
-        <item name="android:layout_marginStart">12dp</item>
-        <item name="android:layout_marginEnd">12dp</item>
-        <item name="android:background">@drawable/round_key_bg</item>
-        <item name="android:scaleType">center</item>
-        <item name="android:paddingBottom">4dp</item>
-        <item name="android:stateListAnimator">@animator/key_press</item>
-    </style>
-
     <!-- A key on the screen mirror's strip. -->
     <style name="StripKey">
         <item name="android:layout_width">48dp</item>

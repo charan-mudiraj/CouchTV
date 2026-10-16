@@ -14,8 +14,73 @@ namespace CouchTV
         /// <summary>Changes volume by delta (0..1 scale), or toggles mute. Returns false when there is no audio device.</summary>
         public static bool Change(float delta, bool toggleMute, out float level, out bool muted)
         {
-            level = 0;
-            muted = false;
+            float l = 0;
+            bool m = false;
+            bool ok = Use(volume =>
+            {
+                Guid context = Guid.Empty;
+                volume.GetMasterVolumeLevelScalar(out l);
+                volume.GetMute(out m);
+                if (toggleMute)
+                {
+                    m = !m;
+                    volume.SetMute(m, ref context);
+                }
+                else if (delta != 0)
+                {
+                    // Snap to 2% steps, the same as Windows' own volume keys.
+                    l = Math.Max(0f, Math.Min(1f, (float)Math.Round((l + delta) * 50) / 50f));
+                    volume.SetMasterVolumeLevelScalar(l, ref context);
+                    if (m && delta > 0)
+                    {
+                        m = false;
+                        volume.SetMute(false, ref context);
+                    }
+                }
+            });
+            level = l;
+            muted = m;
+            return ok;
+        }
+
+        /// <summary>The volume now (0..1) and whether it's muted. Returns false when there is no audio device.</summary>
+        public static bool Get(out float level, out bool muted)
+        {
+            return Change(0, false, out level, out muted);
+        }
+
+        /// <summary>
+        /// Sets the volume to exactly this level (0..1; below 0 leaves it) and mutes or unmutes (null leaves it), as the
+        /// phone's slider does. Returns false when there is no audio device.
+        /// </summary>
+        public static bool Set(float target, bool? mute, out float level, out bool muted)
+        {
+            float l = 0;
+            bool m = false;
+            bool ok = Use(volume =>
+            {
+                Guid context = Guid.Empty;
+                if (target >= 0) volume.SetMasterVolumeLevelScalar(Math.Min(1f, target), ref context);
+                if (mute.HasValue) volume.SetMute(mute.Value, ref context);
+                volume.GetMasterVolumeLevelScalar(out l);
+                volume.GetMute(out m);
+            });
+            level = l;
+            muted = m;
+            return ok;
+        }
+
+        /// <summary>Sets the volume to a level (0..1), without showing anything. Returns false when there is no audio device.</summary>
+        public static bool SetLevel(float target)
+        {
+            float level;
+            bool muted;
+            return Change(0, false, out level, out muted) && Change(target - level, false, out level, out muted);
+        }
+
+        /// <summary>Runs act on the default speakers' volume control; false when there are none.</summary>
+        static bool Use(Action<IAudioEndpointVolume> act)
+        {
             object enumerator = null, device = null, endpoint = null;
             try
             {
@@ -26,27 +91,7 @@ namespace CouchTV
 
                 Guid iid = typeof(IAudioEndpointVolume).GUID;
                 if (dev.Activate(ref iid, ClsctxAll, IntPtr.Zero, out endpoint) != 0 || endpoint == null) return false;
-                var volume = (IAudioEndpointVolume)endpoint;
-
-                Guid context = Guid.Empty;
-                volume.GetMasterVolumeLevelScalar(out level);
-                volume.GetMute(out muted);
-                if (toggleMute)
-                {
-                    muted = !muted;
-                    volume.SetMute(muted, ref context);
-                }
-                else if (delta != 0)
-                {
-                    // Snap to 2% steps, the same as Windows' own volume keys.
-                    level = Math.Max(0f, Math.Min(1f, (float)Math.Round((level + delta) * 50) / 50f));
-                    volume.SetMasterVolumeLevelScalar(level, ref context);
-                    if (muted && delta > 0)
-                    {
-                        muted = false;
-                        volume.SetMute(false, ref context);
-                    }
-                }
+                act((IAudioEndpointVolume)endpoint);
                 return true;
             }
             catch (Exception ex)
@@ -60,14 +105,6 @@ namespace CouchTV
                 Release(device);
                 Release(enumerator);
             }
-        }
-
-        /// <summary>Sets the volume to a level (0..1), without showing anything. Returns false when there is no audio device.</summary>
-        public static bool SetLevel(float target)
-        {
-            float level;
-            bool muted;
-            return Change(0, false, out level, out muted) && Change(target - level, false, out level, out muted);
         }
 
         static void Release(object com)

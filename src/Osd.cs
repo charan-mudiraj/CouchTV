@@ -56,6 +56,17 @@ namespace CouchTV
             _fill.Width = muted ? 0 : TrackWidth * level;
         }
 
+        /// <summary>A level with its bar, like the volume's: the brightness, say.</summary>
+        public void SetLevel(char glyph, string text, float level)
+        {
+            _glyph.Text = glyph.ToString();
+            _text.Text = text;
+            _track.Visibility = Visibility.Visible;
+            _code.Visibility = Visibility.Collapsed;
+            _track.MinWidth = TrackWidth;
+            _fill.Width = TrackWidth * Math.Max(0f, Math.Min(1f, level));
+        }
+
         public void SetMessage(char glyph, string text)
         {
             _glyph.Text = glyph.ToString();
@@ -109,6 +120,12 @@ namespace CouchTV
         public void ShowVolume(float level, bool muted)
         {
             _panel.SetVolume(level, muted);
+            Pop(1.6);
+        }
+
+        public void ShowLevel(char glyph, string text, float level)
+        {
+            _panel.SetLevel(glyph, text, level);
             Pop(1.6);
         }
 

@@ -38,6 +38,9 @@ class PagerView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     var page = 0
         private set
 
+    /** No swiping (a page that has the screen to itself, like the keyboard sideways). */
+    var locked = false
+
     val pageCount: Int get() = strip?.childCount ?: 0
 
     private val strip: ViewGroup? get() = getChildAt(0) as? ViewGroup
@@ -113,11 +116,13 @@ class PagerView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     }
 
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
+        if (locked) return false
         if (ev.actionMasked == MotionEvent.ACTION_DOWN) flung = false   // a press on a button comes here first
         return super.onInterceptTouchEvent(ev)
     }
 
     override fun onTouchEvent(ev: MotionEvent): Boolean {
+        if (locked) return false
         val action = ev.actionMasked
         if (action == MotionEvent.ACTION_DOWN) flung = false
         if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE) {

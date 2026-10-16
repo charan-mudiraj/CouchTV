@@ -1297,6 +1297,81 @@ namespace CouchTV
             return 0;
         }
 
+        /// <summary>
+        /// The brightness veil (Brightness.cs): it comes up as see-through as the level says, lets clicks through, keeps
+        /// out of screenshots (so the phone's screen mirror isn't dimmed), and goes at 100. Dims this screen for about a
+        /// second.
+        /// </summary>
+        public static int BrightnessTest(string path)
+        {
+            var report = new StringBuilder();
+            bool ok = true;
+            Action<string, bool> check = (name, pass) => { report.AppendLine((pass ? "PASS  " : "FAIL  ") + name); ok &= pass; };
+            var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+            var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
+            int step = 0;
+            double before = 0;
+            timer.Tick += (s, e) =>
+            {
+                step++;
+                if (step == 1)
+                {
+                    Window veil = Brightness.Veil;
+                    IntPtr hwnd = veil != null ? new System.Windows.Interop.WindowInteropHelper(veil).Handle : IntPtr.Zero;
+                    check("the veil is up at 30%", veil != null && veil.IsVisible && Brightness.Level == 30);
+                    check("...about as dark as 30% says (" + (veil != null ? veil.Opacity.ToString("0.00") : "-") + ")", veil != null && Math.Abs(veil.Opacity - 0.7 * 0.85) < 0.03);
+                    int exStyle = hwnd != IntPtr.Zero ? Native.GetWindowLong(hwnd, Native.GWL_EXSTYLE) : 0;
+                    check("...lets clicks through and never takes the focus", (exStyle & Native.WS_EX_TRANSPARENT) != 0 && (exStyle & Native.WS_EX_NOACTIVATE) != 0);
+                    uint affinity;
+                    bool asked = hwnd != IntPtr.Zero && GetWindowDisplayAffinity(hwnd, out affinity) && affinity == 0x11;
+                    check("...is left out of screenshots and the screen mirror", asked);
+                    double during = ScreenBrightness();
+                    if (before > 20) check("...and a screenshot isn't darker (" + before.ToString("0") + " before, " + during.ToString("0") + " now)", Math.Abs(during - before) < before * 0.1);
+                    else report.AppendLine("SKIP  a screenshot isn't darker: the screen is too dark to tell (" + before.ToString("0") + ")");
+                    Brightness.Set(100);
+                }
+                if (step == 2)
+                {
+                    Window veil = Brightness.Veil;
+                    check("at 100 the veil goes", veil == null || !veil.IsVisible);
+                    timer.Stop();
+                    app.Shutdown();
+                }
+            };
+            app.Startup += (s, e) =>
+            {
+                Brightness.StartForTest(app.Dispatcher);
+                before = ScreenBrightness();
+                Brightness.Set(30);
+                timer.Start();
+            };
+            app.Run();
+            report.AppendLine(ok ? "All passed" : "Some checks FAILED");
+            File.WriteAllText(path, report.ToString());
+            return ok ? 0 : 1;
+        }
+
+        /// <summary>How bright the middle of the screen is in a screenshot, 0 to 255.</summary>
+        static double ScreenBrightness()
+        {
+            int w = (int)SystemParameters.PrimaryScreenWidth, h = (int)SystemParameters.PrimaryScreenHeight;
+            using (var shot = new System.Drawing.Bitmap(200, 200))
+            {
+                using (var g = System.Drawing.Graphics.FromImage(shot)) g.CopyFromScreen(w / 2 - 100, h / 2 - 100, 0, 0, shot.Size);
+                double sum = 0;
+                for (int y = 0; y < 200; y += 10)
+                    for (int x = 0; x < 200; x += 10)
+                    {
+                        System.Drawing.Color c = shot.GetPixel(x, y);
+                        sum += (c.R + c.G + c.B) / 3.0;
+                    }
+                return sum / 400;
+            }
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        static extern bool GetWindowDisplayAffinity(IntPtr hwnd, out uint affinity);
+
         public static int TouchTest(string path, bool asMouse)
         {
             TouchInjector.AsMouse = asMouse;
@@ -1642,6 +1717,10 @@ namespace CouchTV
             server.SetSetting += (key, value) => { lock (settingsSet) settingsSet.Add(key + "=" + value); };
             var opened = new List<string>();
             server.OpenApp += name => { lock (opened) opened.Add(name); };
+            var levels = new List<string>();
+            server.Volume += level => { lock (levels) levels.Add("volume " + level); };
+            server.Mute += on => { lock (levels) levels.Add("mute " + on); };
+            server.Brightness += level => { lock (levels) levels.Add("brightness " + level); };
             Func<string> code = () => { lock (pairing) return shown; };
             Func<string> wrongCode = () => { lock (pairing) return ((int.Parse(shown) + 1) % 1000000).ToString("D6"); };
             Func<string> pairingLog = () => { lock (pairing) return string.Join(", ", pairing); };
@@ -1689,6 +1768,7 @@ namespace CouchTV
                 server.CurrentSleepTimer = () => 2700;
                 server.CurrentSettings = () => new List<string> { "SETTINGS 1", "SETTING powercountdown 5 UG93ZXI= - 0:T2Zm,5:NSBz" };
                 server.CurrentApps = () => new List<string> { "APPS 1", "APP TmV0ZmxpeA== TmV0ZmxpeA== E50914 FFFFFF" };
+                server.CurrentLevels = () => new List<string> { "VOLUME 46 0", "BRIGHTNESS 80" };
                 using (var a = new TestPhone(idA))
                 {
                     a.Hello(47791);
@@ -1708,6 +1788,8 @@ namespace CouchTV
                     check("Wi-Fi: ...and the TV's settings", settingsHead == "SETTINGS 1" && settingLine == "SETTING powercountdown 5 UG93ZXI= - 0:T2Zm,5:NSBz");
                     string appsHead = a.Receive(), appLine = a.Receive();
                     check("Wi-Fi: ...and the home screen's apps", appsHead == "APPS 1" && appLine == "APP TmV0ZmxpeA== TmV0ZmxpeA== E50914 FFFFFF");
+                    string volumeLine = a.Receive(), brightnessLine = a.Receive();
+                    check("Wi-Fi: ...and the volume and brightness, for the phone's sliders", volumeLine == "VOLUME 46 0" && brightnessLine == "BRIGHTNESS 80");
                     a.Send("PING");
                     check("Wi-Fi: PING gets PONG", a.Receive() == "PONG");
                     a.Send("SOUND");
@@ -1734,6 +1816,13 @@ namespace CouchTV
                     a.Send("POWERSOON 5");
                     a.Send("POWERSOON 0");
                     a.Send("POWERSOON 600");                  // ignored: more than a minute
+                    a.Send("VOLUME 37");
+                    a.Send("VOLUME 101");                     // ignored
+                    a.Send("VOLUME -3");                      // ignored
+                    a.Send("MUTE ON");
+                    a.Send("MUTE maybe");                     // ignored
+                    a.Send("BRIGHTNESS 0");
+                    a.Send("BRIGHTNESS 250");                 // ignored
                     a.Send("KEY A2 D");      // Ctrl, still held when the phone leaves
                     a.Send("KEY 43 D");
                     a.Send("KEY 43 U");
@@ -1767,11 +1856,14 @@ namespace CouchTV
                 server.CurrentSleepTimer = null;
                 server.CurrentSettings = null;
                 server.CurrentApps = null;
+                server.CurrentLevels = null;
                 check("Wi-Fi: its sound session ends with the connection", server.FindSession(session) == null);
                 lock (played) check("Wi-Fi: PLAY plays a suggestion (" + string.Join(", ", played) + ")", string.Join(", ", played) == "s1");
                 lock (sleepTimers) check("Wi-Fi: SLEEPTIMER sets the sleep timer, any number of minutes, or 0 for off (" + string.Join(", ", sleepTimers) + ")",
                     string.Join(", ", sleepTimers) == "95, 0");
                 lock (opened) check("Wi-Fi: OPEN opens one of the home screen's apps (" + string.Join(", ", opened) + ")", string.Join(", ", opened) == "Netflix");
+                lock (levels) check("Wi-Fi: VOLUME, MUTE and BRIGHTNESS set the TV's levels from the phone's sliders (" + string.Join(", ", levels) + ")",
+                    string.Join(", ", levels) == "volume 37, mute True, brightness 0");
                 lock (settingsSet) check("Wi-Fi: SET changes one of the TV's settings (" + string.Join(", ", settingsSet) + ")", string.Join(", ", settingsSet) == "powercountdown=10");
                 lock (powerSoon) check("Wi-Fi: POWERSOON says a phone's Power is counting down, and when it's cancelled (" + string.Join(", ", powerSoon) + ")",
                     string.Join(", ", powerSoon) == "5, 0");

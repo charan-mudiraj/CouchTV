@@ -24,7 +24,7 @@ import kotlin.math.min
  * Shift, Ctrl, Alt and Win stay down for the next key (lit), so one finger does Ctrl+C: tap Ctrl, then C. Tapped twice
  * quickly they stay down until tapped again (hold Alt, then Tab, Tab… to switch apps). Two fingers work too: hold
  * Ctrl, tap C. A held key repeats, as on a real keyboard (Windows only repeats real keyboards' keys). A swipe that
- * starts on the keys still turns the page.
+ * starts on the keys still turns the page, unless [instant] (the keyboard on its own, sideways).
  */
 class KeyboardView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : View(context, attrs) {
 
@@ -33,6 +33,9 @@ class KeyboardView @JvmOverloads constructor(context: Context, attrs: AttributeS
     }
 
     var listener: Listener? = null
+
+    /** Keys go down the moment they're touched: nothing here turns the page (the app sideways, keyboard only). */
+    var instant = false
 
     /** Shown over the keys when they can't reach the TV, e.g. "Connect to the TV over Wi-Fi first". */
     var hint: String? = null
@@ -220,7 +223,7 @@ class KeyboardView @JvmOverloads constructor(context: Context, attrs: AttributeS
                 firstKey = key
                 downX = event.x
                 downY = event.y
-                postDelayed(startFirst, pressDelay)
+                if (instant) beginFirst() else postDelayed(startFirst, pressDelay)
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
                 beginFirst()

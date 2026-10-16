@@ -104,6 +104,21 @@ class WifiLink(context: Context) {
     @Volatile var settings: List<TvSetting> = emptyList()
         private set
 
+    /** Called on the main thread when the TV says its volume or brightness (see [volume], [brightness]). */
+    var onLevels: (() -> Unit)? = null
+
+    /** The TV's volume, 0 to 100, as it last said; -1 while it hasn't (an older CouchTV, or not connected). */
+    @Volatile var volume = -1
+        private set
+
+    /** Whether the TV's sound is muted, as it last said. */
+    @Volatile var muted = false
+        private set
+
+    /** The TV's brightness, 0 to 100, as it last said; -1 while it hasn't. */
+    @Volatile var brightness = -1
+        private set
+
     /** Called on the main thread when the TV's sleep timer changes (see [sleepEndsAt]). */
     var onSleepTimer: (() -> Unit)? = null
 
@@ -482,6 +497,12 @@ class WifiLink(context: Context) {
                     TvSetting.parse(line.removePrefix("SETTING "))?.let { arriving.add(it) } ?: settingsExpected--
                     if (arriving.size >= settingsExpected) setSettings(arriving)
                 }
+                line.startsWith("VOLUME ") -> line.removePrefix("VOLUME ").trim().split(" ").let { p ->
+                    p[0].toIntOrNull()?.let { setLevels(it.coerceIn(0, 100), p.getOrNull(1) == "1", brightness) }
+                }
+                line.startsWith("BRIGHTNESS ") -> line.removePrefix("BRIGHTNESS ").trim().toIntOrNull()?.let {
+                    setLevels(volume, muted, it.coerceIn(0, 100))
+                }
                 line.startsWith("SLEEPTIMER ") -> line.removePrefix("SLEEPTIMER ").trim().toIntOrNull()?.let { seconds ->
                     setSleepTimer(if (seconds > 0) SystemClock.elapsedRealtime() + seconds * 1000L else 0L, true)
                 }
@@ -533,6 +554,32 @@ class WifiLink(context: Context) {
         main.post { onSettings?.invoke() }
     }
 
+    /** The volume slider: the TV's volume, exactly (0 to 100), unmuted. */
+    fun setVolume(level: Int) {
+        setLevels(level, false, brightness, tell = false)
+        send("VOLUME $level")
+    }
+
+    /** Mutes or unmutes the TV. */
+    fun setMute(on: Boolean) {
+        setLevels(volume, on, brightness, tell = false)
+        send("MUTE " + if (on) "ON" else "OFF")
+    }
+
+    /** The brightness slider: the TV's brightness (0 to 100). */
+    fun setBrightness(level: Int) {
+        setLevels(volume, muted, level, tell = false)
+        send("BRIGHTNESS $level")
+    }
+
+    private fun setLevels(volume: Int, muted: Boolean, brightness: Int, tell: Boolean = true) {
+        if (volume == this.volume && muted == this.muted && brightness == this.brightness) return
+        this.volume = volume
+        this.muted = muted
+        this.brightness = brightness
+        if (tell) main.post { onLevels?.invoke() }
+    }
+
     /** The TV goes to sleep this many minutes from now (0: the timer's off). */
     fun setSleepTimer(minutes: Int) = send("SLEEPTIMER $minutes")
 
@@ -572,6 +619,7 @@ class WifiLink(context: Context) {
         if (name == null) {
             tvAddress = null
             setSleepTimer(0L, false)   // asleep, or out of reach: it says again when it's back
+            setLevels(-1, false, -1)
             if (settings.isNotEmpty()) setSettings(emptyList())
         }
         if (tvName == name) return

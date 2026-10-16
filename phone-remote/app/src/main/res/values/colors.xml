@@ -18,6 +18,9 @@
     <color name="prime">#00A8E1</color>
     <color name="hotstar">#1C2B7A</color>
     <color name="web">#FB542B</color>
+    <!-- The brightness slider's fill, left to right. -->
+    <color name="sun_bottom">#FF9F1C</color>
+    <color name="sun_top">#FFD43B</color>
 
     <!-- Real-looking keys: face (top to bottom), the light rim on top, the side; darker and sunk when pressed. -->
     <color name="key_top">#2D3545</color>

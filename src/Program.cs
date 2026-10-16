@@ -43,6 +43,8 @@ namespace CouchTV
                 }
                 if (browserTouch != null) return Diagnostics.BrowserTouchTest(browserTouch, int.Parse(Arg(args, "--hold") ?? "60"), Arg(args, "--browser"), Has(args, "--drag"));
                 if (Has(args, "--countdowntest")) return Diagnostics.CountdownTest();
+                string brightnessTest = Arg(args, "--brightnesstest");
+                if (brightnessTest != null) return Diagnostics.BrightnessTest(brightnessTest);
                 int tv = Array.IndexOf(args, "--tv");
                 if (tv >= 0 && tv + 1 < args.Length) return TvLink.Run(args, tv + 1);
                 string dragTest = Arg(args, "--dragtest");

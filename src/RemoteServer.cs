@@ -24,7 +24,8 @@ namespace CouchTV
     ///                               SUGGESTIONS &lt;count&gt; and that many SUGGEST lines (again whenever the list changes),
     ///                               SLEEPTIMER &lt;seconds left, 0 when off&gt; (again whenever it changes),
     ///                               SETTINGS &lt;count&gt; and that many SETTING lines: the TV's settings (again when one changes),
-    ///                               APPS &lt;count&gt; and that many APP lines: the home screen's apps, for the phone's grid
+    ///                               APPS &lt;count&gt; and that many APP lines: the home screen's apps, for the phone's grid,
+    ///                               VOLUME &lt;0-100&gt; &lt;1 when muted, else 0&gt;, BRIGHTNESS &lt;0-100&gt; (both again when they change)
     ///     PING                     →  PONG          (every second, so both sides notice a dead link quickly)
     ///     SOUND                    →  AUDIO &lt;session id&gt;   (the phone's sound service has a connection of its own)
     ///     BTN &lt;address&gt; &lt;command&gt; N|R   a button, exactly like the IR receiver's "NEC 00CE 00xx" codes
@@ -40,11 +41,14 @@ namespace CouchTV
     ///                  →  INPUT TEXT|PASSWORD &lt;name&gt; &lt;value&gt;, INPUT OFF   a text box got (or lost) the focus on the
     ///                               TV, so the phone pops up its keyboard: told to the phone used last
     ///     PLAY &lt;id&gt; [&lt;what it is&gt;]   play a suggestion (from the SUGGEST lines, or one the phone found) on the TV
-    ///     TRACKPAD ON|OFF           the phone's trackpad page is open (or not): the TV shows its pointer meanwhile
+    ///     TRACKPAD ON|OFF           the phone's trackpad is open (or not): the TV shows its pointer meanwhile
     ///     SLEEPTIMER &lt;minutes&gt;      the sleep timer: the TV goes to sleep that many minutes from now (0: off)
     ///     OPEN &lt;app name, base64&gt;   open one of the home screen's apps (from the APP lines)
     ///     SET &lt;key&gt; &lt;value&gt;          change one of the TV's settings (to one of the values its SETTING line lists)
     ///     POWERSOON &lt;seconds&gt;      Power was tapped on the phone with the TV on: it goes in that many seconds (0: cancelled)
+    ///     VOLUME &lt;0-100&gt;          the phone's volume slider: the TV's volume, exactly (and unmuted)
+    ///     MUTE ON|OFF               mute or unmute
+    ///     BRIGHTNESS &lt;0-100&gt;      the phone's brightness slider: the screen's own (DDC/CI), else CouchTV dims the picture
     ///     LOG [&lt;lines&gt;]             →  LOG &lt;count&gt;, then that many lines "| &lt;line&gt;": the end of the TV's log (CouchTV.exe --tv)
     /// Buttons go through the same remote.ini mapping as infrared ones, so both remotes behave the same.
     /// </summary>
@@ -71,6 +75,9 @@ namespace CouchTV
         public event Action<int> PowerSoon;                  // a phone's Power counts down: seconds left, 0 when cancelled (UI thread)
         public event Action<string, string> SetSetting;      // a phone changed one of the TV's settings: key, value (UI thread)
         public event Action<string> OpenApp;                 // a phone opened one of the home screen's apps: its name (UI thread)
+        public event Action<int> Volume;                     // a phone's volume slider: 0 to 100 (UI thread)
+        public event Action<bool> Mute;                      // a phone muted (true) or unmuted the TV (UI thread)
+        public event Action<int> Brightness;                 // a phone's brightness slider: 0 to 100 (UI thread)
 
         /// <summary>The pointer's look now ("arrow 64 white"), told to each phone as it connects.</summary>
         internal Func<string> CurrentPointer;
@@ -86,6 +93,9 @@ namespace CouchTV
 
         /// <summary>The home screen's apps' lines (APPS, then APP lines), told to each phone as it connects; from the network thread.</summary>
         internal Func<List<string>> CurrentApps;
+
+        /// <summary>The volume and brightness lines (VOLUME, BRIGHTNESS), told to each phone as it connects; from the network thread.</summary>
+        internal Func<List<string>> CurrentLevels;
 
         // What the trackpad lines do, straight from the network thread for the least delay. The self-test swaps
         // these to watch rather than move the real pointer.
@@ -553,6 +563,8 @@ namespace CouchTV
                         if (settings != null) welcome += "\n" + string.Join("\n", settings());
                         Func<List<string>> apps = CurrentApps;
                         if (apps != null) welcome += "\n" + string.Join("\n", apps());
+                        Func<List<string>> levels = CurrentLevels;
+                        if (levels != null) welcome += "\n" + string.Join("\n", levels());
                     }
                     return welcome;
                 case "PING":
@@ -646,6 +658,23 @@ namespace CouchTV
                         string key = parts[1], value = parts[2];
                         Raise(() => { if (SetSetting != null) SetSetting(key, value); });
                     }
+                    return null;
+                case "VOLUME":
+                    int volume;
+                    if (parts.Length >= 2 && TryInt(parts[1], 100, out volume) && volume >= 0)
+                        Raise(() => { if (Volume != null) Volume(volume); });
+                    return null;
+                case "MUTE":
+                    if (parts.Length >= 2 && (parts[1] == "ON" || parts[1] == "OFF"))
+                    {
+                        bool mute = parts[1] == "ON";
+                        Raise(() => { if (Mute != null) Mute(mute); });
+                    }
+                    return null;
+                case "BRIGHTNESS":
+                    int brightness;
+                    if (parts.Length >= 2 && TryInt(parts[1], 100, out brightness) && brightness >= 0)
+                        Raise(() => { if (Brightness != null) Brightness(brightness); });
                     return null;
                 case "POWERSOON":
                     int seconds;

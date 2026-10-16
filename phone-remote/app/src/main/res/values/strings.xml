@@ -88,13 +88,16 @@
     <string name="home">Home</string>
     <string name="menu">Menu</string>
     <string name="volume_down">Volume down</string>
-    <string name="mute">Mute</string>
     <string name="volume_up">Volume up</string>
     <string name="play_pause">Play or pause</string>
-    <string name="key_exit">Exit</string>
-    <string name="key_full_screen">Full screen</string>
     <string name="key_sleep_timer">Sleep</string>
-    <string name="key_delete">Delete</string>
+    <string name="close">Close</string>
+
+    <string name="volume_label">Volume</string>
+    <string name="brightness_label">Brightness</string>
+    <string name="level_muted">Muted</string>
+    <string name="brightness_needs_wifi">Brightness works over Wi-Fi: connect to the TV first</string>
+    <string name="brightness_tv_too_old">Update CouchTV on the TV (F6) for brightness</string>
 
     <string name="trackpad">Trackpad</string>
     <string name="trackpad_help">Slide to move · tap to click\nTap twice and slide to drag\nTwo fingers: slide to scroll, tap to right-click</string>
@@ -127,6 +130,8 @@
     <string name="mirror_reconnecting">Lost the TV\'s screen. Getting it again…</string>
     <string name="mirror_needs_wifi">Connect to the TV over Wi-Fi first (the TV at the top turns green).</string>
     <string name="keyboard_type">Type</string>
+    <string name="keyboard_sideways">Opens sideways, for bigger keys</string>
+    <string name="keyboard_close">Back to the remote</string>
     <string name="keyboard_offline">Connect to the TV over Wi-Fi first</string>
     <string name="typing_title">Typing on the TV</string>
     <string name="typing_into">Typing into “%1$s” on the TV</string>

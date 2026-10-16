@@ -2,7 +2,7 @@
 <!--
     The remote fits the screen: nothing scrolls up or down. The top (how it reaches the TV, the TV's screen and sound
     here, power) and the dots at the bottom stay put; in between, pages swipe sideways like a phone's home screen.
-    Flexible parts (the D-pad, the pointer pad, the grids) shrink or grow with the screen.
+    Flexible parts (the D-pad, the keyboard) shrink or grow with the screen. The trackpad is a dialog over it all.
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -20,6 +20,7 @@
 
     <!-- How it reaches the TV (icons; tap for the details), the TV's screen and sound on this phone, power -->
     <LinearLayout
+        android:id="@+id/top_bar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center_vertical"
@@ -181,8 +182,9 @@
                     android:layout_weight="1" />
             </LinearLayout>
 
-            <!-- 1. Remote: search, volume keys, the D-pad as big as fits with a key in each of its corners (Back, Home,
-                 Menu, play/pause), and the TV's streaming apps with their logos. Where the app opens. -->
+            <!-- 1. Remote: search, the volume and brightness sliders, the D-pad as big as fits with a key in each of
+                 its corners (full screen and the trackpad above, Back and play/pause below), and a row of five: the
+                 TV's streaming apps with their logos, Home in the middle. Where the app opens. -->
             <LinearLayout style="@style/Page">
 
                 <!-- Search: the mic for voice search, or tap the bar to type -->
@@ -230,31 +232,26 @@
                         android:stateListAnimator="@animator/key_press" />
                 </LinearLayout>
 
-                <!-- Volume down, mute, volume up -->
+                <!-- The TV's volume (tap the speaker to mute) and brightness: drag along either -->
                 <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="14dp"
-                    android:gravity="center"
+                    android:layout_height="56dp"
+                    android:layout_marginStart="-6dp"
+                    android:layout_marginTop="12dp"
+                    android:layout_marginEnd="-6dp"
                     android:orientation="horizontal">
 
-                    <ImageButton
-                        android:id="@+id/volume_down"
-                        style="@style/RoundKey"
-                        android:contentDescription="@string/volume_down"
-                        android:src="@drawable/ic_volume_down" />
+                    <com.couchtv.remote.LevelSlider
+                        android:id="@+id/volume"
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:layout_weight="1" />
 
-                    <ImageButton
-                        android:id="@+id/mute"
-                        style="@style/RoundKey"
-                        android:contentDescription="@string/mute"
-                        android:src="@drawable/ic_volume_off" />
-
-                    <ImageButton
-                        android:id="@+id/volume_up"
-                        style="@style/RoundKey"
-                        android:contentDescription="@string/volume_up"
-                        android:src="@drawable/ic_volume_up" />
+                    <com.couchtv.remote.LevelSlider
+                        android:id="@+id/brightness"
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:layout_weight="1" />
                 </LinearLayout>
 
                 <!-- As big as the space left allows, with a key in each corner round it -->
@@ -266,7 +263,7 @@
                     android:layout_marginBottom="12dp"
                     android:layout_weight="1" />
 
-                <!-- The TV's streaming apps, four to a row, with their logos -->
+                <!-- Two apps, Home, two apps -->
                 <com.couchtv.remote.AppsGrid
                     android:id="@+id/apps"
                     android:layout_width="match_parent"
@@ -275,69 +272,88 @@
 
             </LinearLayout>
 
-            <!-- 2. Trackpad, like a laptop's, with its two buttons -->
-            <LinearLayout style="@style/Page">
-
-                <com.couchtv.remote.TrackpadView
-                    android:id="@+id/trackpad"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_marginTop="8dp"
-                    android:layout_marginBottom="12dp"
-                    android:layout_weight="1" />
-
-                <!-- Hold one to drag with another finger on the pad -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="-5dp"
-                    android:layout_marginEnd="-5dp"
-                    android:layout_marginBottom="6dp"
-                    android:orientation="horizontal">
-
-                    <Button
-                        android:id="@+id/left_click"
-                        style="@style/RemoteKey.Text"
-                        android:layout_width="0dp"
-                        android:layout_height="56dp"
-                        android:layout_marginStart="5dp"
-                        android:layout_marginEnd="5dp"
-                        android:layout_weight="1"
-                        android:text="@string/left_click" />
-
-                    <Button
-                        android:id="@+id/right_click"
-                        style="@style/RemoteKey.Text"
-                        android:layout_width="0dp"
-                        android:layout_height="56dp"
-                        android:layout_marginStart="5dp"
-                        android:layout_marginEnd="5dp"
-                        android:layout_weight="1"
-                        android:text="@string/right_click" />
-                </LinearLayout>
-            </LinearLayout>
-
-            <!-- 3. A PC keyboard, and typing with this phone's own -->
+            <!-- 2. A PC keyboard, sideways: landing here turns the app to landscape, the keyboard filling the screen -->
             <LinearLayout
                 style="@style/Page"
                 android:paddingStart="6dp"
                 android:paddingEnd="6dp">
 
-                <!-- Type into the TV with this phone's own keyboard -->
-                <TextView
-                    android:id="@+id/keyboard_type"
-                    style="@style/PageAction"
-                    android:layout_marginEnd="14dp"
-                    android:text="@string/keyboard_type" />
-
-                <com.couchtv.remote.KeyboardView
-                    android:id="@+id/keyboard"
+                <!-- What slides in, before it turns -->
+                <LinearLayout
+                    android:id="@+id/keyboard_preview"
                     android:layout_width="match_parent"
                     android:layout_height="0dp"
-                    android:layout_marginTop="10dp"
-                    android:layout_marginBottom="6dp"
                     android:layout_weight="1"
-                    android:contentDescription="@string/keyboard" />
+                    android:gravity="center"
+                    android:orientation="vertical">
+
+                    <ImageView
+                        android:id="@+id/keyboard_preview_icon"
+                        android:layout_width="96dp"
+                        android:layout_height="96dp"
+                        android:importantForAccessibility="no"
+                        android:src="@drawable/ic_keyboard"
+                        android:tint="@color/muted" />
+
+                    <TextView
+                        style="@style/PageTitle"
+                        android:layout_marginTop="12dp"
+                        android:layout_marginBottom="4dp"
+                        android:text="@string/keyboard" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/keyboard_sideways"
+                        android:textColor="@color/muted"
+                        android:textSize="14sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/keyboard_panel"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <!-- Type into the TV with this phone's own keyboard; back to the remote -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:id="@+id/keyboard_type"
+                            style="@style/PageAction"
+                            android:layout_marginStart="4dp"
+                            android:text="@string/keyboard_type" />
+
+                        <Space
+                            android:layout_width="0dp"
+                            android:layout_height="1dp"
+                            android:layout_weight="1" />
+
+                        <ImageButton
+                            android:id="@+id/keyboard_close"
+                            android:layout_width="44dp"
+                            android:layout_height="40dp"
+                            android:layout_marginEnd="4dp"
+                            android:background="@drawable/status_bg"
+                            android:contentDescription="@string/keyboard_close"
+                            android:src="@drawable/ic_close" />
+                    </LinearLayout>
+
+                    <com.couchtv.remote.KeyboardView
+                        android:id="@+id/keyboard"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_marginTop="6dp"
+                        android:layout_marginBottom="4dp"
+                        android:layout_weight="1"
+                        android:contentDescription="@string/keyboard" />
+                </LinearLayout>
             </LinearLayout>
         </LinearLayout>
     </com.couchtv.remote.PagerView>
@@ -410,6 +426,105 @@
             style="@style/StripKey"
             android:contentDescription="@string/mirror_exit"
             android:src="@drawable/ic_close" />
+    </LinearLayout>
+</FrameLayout>
+
+<!-- The trackpad, a dialog over the remote: it grows out of its key at the D-pad's top right -->
+<FrameLayout
+    android:id="@+id/trackpad_layer"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#99000000"
+    android:clickable="true"
+    android:fitsSystemWindows="true"
+    android:focusable="true"
+    android:visibility="gone">
+
+    <LinearLayout
+        android:id="@+id/trackpad_card"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_marginStart="12dp"
+        android:layout_marginTop="36dp"
+        android:layout_marginEnd="12dp"
+        android:layout_marginBottom="16dp"
+        android:background="@drawable/card_bg"
+        android:clickable="true"
+        android:orientation="vertical"
+        android:paddingStart="14dp"
+        android:paddingTop="10dp"
+        android:paddingEnd="14dp"
+        android:paddingBottom="14dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_marginStart="6dp"
+                android:importantForAccessibility="no"
+                android:src="@drawable/ic_trackpad"
+                android:tint="@color/muted" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:layout_weight="1"
+                android:fontFamily="sans-serif-medium"
+                android:text="@string/trackpad"
+                android:textColor="@color/ink"
+                android:textSize="18sp" />
+
+            <ImageButton
+                android:id="@+id/trackpad_close"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="@drawable/status_bg"
+                android:contentDescription="@string/close"
+                android:src="@drawable/ic_close" />
+        </LinearLayout>
+
+        <com.couchtv.remote.TrackpadView
+            android:id="@+id/trackpad"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="12dp"
+            android:layout_marginBottom="12dp"
+            android:layout_weight="1" />
+
+        <!-- Hold one to drag with another finger on the pad -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="-5dp"
+            android:layout_marginEnd="-5dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/left_click"
+                style="@style/RemoteKey.Text"
+                android:layout_width="0dp"
+                android:layout_height="56dp"
+                android:layout_marginStart="5dp"
+                android:layout_marginEnd="5dp"
+                android:layout_weight="1"
+                android:text="@string/left_click" />
+
+            <Button
+                android:id="@+id/right_click"
+                style="@style/RemoteKey.Text"
+                android:layout_width="0dp"
+                android:layout_height="56dp"
+                android:layout_marginStart="5dp"
+                android:layout_marginEnd="5dp"
+                android:layout_weight="1"
+                android:text="@string/right_click" />
+        </LinearLayout>
     </LinearLayout>
 </FrameLayout>
 

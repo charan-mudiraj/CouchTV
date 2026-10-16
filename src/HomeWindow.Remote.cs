@@ -104,6 +104,7 @@ namespace CouchTV
             {
                 _phoneCount = count;
                 WatchTyping();
+                WatchLevels();
             };
             // The TV's settings, on the phone's Settings page too.
             TvSettings();
@@ -119,6 +120,8 @@ namespace CouchTV
                 OpenFromAnywhere(tile);
             };
             _wifi.SetSetting += ApplySetting;
+            // The phone's volume and brightness sliders.
+            StartLevels();
             _wifi.Button += OnIrSignal;
             _wifi.Text += ReceiveSearchText;
             _wifi.Connected += who => { if (IsActive && !SearchOpen) Toast("Phone remote connected over Wi-Fi"); };

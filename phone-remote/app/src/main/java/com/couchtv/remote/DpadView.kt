@@ -7,6 +7,7 @@ import android.graphics.CornerPathEffect
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.PointF
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.drawable.Drawable
@@ -234,13 +235,19 @@ class DpadView @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
         canvas.restore()
         // The icon sits along the diagonal, between the pad and the corner.
         val icon = icons.getOrPut(key.icon) { context.getDrawable(key.icon)!!.mutate().apply { setTint(context.getColor(R.color.ink)) } }
-        val reach = outerRadius + gap + (half * 1.4142f - outerRadius - gap) * 0.42f
-        val along = reach * 0.7071f
-        val x = centerX + if (key.corner % 2 == 1) along else -along
-        val y = centerY + 1 * density + sink + if (key.corner < 2) -along else along
+        val at = cornerCenter(key.corner)
+        val x = at.x
+        val y = at.y + 1 * density + sink
         val size = half * 0.11f
         icon.setBounds((x - size).toInt(), (y - size).toInt(), (x + size).toInt(), (y + size).toInt())
         icon.draw(canvas)
+    }
+
+    /** Where a corner key's icon is, in this view (a dialog it opens grows from there). */
+    fun cornerCenter(corner: Int): PointF {
+        val reach = outerRadius + gap + (half * 1.4142f - outerRadius - gap) * 0.42f
+        val along = reach * 0.7071f
+        return PointF(centerX + if (corner % 2 == 1) along else -along, centerY + if (corner < 2) -along else along)
     }
 
     /** A ">" shape pointing along (dx, dy). */
