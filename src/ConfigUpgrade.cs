@@ -11,7 +11,7 @@ namespace CouchTV
     /// </summary>
     internal static class ConfigUpgrade
     {
-        public const int Latest = 2;
+        public const int Latest = 3;
 
         /// <summary>The file's text with any pending changes applied; changes lists what was done.</summary>
         public static string Apply(string text, List<string> changes)
@@ -45,7 +45,37 @@ namespace CouchTV
                     changes.Add("Bluetooth tile opens CouchTV's Bluetooth screen");
                 }
             }
+            if (version < 3)
+            {
+                // October 2026: CouchTV's own Settings screen, first in Settings & power.
+                if (!text.Contains("Action = settings"))
+                {
+                    text = InsertSectionBefore(text, "Bluetooth", new[]
+                    {
+                        "; CouchTV's own settings, worked with the remote (the phone's Settings page has them too).",
+                        "[Settings]", "Row = system", "Type = action", "Action = settings", "Glyph = E713", "",
+                    });
+                    changes.Add("Settings tile added");
+                }
+            }
             return Set(text, "CouchTV", "ConfigVersion", Latest.ToString(), true);
+        }
+
+        /// <summary>New lines just before [section] (and the comments over it), or at the end without one.</summary>
+        internal static string InsertSectionBefore(string text, string section, string[] block)
+        {
+            string newline = text.Contains("\r\n") ? "\r\n" : "\n";
+            List<string> lines = Lines(text);
+            int start, end;
+            int at = lines.Count;
+            if (FindSection(lines, section, out start, out end))
+            {
+                at = start;
+                while (at > 0 && lines[at - 1].TrimStart().StartsWith(";")) at--;
+            }
+            else if (lines.Count > 0 && lines[lines.Count - 1].Length > 0) lines.Add("");
+            lines.InsertRange(at, block);
+            return string.Join(newline, lines);
         }
 
         /// <summary>A key's value inside [section], or null.</summary>

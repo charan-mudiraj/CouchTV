@@ -90,6 +90,13 @@ class WifiLink(context: Context) {
     /** Called on the main thread with what the TV has ("SUGGESTSETUP", without its name), for fetching them here while it's off. */
     var onSuggestSetup: ((String) -> Unit)? = null
 
+    /** Called on the main thread when the TV's settings arrive or change (see [settings]). */
+    var onSettings: (() -> Unit)? = null
+
+    /** The TV's settings as it last listed them; empty while it isn't connected. */
+    @Volatile var settings: List<TvSetting> = emptyList()
+        private set
+
     /** Called on the main thread when the TV's sleep timer changes (see [sleepEndsAt]). */
     var onSleepTimer: (() -> Unit)? = null
 
@@ -126,6 +133,8 @@ class WifiLink(context: Context) {
     @Volatile private var pairSocket: Socket? = null
     private val typed = LinkedBlockingQueue<String>()
     private var incoming: MutableList<String>? = null   // a list of suggestions arriving (on the reading thread)
+    private var settingsArriving: MutableList<TvSetting>? = null
+    private var settingsExpected = 0
     private var expected = 0
 
     /**
@@ -444,6 +453,16 @@ class WifiLink(context: Context) {
                 line.startsWith("POINTER ") -> pointerLook = line.removePrefix("POINTER ").trim()
                 line.startsWith("BOARD ") -> Secure.fromHex(line.removePrefix("BOARD ").trim())?.takeIf { it.size == 32 }?.let { onBoardKey?.invoke(it) }
                 line.startsWith("INPUT ") -> typing(line.removePrefix("INPUT "))
+                line.startsWith("SETTINGS ") -> {
+                    // The TV's settings: that many SETTING lines follow.
+                    settingsExpected = line.removePrefix("SETTINGS ").trim().toIntOrNull() ?: 0
+                    settingsArriving = mutableListOf()
+                    if (settingsExpected <= 0) setSettings(emptyList())
+                }
+                line.startsWith("SETTING ") -> settingsArriving?.let { arriving ->
+                    TvSetting.parse(line.removePrefix("SETTING "))?.let { arriving.add(it) } ?: settingsExpected--
+                    if (arriving.size >= settingsExpected) setSettings(arriving)
+                }
                 line.startsWith("SLEEPTIMER ") -> line.removePrefix("SLEEPTIMER ").trim().toIntOrNull()?.let { seconds ->
                     setSleepTimer(if (seconds > 0) SystemClock.elapsedRealtime() + seconds * 1000L else 0L, true)
                 }
@@ -476,6 +495,15 @@ class WifiLink(context: Context) {
 
     /** Power was tapped with the TV on: it goes in this many seconds unless cancelled (0), and the TV says so meanwhile. */
     fun powerSoon(seconds: Int) = send("POWERSOON $seconds")
+
+    /** Changes one of the TV's settings (to one of its choices); the TV lists them all again. */
+    fun setSetting(key: String, value: String) = send("SET $key $value")
+
+    private fun setSettings(list: List<TvSetting>) {
+        settingsArriving = null
+        settings = list
+        main.post { onSettings?.invoke() }
+    }
 
     /** The TV goes to sleep this many minutes from now (0: the timer's off). */
     fun setSleepTimer(minutes: Int) = send("SLEEPTIMER $minutes")
@@ -516,6 +544,7 @@ class WifiLink(context: Context) {
         if (name == null) {
             tvAddress = null
             setSleepTimer(0L, false)   // asleep, or out of reach: it says again when it's back
+            if (settings.isNotEmpty()) setSettings(emptyList())
         }
         if (tvName == name) return
         tvName = name

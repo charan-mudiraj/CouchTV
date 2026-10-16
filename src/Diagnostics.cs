@@ -246,7 +246,9 @@ namespace CouchTV
             check("no subscriptions and nothing known: the plain app row", watch(unsubscribed, new KeyValuePair<Tile, string>[0]) == "");
 
             // ----- one-time settings changes on an installed couchtv.ini from before them
-            string oldIni = System.Text.RegularExpressions.Regex.Replace(Config.DefaultText(), @"(?m)^(Subscriptions = Netflix|ConfigVersion = 2|Enabled = false\r?\n(?=Type = app\r?\nExe = %ProgramFiles%\\VideoLAN))\r?\n?", "");
+            string oldIni = System.Text.RegularExpressions.Regex.Replace(Config.DefaultText(), @"(?m)^(Subscriptions = Netflix|ConfigVersion = \d+|Enabled = false\r?\n(?=Type = app\r?\nExe = %ProgramFiles%\\VideoLAN))\r?\n?", "");
+            // ...without the Settings tile...
+            oldIni = System.Text.RegularExpressions.Regex.Replace(oldIni, @"; CouchTV's own settings[^\n]*\n\[Settings\](\r?\n[^\r\n]+)*\r?\n\r?\n", "");
             // ...and with the Bluetooth tile as it was: Windows' pairing wizard.
             oldIni = oldIni.Replace("Type = action\r\nAction = bluetooth", "Type = app\r\nExe = %SystemRoot%\\System32\\DevicePairingWizard.exe")
                            .Replace("Type = action\nAction = bluetooth", "Type = app\nExe = %SystemRoot%\\System32\\DevicePairingWizard.exe");
@@ -259,6 +261,8 @@ namespace CouchTV
             Tile bluetoothTile = after.SystemTiles.Find(t => t.Name == "Bluetooth");
             check("upgrade: the Bluetooth tile opens CouchTV's Bluetooth screen, not Windows' wizard",
                 ConfigUpgrade.Get(oldIni, "Bluetooth", "Exe") != null && bluetoothTile != null && bluetoothTile.Kind == TileKind.Action && bluetoothTile.Action == "bluetooth");
+            check("upgrade: the Settings tile comes first in Settings & power",
+                after.SystemTiles.Count > 0 && after.SystemTiles[0].Action == "settings" && after.SystemTiles.FindAll(t => t.Action == "settings").Count == 1);
             check("upgrade: the new line goes with the other settings, before the tiles' comments",
                 upgraded.IndexOf("Subscriptions = Netflix") < upgraded.IndexOf(";  Tiles: each"));
             check("upgrade: runs once (changing it back afterwards sticks)", ConfigUpgrade.Apply(ConfigUpgrade.Set(upgraded, "VLC", "Enabled", "true", false), new List<string>()).Contains("Enabled = true"));
@@ -1634,6 +1638,8 @@ namespace CouchTV
             server.SleepTimer += minutes => { lock (sleepTimers) sleepTimers.Add(minutes); };
             var powerSoon = new List<int>();
             server.PowerSoon += seconds => { lock (powerSoon) powerSoon.Add(seconds); };
+            var settingsSet = new List<string>();
+            server.SetSetting += (key, value) => { lock (settingsSet) settingsSet.Add(key + "=" + value); };
             Func<string> code = () => { lock (pairing) return shown; };
             Func<string> wrongCode = () => { lock (pairing) return ((int.Parse(shown) + 1) % 1000000).ToString("D6"); };
             Func<string> pairingLog = () => { lock (pairing) return string.Join(", ", pairing); };
@@ -1679,6 +1685,7 @@ namespace CouchTV
                 string session;
                 server.CurrentSuggestions = () => new List<string> { "SUGGESTIONS 1", "SUGGEST S s1 SGF3YXllaW4= - WW91VHViZQ== - FF0000 FFFFFF" };
                 server.CurrentSleepTimer = () => 2700;
+                server.CurrentSettings = () => new List<string> { "SETTINGS 1", "SETTING powercountdown 5 UG93ZXI= - 0:T2Zm,5:NSBz" };
                 using (var a = new TestPhone(idA))
                 {
                     a.Hello(47791);
@@ -1694,6 +1701,8 @@ namespace CouchTV
                     string listed = a.Receive(), item = a.Receive();
                     check("Wi-Fi: ...and the suggestions, for the phone's first page", listed == "SUGGESTIONS 1" && item == "SUGGEST S s1 SGF3YXllaW4= - WW91VHViZQ== - FF0000 FFFFFF");
                     check("Wi-Fi: ...and the sleep timer", a.Receive() == "SLEEPTIMER 2700");
+                    string settingsHead = a.Receive(), settingLine = a.Receive();
+                    check("Wi-Fi: ...and the TV's settings", settingsHead == "SETTINGS 1" && settingLine == "SETTING powercountdown 5 UG93ZXI= - 0:T2Zm,5:NSBz");
                     a.Send("PING");
                     check("Wi-Fi: PING gets PONG", a.Receive() == "PONG");
                     a.Send("SOUND");
@@ -1713,6 +1722,8 @@ namespace CouchTV
                     a.Send("SLEEPTIMER 0");
                     a.Send("SLEEPTIMER -5");                  // ignored
                     a.Send("SLEEPTIMER 99999");               // ignored: more than a day
+                    a.Send("SET powercountdown 10");
+                    a.Send("SET " + new string('k', 41) + " 1");    // ignored: no key is that long
                     a.Send("POWERSOON 5");
                     a.Send("POWERSOON 0");
                     a.Send("POWERSOON 600");                  // ignored: more than a minute
@@ -1747,10 +1758,12 @@ namespace CouchTV
                 System.Threading.Thread.Sleep(300);    // the server notices the phone left
                 server.CurrentSuggestions = null;
                 server.CurrentSleepTimer = null;
+                server.CurrentSettings = null;
                 check("Wi-Fi: its sound session ends with the connection", server.FindSession(session) == null);
                 lock (played) check("Wi-Fi: PLAY plays a suggestion (" + string.Join(", ", played) + ")", string.Join(", ", played) == "s1");
                 lock (sleepTimers) check("Wi-Fi: SLEEPTIMER sets the sleep timer, any number of minutes, or 0 for off (" + string.Join(", ", sleepTimers) + ")",
                     string.Join(", ", sleepTimers) == "95, 0");
+                lock (settingsSet) check("Wi-Fi: SET changes one of the TV's settings (" + string.Join(", ", settingsSet) + ")", string.Join(", ", settingsSet) == "powercountdown=10");
                 lock (powerSoon) check("Wi-Fi: POWERSOON says a phone's Power is counting down, and when it's cancelled (" + string.Join(", ", powerSoon) + ")",
                     string.Join(", ", powerSoon) == "5, 0");
                 lock (trackpads) check("Wi-Fi: the trackpad page open shows the pointer; the phone leaving hides it (" + string.Join(", ", trackpads) + ")",

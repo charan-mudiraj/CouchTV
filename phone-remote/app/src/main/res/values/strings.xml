@@ -161,13 +161,32 @@
     <string name="action_pair">Pair</string>
     <string name="action_address">TV address</string>
 
-    <string name="power_off_soon">Turning off the TV in %1$d s</string>
+    <string name="power_off_title">Turning off the TV</string>
+    <string name="power_off_hint">Tap Cancel if that was a mistake</string>
+    <string name="power_off_cancelled">Cancelled</string>
+    <string name="power_off_stays">The TV stays on</string>
+    <string name="power_off_going">Turning off…</string>
     <string name="power_cancel">Cancel</string>
     <string name="power_now">Turn off now</string>
-    <string name="power_cancelled">Cancelled: the TV stays on</string>
     <string name="power_turning_off">Switching off… The TV can be switched on again in %1$d s.</string>
     <string name="power_turning_on">Switching on… The TV can be switched again in %1$d s.</string>
     <string name="power_wait">Wait %1$d s: TVs ignore their power button for a few seconds after switching, so a press now would be missed.</string>
+
+    <string name="settings_title">Settings</string>
+    <string name="settings_tv">TV</string>
+    <string name="settings_tv_offline">Connect to the TV over Wi-Fi to change its settings.</string>
+    <string name="settings_phone">This phone</string>
+    <string name="set_on">On</string>
+    <string name="set_off">Off</string>
+    <string name="set_vibration">Vibration</string>
+    <string name="set_vibration_note">The keys click under your finger</string>
+    <string name="set_bluetooth">Keep Bluetooth off</string>
+    <string name="set_bluetooth_note">While the app is open: the TV\'s sound plays smoother without it</string>
+    <string name="set_mirror">Screen mirror picture</string>
+    <string name="set_mirror_note">Sharper uses more of the Wi-Fi</string>
+    <string name="set_mirror_saver">Data saver</string>
+    <string name="set_mirror_balanced">Balanced</string>
+    <string name="set_mirror_sharp">Sharp</string>
 
     <string name="sleep_title">Sleep timer</string>
     <string name="sleep_hours">h</string>

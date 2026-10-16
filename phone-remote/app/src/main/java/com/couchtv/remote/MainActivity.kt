@@ -45,7 +45,6 @@ class MainActivity : Activity() {
         private const val REQUEST_BLUETOOTH_OFF = 45   // Android's "turn off Bluetooth?" question
         private const val ACTION_REQUEST_DISABLE = "android.bluetooth.adapter.action.REQUEST_DISABLE"
         private const val TV_GAP_MS = 15_000L          // the TV ignores its power button this long after switching
-        private const val OFF_DELAY_MS = 5_000L        // Power with the TV on: this long to change your mind
     }
 
     private lateinit var remote: Remote
@@ -55,6 +54,7 @@ class MainActivity : Activity() {
     private lateinit var statusPanel: StatusPanel
     private lateinit var sleepTimer: SleepTimer
     private lateinit var tests: TestHooks
+    private lateinit var phone: PhoneSettings
     private var pulsing: ObjectAnimator? = null
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var keyboard: KeyboardView
@@ -88,6 +88,9 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         statusPanel = StatusPanel(this)
+        phone = PhoneSettings(this)
+        Haptics.enabled = phone.vibration
+        BluetoothGuard.enabled = phone.bluetoothOff
         remote = Remote(this)
         feed = SuggestionFeed(this)
         remote.wifi.onChange = {
@@ -114,7 +117,19 @@ class MainActivity : Activity() {
         }
         findViewById<View>(R.id.power_cancel).setOnClickListener { cancelPowerOff() }
         findViewById<View>(R.id.power_now).setOnClickListener { powerOffNow() }
+        findViewById<View>(R.id.power_overlay).setOnClickListener { cancelPowerOff() }   // a tap outside the card: no
         for (id in intArrayOf(R.id.power_cancel, R.id.power_now)) Haptics.attach(findViewById(id))
+
+        // Settings: the TV's (it lists them) and this phone's.
+        val settingsView = findViewById<SettingsView>(R.id.settings)
+        settingsView.onTvChange = { key, value -> remote.wifi.setSetting(key, value) }
+        settingsView.onPhoneChange = { key, value -> changePhoneSetting(key, value) }
+        settingsView.onVersion = { checkForUpdate(manual = true) }
+        remote.wifi.onSettings = {
+            remote.wifi.settings.find { it.key == "powercountdown" }?.value?.toIntOrNull()?.let { phone.powerCountdown = it }
+            showSettings()
+        }
+        showSettings()
 
         voice = VoiceSearch(this, remote)
         voice.onStatus = { findViewById<TextView>(R.id.search_hint).text = it }
@@ -347,6 +362,10 @@ class MainActivity : Activity() {
     /** Back on another page goes to the remote; on the remote, it leaves as usual. */
     @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION")
     override fun onBackPressed() {
+        if (offAt != 0L) {
+            cancelPowerOff()
+            return
+        }
         if (mirroring) {
             setMirror(false)
             return
@@ -379,7 +398,7 @@ class MainActivity : Activity() {
 
     private fun startMirror() {
         // Less of the Wi-Fi for the picture while this phone plays the TV's sound too.
-        screen.start({ remote.wifi.tvAddress?.hostAddress ?: remote.wifi.manualAddress }, { if (ListenService.running) 2500 else 8000 })
+        screen.start({ remote.wifi.tvAddress?.hostAddress ?: remote.wifi.manualAddress }, { if (ListenService.running) minOf(2500, phone.mirrorKbps) else phone.mirrorKbps })
     }
 
     @Suppress("DEPRECATION")
@@ -733,35 +752,51 @@ class MainActivity : Activity() {
     }
 
     private val offNow = Runnable { powerOffNow() }
-    private val offTick = Runnable { showPowerOff() }
+    private val hideOverlay = Runnable { showPowerOverlay(false) }
 
+    /**
+     * Turning off, the TV's countdown first (its Settings; 0 for none): a big dialog in the middle, as on the TV,
+     * with Cancel and Turn off now, and the TV shows its own meanwhile.
+     */
     private fun startPowerOff() {
-        offAt = SystemClock.elapsedRealtime() + OFF_DELAY_MS
-        // The ring runs a moment past the turn-off, so the key goes straight on to the TV's 15 s.
-        findViewById<PowerButton>(R.id.power).waitUntil(offAt + 300, OFF_DELAY_MS + 300, getColor(R.color.warn))
-        handler.postDelayed(offNow, OFF_DELAY_MS)
-        remote.wifi.powerSoon((OFF_DELAY_MS / 1000).toInt())
-        showPowerOff()
-    }
-
-    /** The card under the top while a turn-off counts down: the seconds left, Cancel, Turn off now. */
-    private fun showPowerOff() {
-        handler.removeCallbacks(offTick)
-        val card = findViewById<View>(R.id.power_off)
-        if (offAt == 0L) {
-            if (card.visibility == View.VISIBLE) card.animate().alpha(0f).setDuration(180).withEndAction { card.visibility = View.GONE }.start()
+        val seconds = phone.powerCountdown.coerceIn(0, 30)
+        if (seconds == 0) {
+            sendPower(turningOff = true)
             return
         }
-        val left = ((offAt - SystemClock.elapsedRealtime() + 999) / 1000).toInt().coerceAtLeast(1)
-        findViewById<TextView>(R.id.power_off_text).text = getString(R.string.power_off_soon, left)
-        if (card.visibility != View.VISIBLE) {
+        val ms = seconds * 1000L
+        offAt = SystemClock.elapsedRealtime() + ms
+        // The key's ring runs a moment past the turn-off, so it goes straight on to the TV's 15 s.
+        findViewById<PowerButton>(R.id.power).waitUntil(offAt + 300, ms + 300, getColor(R.color.warn))
+        handler.postDelayed(offNow, ms)
+        remote.wifi.powerSoon(seconds)
+        findViewById<TextView>(R.id.power_title).setText(R.string.power_off_title)
+        findViewById<TextView>(R.id.power_hint).setText(R.string.power_off_hint)
+        findViewById<CountdownRing>(R.id.power_ring).start(ms)
+        showPowerOverlay(true)
+    }
+
+    /** The countdown dialog: the screen dims and the card pops up; or it fades away. */
+    private fun showPowerOverlay(on: Boolean) {
+        handler.removeCallbacks(hideOverlay)
+        val overlay = findViewById<View>(R.id.power_overlay)
+        val card = findViewById<View>(R.id.power_card)
+        for (id in intArrayOf(R.id.power_cancel, R.id.power_now)) findViewById<View>(id).isEnabled = on
+        overlay.animate().cancel()
+        card.animate().cancel()
+        if (on) {
             hidePowerNote()
-            card.animate().cancel()
+            overlay.alpha = 0f
+            overlay.visibility = View.VISIBLE
+            overlay.animate().alpha(1f).setDuration(200).start()
+            card.scaleX = 0.82f
+            card.scaleY = 0.82f
             card.alpha = 0f
-            card.visibility = View.VISIBLE
-            card.animate().alpha(1f).setDuration(180).start()
+            card.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(380).setInterpolator(android.view.animation.OvershootInterpolator(1.6f)).start()
+        } else if (overlay.visibility == View.VISIBLE) {
+            overlay.animate().alpha(0f).setDuration(220).withEndAction { overlay.visibility = View.GONE }.start()
+            card.animate().scaleX(0.92f).scaleY(0.92f).setDuration(220).start()
         }
-        handler.postDelayed(offTick, 200)
     }
 
     private fun cancelPowerOff() {
@@ -769,17 +804,55 @@ class MainActivity : Activity() {
         handler.removeCallbacks(offNow)
         offAt = 0L
         findViewById<PowerButton>(R.id.power).waitUntil(0, 1)
-        showPowerOff()
         remote.wifi.powerSoon(0)
-        toast(getString(R.string.power_cancelled))
+        findViewById<CountdownRing>(R.id.power_ring).cancelled()
+        findViewById<TextView>(R.id.power_title).setText(R.string.power_off_cancelled)
+        findViewById<TextView>(R.id.power_hint).setText(R.string.power_off_stays)
+        for (id in intArrayOf(R.id.power_cancel, R.id.power_now)) findViewById<View>(id).isEnabled = false
+        handler.postDelayed(hideOverlay, 1100)
     }
 
     private fun powerOffNow() {
         handler.removeCallbacks(offNow)
         if (offAt == 0L) return
         offAt = 0L
-        showPowerOff()
+        findViewById<CountdownRing>(R.id.power_ring).done()
+        findViewById<TextView>(R.id.power_title).setText(R.string.power_off_going)
+        findViewById<TextView>(R.id.power_hint).text = ""
+        for (id in intArrayOf(R.id.power_cancel, R.id.power_now)) findViewById<View>(id).isEnabled = false
+        handler.postDelayed(hideOverlay, 700)
         sendPower(turningOff = true)
+    }
+
+    // ---------------------------------------------------------------- settings
+
+    private fun showSettings() {
+        val onOff = listOf("on" to getString(R.string.set_on), "off" to getString(R.string.set_off))
+        fun of(on: Boolean) = if (on) "on" else "off"
+        val mine = listOf(
+            TvSetting("vibration", of(phone.vibration), getString(R.string.set_vibration), getString(R.string.set_vibration_note), onOff),
+            TvSetting("bluetooth", of(phone.bluetoothOff), getString(R.string.set_bluetooth), getString(R.string.set_bluetooth_note), onOff),
+            TvSetting("mirror", phone.mirror, getString(R.string.set_mirror), getString(R.string.set_mirror_note), listOf(
+                "saver" to getString(R.string.set_mirror_saver), "balanced" to getString(R.string.set_mirror_balanced),
+                "sharp" to getString(R.string.set_mirror_sharp))),
+        )
+        findViewById<SettingsView>(R.id.settings).show(remote.wifi.settings, mine,
+            getString(R.string.version_label, BuildConfig.VERSION_NAME, BuildConfig.COMMIT))
+    }
+
+    private fun changePhoneSetting(key: String, value: String) {
+        when (key) {
+            "vibration" -> {
+                phone.vibration = value == "on"
+                Haptics.enabled = phone.vibration
+            }
+            "bluetooth" -> {
+                phone.bluetoothOff = value == "on"
+                BluetoothGuard.enabled = phone.bluetoothOff
+                if (phone.bluetoothOff) BluetoothGuard.hold(this, "screen") else BluetoothGuard.release("screen")
+            }
+            "mirror" -> phone.mirror = value
+        }
     }
 
     private fun sendPower(turningOff: Boolean) {

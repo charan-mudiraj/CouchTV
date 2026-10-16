@@ -71,6 +71,7 @@ namespace CouchTV
                 if (updated != text) System.IO.File.WriteAllText(path, updated, new System.Text.UTF8Encoding(false));
             }
             catch (Exception ex) { Log.Error("Saving the pointer to " + path, ex); }
+            SettingsChanged();
         }
 
         void StartRemote()
@@ -95,17 +96,19 @@ namespace CouchTV
                 if (IsActive && !Modal) Toast(message);
                 else Osd.ShowMessage('\uE8EA', message, 3);
             };
-            // A text box getting the focus pops up the phone's keyboard: watched only while a phone is connected.
-            if (_cfg.TypeOnPhone)
+            // A text box getting the focus pops up the phone's keyboard: watched only while a phone is connected, and
+            // TypeOnPhone is on (a setting, changed from the phone too).
+            _typing = new TypingWatch();
+            _typing.Changed += _wifi.ShowTyping;
+            _wifi.PhonesChanged += count =>
             {
-                _typing = new TypingWatch();
-                _typing.Changed += _wifi.ShowTyping;
-                _wifi.PhonesChanged += count =>
-                {
-                    if (count > 0) _typing.Start();
-                    else _typing.Stop();
-                };
-            }
+                _phoneCount = count;
+                WatchTyping();
+            };
+            // The TV's settings, on the phone's Settings page too.
+            TvSettings();
+            _wifi.CurrentSettings = SettingsLines;
+            _wifi.SetSetting += ApplySetting;
             _wifi.Button += OnIrSignal;
             _wifi.Text += ReceiveSearchText;
             _wifi.Connected += who => { if (IsActive && !SearchOpen) Toast("Phone remote connected over Wi-Fi"); };

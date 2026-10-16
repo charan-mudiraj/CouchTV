@@ -22,7 +22,8 @@ namespace CouchTV
     ///     AUTH &lt;proof&gt;           →  AUTH &lt;proof&gt;   and from here on every line is encrypted:
     ///     HELLO &lt;app&gt; &lt;version&gt; →  WELCOME &lt;name&gt;, POINTER &lt;look&gt;, BOARD &lt;receiver box key&gt;, AUDIO &lt;session id&gt;,
     ///                               SUGGESTIONS &lt;count&gt; and that many SUGGEST lines (again whenever the list changes),
-    ///                               SLEEPTIMER &lt;seconds left, 0 when off&gt; (again whenever it changes)
+    ///                               SLEEPTIMER &lt;seconds left, 0 when off&gt; (again whenever it changes),
+    ///                               SETTINGS &lt;count&gt; and that many SETTING lines: the TV's settings (again when one changes)
     ///     PING                     →  PONG          (every second, so both sides notice a dead link quickly)
     ///     SOUND                    →  AUDIO &lt;session id&gt;   (the phone's sound service has a connection of its own)
     ///     BTN &lt;address&gt; &lt;command&gt; N|R   a button, exactly like the IR receiver's "NEC 00CE 00xx" codes
@@ -40,6 +41,7 @@ namespace CouchTV
     ///     PLAY &lt;id&gt; [&lt;what it is&gt;]   play a suggestion (from the SUGGEST lines, or one the phone found) on the TV
     ///     TRACKPAD ON|OFF           the phone's trackpad page is open (or not): the TV shows its pointer meanwhile
     ///     SLEEPTIMER &lt;minutes&gt;      the sleep timer: the TV goes to sleep that many minutes from now (0: off)
+    ///     SET &lt;key&gt; &lt;value&gt;          change one of the TV's settings (to one of the values its SETTING line lists)
     ///     POWERSOON &lt;seconds&gt;      Power was tapped on the phone with the TV on: it goes in that many seconds (0: cancelled)
     ///     LOG [&lt;lines&gt;]             →  LOG &lt;count&gt;, then that many lines "| &lt;line&gt;": the end of the TV's log (CouchTV.exe --tv)
     /// Buttons go through the same remote.ini mapping as infrared ones, so both remotes behave the same.
@@ -65,6 +67,7 @@ namespace CouchTV
         public event Action<bool> Trackpad;                  // a phone has its trackpad page open (true), or none has now (UI thread)
         public event Action<int> SleepTimer;                 // a phone set the sleep timer: minutes from now, 0 for off (UI thread)
         public event Action<int> PowerSoon;                  // a phone's Power counts down: seconds left, 0 when cancelled (UI thread)
+        public event Action<string, string> SetSetting;      // a phone changed one of the TV's settings: key, value (UI thread)
 
         /// <summary>The pointer's look now ("arrow 64 white"), told to each phone as it connects.</summary>
         internal Func<string> CurrentPointer;
@@ -74,6 +77,9 @@ namespace CouchTV
 
         /// <summary>Seconds until the sleep timer ends (0: off), told to each phone as it connects; from the network thread.</summary>
         internal Func<int> CurrentSleepTimer;
+
+        /// <summary>The TV's settings' lines (SETTINGS, then SETTING lines), told to each phone as it connects; from the network thread.</summary>
+        internal Func<List<string>> CurrentSettings;
 
         // What the trackpad lines do, straight from the network thread for the least delay. The self-test swaps
         // these to watch rather than move the real pointer.
@@ -537,6 +543,8 @@ namespace CouchTV
                         if (suggestions != null) welcome += "\n" + string.Join("\n", suggestions());
                         Func<int> sleep = CurrentSleepTimer;
                         if (sleep != null) welcome += "\nSLEEPTIMER " + sleep();
+                        Func<List<string>> settings = CurrentSettings;
+                        if (settings != null) welcome += "\n" + string.Join("\n", settings());
                     }
                     return welcome;
                 case "PING":
@@ -612,6 +620,13 @@ namespace CouchTV
                             else keys.Remove(vk);
                         }
                         KeyChange(vk, down);
+                    }
+                    return null;
+                case "SET":
+                    if (parts.Length >= 3 && parts[1].Length <= 40 && parts[2].Length <= 40)
+                    {
+                        string key = parts[1], value = parts[2];
+                        Raise(() => { if (SetSetting != null) SetSetting(key, value); });
                     }
                     return null;
                 case "POWERSOON":

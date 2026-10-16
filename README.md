@@ -70,6 +70,8 @@ The **Settings & power** row has:
 - Display and Network.
 - **Remote**: set up an infrared remote (see *Remote* below). F2 also opens it.
 - A **sleep timer**: any length from the phone app (hours and minutes), or 30/60/90/120 min from the remote's key (press it again to change it).
+- **Settings** (first in *Settings & power*): CouchTV's own, worked with the remote (↑ ↓ to choose, ← → to change, Back to close): the power-off countdown, the films and songs rows, the phone's keyboard for text boxes, the pointer's style, size and colour, and checking for updates. Each change goes into couchtv.ini at once. The phone app's Settings page has the same, so they can be changed from the sofa too.
+- **Power on the phone, with the TV on, counts down first** (5 seconds unless set otherwise): a big countdown in the middle of the screen, on the TV and the phone, with Cancel on the phone, so a tap by mistake does nothing.
 - Sleep, Restart, Turn off and *Windows desktop*.
 
 When Windows has installed an update, the Restart button shows an orange dot and reads *Restart to update*.

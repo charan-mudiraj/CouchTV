@@ -188,6 +188,7 @@ namespace CouchTV
             _layers.Children.Add(_confirm = BuildConfirm());
             _layers.Children.Add(_setup = BuildSetup());
             _layers.Children.Add(_bt = BuildBluetooth());
+            _layers.Children.Add(_settings = BuildSettings());
             _layers.Children.Add(_search = BuildSearch());
             root.Children.Add(new Viewbox { Stretch = Stretch.Uniform, Child = _layers });
 
@@ -603,7 +604,7 @@ namespace CouchTV
             else Open(v.Tile);
         }
 
-        bool Modal { get { return _confirm.Visibility == Visibility.Visible || SetupOpen || SearchOpen || BluetoothOpen; } }
+        bool Modal { get { return _confirm.Visibility == Visibility.Visible || SetupOpen || SearchOpen || BluetoothOpen || SettingsOpen; } }
 
         List<TileView> Row(int r)
         {
@@ -781,6 +782,12 @@ namespace CouchTV
             if (BluetoothOpen)
             {
                 BluetoothKey(key);
+                e.Handled = true;
+                return;
+            }
+            if (SettingsOpen)
+            {
+                SettingsKey(key);
                 e.Handled = true;
                 return;
             }
@@ -967,6 +974,9 @@ namespace CouchTV
                 case "bluetooth":
                     OpenBluetooth();
                     break;
+                case "settings":
+                    OpenSettings();
+                    break;
                 case "search":
                     OpenSearch(false);
                     break;
@@ -1000,6 +1010,7 @@ namespace CouchTV
             _confirm.Visibility = Visibility.Collapsed;
             if (SetupOpen) FinishSetup(false);
             if (BluetoothOpen) CloseBluetooth();
+            if (SettingsOpen) CloseSettings();
             if (SearchOpen) CloseSearch(false);
             if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
             Show();
@@ -1651,6 +1662,12 @@ namespace CouchTV
                 SetupCapture(new IrSignal { Code = "Samsung 0707 0060" });
             }
             if (state.Contains("bluetooth")) PreviewBluetooth(state.Contains("btdevice") ? "device" : state.Contains("btadd") ? "add" : "main");
+            if (state.Contains("tvsettings"))
+            {
+                OpenSettings();
+                _settingIndex = 1;
+                RenderSettings();
+            }
             if (state.Contains("listening")) OpenSearch(true);
             else if (state.Contains("searchplan") || state.Contains("searchauto") || state.Contains("searchaction") || state.Contains("searchplay"))
             {

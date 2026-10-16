@@ -20,7 +20,11 @@ object Haptics {
     private var vibrator: Vibrator? = null
     private var pressedAt = 0L
 
+    /** Off in the app's settings: no clicks at all. */
+    var enabled = true
+
     fun press(view: View) {
+        if (!enabled) return
         pressedAt = SystemClock.uptimeMillis()
         val v = vibrator(view.context) ?: return
         play(v, if (Build.VERSION.SDK_INT >= 29) VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK)
@@ -28,6 +32,7 @@ object Haptics {
     }
 
     fun release(view: View) {
+        if (!enabled) return
         val v = vibrator(view.context) ?: return
         // A plain buzzing motor can't do a light tick (it would feel like a second press): just the click then.
         if (Build.VERSION.SDK_INT < 29 || !v.hasAmplitudeControl()) return

@@ -28,11 +28,15 @@ object BluetoothGuard {
     private var receiver: BroadcastReceiver? = null
     private var asked = false   // the user has been asked since Bluetooth last came on (so declining doesn't loop)
 
+    /** Off in the app's settings: Bluetooth is left alone. */
+    var enabled = true
+
     /** Asks the user to turn Bluetooth off, when this phone doesn't let the app do it. Set while the app is on screen. */
     var askUser: (() -> Unit)? = null
 
     /** Starts keeping Bluetooth off, on behalf of [who] (the screen, or the sound); a new look each time. */
     fun hold(context: Context, who: String) {
+        if (!enabled) return
         app = context.applicationContext
         if (holders.add(who) && holders.size == 1) watch()
         asked = false
