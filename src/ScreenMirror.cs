@@ -17,13 +17,17 @@ namespace CouchTV
     /// KB, and a still screen nothing but a heartbeat each second. Frames are paced to a bandwidth cap the phone asks
     /// for (about 4 Mbps; less while it's playing the TV's sound too), so the sound keeps its share of the Wi-Fi, and
     /// sent encrypted on the phone's own paired connection. It looks 15 times a second while things change or someone
-    /// touches or presses something, and 5 times a second when the screen's been still for a while. Copy-protected
-    /// video (Netflix, Prime Video…) shows as black, as in any screen capture; their menus don't.
+    /// touches or presses something, and 5 times a second when the screen's been still for a while. While much of the
+    /// screen changes at once (a page scrolling), tiles go rougher (about half the size), so the picture keeps up with
+    /// the finger, and they're sent again sharp as soon as it settles. Copy-protected video (Netflix, Prime Video…)
+    /// shows as black, as in any screen capture; their menus don't.
     /// </summary>
     internal static class ScreenMirror
     {
         public const int TileSize = 64, MostWidth = 1600;
         const int FrameMs = 66, IdleFrameMs = 200, BusyFor = 2000, HeartbeatMs = 1000;
+        const long SharpQuality = 72, RoughQuality = 38;   // JPEG quality: text stays readable / a moving page
+        const int CalmLooks = 3;                           // looks without much changing before rough tiles are sharpened
         static long _poked = Environment.TickCount;
 
         /// <summary>A touch, button or key from a phone: look at full speed for a while, as the screen's about to change.</summary>
@@ -40,6 +44,8 @@ namespace CouchTV
             {
                 ScreenGrab grab = null;
                 int[] previous = null;
+                bool[] rough = null;   // tiles last sent rough
+                int calm = 0;
                 var clock = Stopwatch.StartNew();
                 long allowedAt = 0, lastSent = 0, lastSizeCheck = 0, lastChange = 0;
                 int cursorX = -1, cursorY = -1;
@@ -71,7 +77,7 @@ namespace CouchTV
                             Thread.Sleep(250);   // a secure desktop (UAC), say
                             continue;
                         }
-                        int bytes = SendChanges(grab, previous, writer);
+                        int bytes = SendChanges(grab, previous, writer, ref rough, ref calm);
                         if (previous == null) previous = new int[grab.Pixels.Length];
                         if (bytes > 0) Array.Copy(grab.Pixels, previous, previous.Length);
 
@@ -97,26 +103,46 @@ namespace CouchTV
             }
         }
 
-        /// <summary>Sends the tiles that changed since previous (all of them when it's null), as strips along each row; the bytes sent.</summary>
-        static int SendChanges(ScreenGrab grab, int[] previous, FrameWriter writer)
+        /// <summary>
+        /// Sends the tiles that changed since previous (all of them when it's null), as strips along each row; the bytes
+        /// sent. When a fifth of the screen or more changed, they go rough; after CalmLooks quieter looks, the tiles
+        /// last sent rough go again, sharp.
+        /// </summary>
+        static int SendChanges(ScreenGrab grab, int[] previous, FrameWriter writer, ref bool[] rough, ref int calm)
         {
             int w = grab.Width, h = grab.Height, sent = 0;
+            int columns = (w + TileSize - 1) / TileSize, rows = (h + TileSize - 1) / TileSize;
+            if (rough == null || rough.Length != columns * rows) rough = new bool[columns * rows];
             int[] now = grab.Pixels;
-            for (int ty = 0; ty < h; ty += TileSize)
-            {
-                int th = Math.Min(TileSize, h - ty);
-                int runStart = -1;
-                for (int tx = 0; tx <= w; tx += TileSize)
+            var changed = new bool[columns * rows];
+            int count = 0;
+            for (int r = 0; r < rows; r++)
+                for (int c = 0; c < columns; c++)
                 {
-                    bool changed = tx < w && (previous == null || Differs(now, previous, w, tx, ty, Math.Min(TileSize, w - tx), th));
-                    if (changed && runStart < 0) runStart = tx;
-                    if (!changed && runStart >= 0)
-                    {
-                        int rw = Math.Min(tx, w) - runStart;
-                        byte[] jpeg = Jpeg(now, w, runStart, ty, rw, th);
-                        sent += writer.Send(Message(Tile, U16(runStart), U16(ty), U16(rw), U16(th), jpeg));
-                        runStart = -1;
-                    }
+                    int tx = c * TileSize, ty = r * TileSize;
+                    if (previous != null && !Differs(now, previous, w, tx, ty, Math.Min(TileSize, w - tx), Math.Min(TileSize, h - ty))) continue;
+                    changed[r * columns + c] = true;
+                    count++;
+                }
+            bool busy = previous != null && count * 5 >= columns * rows;
+            calm = busy ? 0 : calm + 1;
+            if (calm >= CalmLooks)
+                for (int i = 0; i < changed.Length; i++) changed[i] |= rough[i];
+            long quality = busy ? RoughQuality : SharpQuality;
+            for (int r = 0; r < rows; r++)
+            {
+                int ty = r * TileSize, th = Math.Min(TileSize, h - ty);
+                int runStart = -1;
+                for (int c = 0; c <= columns; c++)
+                {
+                    bool on = c < columns && changed[r * columns + c];
+                    if (on && runStart < 0) runStart = c;
+                    if (on || runStart < 0) continue;
+                    int x = runStart * TileSize, rw = Math.Min(c * TileSize, w) - x;
+                    byte[] jpeg = Jpeg(now, w, x, ty, rw, th, quality);
+                    sent += writer.Send(Message(Tile, U16(x), U16(ty), U16(rw), U16(th), jpeg));
+                    for (int k = runStart; k < c; k++) rough[r * columns + k] = busy;
+                    runStart = -1;
                 }
             }
             if (sent > 0) sent += writer.Send(new[] { End });
@@ -133,7 +159,7 @@ namespace CouchTV
             return false;
         }
 
-        static byte[] Jpeg(int[] pixels, int stride, int x, int y, int w, int h)
+        static byte[] Jpeg(int[] pixels, int stride, int x, int y, int w, int h, long quality)
         {
             using (var bitmap = new Bitmap(w, h, PixelFormat.Format32bppRgb))
             {
@@ -147,7 +173,7 @@ namespace CouchTV
                 using (var output = new MemoryStream())
                 using (var parameters = new EncoderParameters(1))
                 {
-                    parameters.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, 72L);   // text stays readable
+                    parameters.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, quality);
                     bitmap.Save(output, JpegCodec, parameters);
                     return output.ToArray();
                 }

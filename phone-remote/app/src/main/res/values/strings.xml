@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">CouchTV Remote</string>
-    <string name="title">CouchTV</string>
     <string name="ready">Point the top of the phone at the TV, or join the TV\'s Wi-Fi to skip pointing</string>
     <string name="wifi_connected">Connected to %1$s over Wi-Fi · no need to point</string>
     <string name="wifi_looking_no_ir">Looking for the TV on Wi-Fi… Connect this phone to the same Wi-Fi as the TV.</string>
@@ -9,7 +8,7 @@
     <string name="wifi_trying_ir">Point the phone at the TV, or wait: connecting to it at %1$s over Wi-Fi… Tap to change.</string>
     <string name="listen_start">Listen on this phone (earphones)</string>
     <string name="listen_stop">Playing the TV\'s sound on this phone · tap the headphones to stop</string>
-    <string name="listen_no_tv">Connect to the TV over Wi-Fi first (the line at the top turns green).</string>
+    <string name="listen_no_tv">Connect to the TV over Wi-Fi first (the TV at the top turns green).</string>
     <string name="listen_channel">TV sound on this phone</string>
     <string name="listen_notification_title">Playing the TV\'s sound</string>
     <string name="listen_notification_text">In this phone\'s headphones. Tap Stop to end.</string>
@@ -64,7 +63,6 @@
     <string name="search_sending">Sending “%1$s” to the TV… keep pointing at it</string>
     <string name="search_sent">“%1$s” is on the TV.</string>
 
-    <string name="apps">Apps</string>
     <string name="suggestions_title">Popular now</string>
     <string name="suggestions_movies">Popular films</string>
     <string name="suggestions_songs">Top songs</string>
@@ -81,7 +79,7 @@
     <string name="app_web">Web</string>
 
     <string name="power">Power</string>
-    <string name="power_needs_ir">Can\'t reach the TV\'s receiver box on the Wi-Fi, and this phone has no IR blaster. Pair this phone with the TV (tap the line at the top) for Power over Wi-Fi.</string>
+    <string name="power_needs_ir">Can\'t reach the TV\'s receiver box on the Wi-Fi, and this phone has no IR blaster. Pair this phone with the TV (tap the icons at the top) for Power over Wi-Fi.</string>
     <string name="board_state">PC %1$s · TV %2$s</string>
     <string name="board_pc_off">The TV PC is asleep or off (the TV is %1$s). Press Power to switch both on.</string>
     <string name="state_on">on</string>
@@ -99,7 +97,9 @@
     <string name="key_delete">Delete</string>
 
     <string name="trackpad">Trackpad</string>
-    <string name="trackpad_help">Slide to move, tap to click, tap twice and slide to drag. Two fingers: slide to scroll, tap to right-click.</string>
+    <string name="trackpad_help">Slide to move · tap to click
+Tap twice and slide to drag
+Two fingers: slide to scroll, tap to right-click</string>
     <string name="trackpad_offline">Connect to the TV over Wi-Fi first</string>
     <string name="left_click">Left click</string>
     <string name="pointer_look">Pointer</string>
@@ -121,16 +121,14 @@
     <string name="color_pink">Pink</string>
     <string name="pointer_help">It changes on the TV as you pick. Over a link it turns blue (yellow, if the pointer is blue).</string>
     <string name="pointer_needs_wifi">Connect to the TV over Wi-Fi to change its pointer</string>
-    <string name="tv_keys">TV</string>
     <string name="keyboard">Keyboard</string>
     <string name="mirror_start">Show the TV\'s screen here</string>
     <string name="mirror_title">The TV\'s screen</string>
     <string name="mirror_exit">Back to the remote</string>
     <string name="mirror_connecting">Getting the TV\'s screen…</string>
     <string name="mirror_reconnecting">Lost the TV\'s screen. Getting it again…</string>
-    <string name="mirror_needs_wifi">Connect to the TV over Wi-Fi first (the line at the top turns green).</string>
+    <string name="mirror_needs_wifi">Connect to the TV over Wi-Fi first (the TV at the top turns green).</string>
     <string name="keyboard_type">Type</string>
-    <string name="keyboard_help">Shift, Ctrl, Alt and Win stay on for the next key: tap twice to keep them on. Type uses this phone\'s own keyboard.</string>
     <string name="keyboard_offline">Connect to the TV over Wi-Fi first</string>
     <string name="typing_title">Typing on the TV</string>
     <string name="typing_into">Typing into “%1$s” on the TV</string>
@@ -139,25 +137,53 @@
     <string name="page_of">Page %1$d of %2$d</string>
     <string name="right_click">Right click</string>
 
-    <string name="my_buttons">My buttons</string>
-    <string name="my_buttons_empty">Add buttons that send your own codes, then teach them to the TV.</string>
-    <string name="edit">Edit</string>
     <string name="done">Done</string>
-    <string name="add_button_label">+ Add a button</string>
 
-    <string name="add_button">Add a button</string>
-    <string name="edit_button">Edit button</string>
-    <string name="button_name">Name</string>
-    <string name="command_hint">Command (hex; 60 to FF are free)</string>
-    <string name="address_hint">Address (hex; CE is CouchTV)</string>
-    <string name="custom_help">After saving, teach the TV what it does: Settings &amp; power &gt; Remote on the TV, or a line in remote.ini.</string>
     <string name="save">Save</string>
     <string name="cancel">Cancel</string>
-    <string name="delete">Delete</string>
     <string name="ok">OK</string>
-    <string name="need_name">Give it a name</string>
-    <string name="need_hex">Two hex digits, 00 to FF</string>
     <string name="version_label">Version %1$s (%2$s) · Check for updates</string>
+
+    <string name="status_description">How the remote reaches the TV. Tap for details.</string>
+    <string name="status_tv">TV</string>
+    <string name="status_box">Receiver box</string>
+    <string name="status_ir">IR blaster</string>
+    <string name="status_tv_connected">Connected to %1$s over Wi-Fi. No need to point.</string>
+    <string name="status_tv_unpaired">%1$s is on this Wi-Fi. Pair this phone with it once, and it works without pointing.</string>
+    <string name="status_tv_asleep">The TV PC is asleep or off. Press Power to switch it on.</string>
+    <string name="status_tv_trying">Looking for the TV at %1$s…</string>
+    <string name="status_tv_looking">Looking for the TV on this Wi-Fi… This phone needs to be on the same Wi-Fi as the TV.</string>
+    <string name="status_box_state">On the Wi-Fi · PC %1$s · TV %2$s</string>
+    <string name="status_box_on">On the Wi-Fi</string>
+    <string name="status_box_quiet">Not answering on the Wi-Fi, so Power goes by infrared meanwhile.</string>
+    <string name="status_box_quiet_no_ir">Not answering on the Wi-Fi, so Power can't be sent from this phone right now.</string>
+    <string name="status_box_unknown">Not known to this phone yet: the TV tells paired phones about it when they connect.</string>
+    <string name="status_ir_ready">Used while the TV isn't connected over Wi-Fi: point the top of the phone at the TV.</string>
+    <string name="status_ir_none">This phone has none, so it works over Wi-Fi only.</string>
+    <string name="action_pair">Pair</string>
+    <string name="action_address">TV address</string>
+
+    <string name="power_turning_off">Switching off… The TV can be switched on again in %1$d s.</string>
+    <string name="power_turning_on">Switching on… The TV can be switched again in %1$d s.</string>
+    <string name="power_wait">Wait %1$d s: TVs ignore their power button for a few seconds after switching, so a press now would be missed.</string>
+
+    <string name="sleep_title">Sleep timer</string>
+    <string name="sleep_hours">h</string>
+    <string name="sleep_minutes">min</string>
+    <string name="sleep_start">Start</string>
+    <string name="sleep_change">Change</string>
+    <string name="sleep_off">Turn off</string>
+    <string name="sleep_turned_off">Sleep timer off</string>
+    <string name="sleep_pick">Pick how long</string>
+    <string name="sleep_at">The TV goes to sleep at %1$s</string>
+    <string name="sleep_running">On now: %1$s left (sleeps at %2$s)</string>
+    <string name="sleep_set">The TV will go to sleep at %1$s</string>
+    <string name="sleep_key_running">Sleep · %1$s</string>
+    <string name="sleep_mins">%1$d min</string>
+    <string name="sleep_hrs">%1$d h</string>
+    <string name="sleep_hrs_mins">%1$d h %2$d min</string>
+    <string name="sleep_by_ir">By infrared the timer goes up in steps: 30, 60, 90, 120 minutes, then off. Over Wi-Fi you can pick any time.</string>
+    <string name="sleep_needs_update">Press F6 on the TV to update CouchTV, then you can pick any time. Until then it goes up in steps.</string>
     <string name="checking">Checking for updates…</string>
     <string name="up_to_date">You have the latest version</string>
     <string name="check_failed">Couldn\'t check for updates: %1$s</string>
@@ -172,6 +198,4 @@
     <string name="allow_updates_message">To install its own updates, CouchTV Remote needs your permission once. On the next screen, turn on “Allow from this source”, then come back and tap Update again.</string>
     <string name="open_settings">Open settings</string>
 
-    <string name="teach_tv_title">Now teach the TV</string>
-    <string name="teach_tv_message">“%1$s” sends %2$s.\n\nOn the TV, open Settings &amp; power &gt; Remote and press this button when you reach the action you want. Or add a line to remote.ini, for example:\n\n%2$s = key:M</string>
 </resources>

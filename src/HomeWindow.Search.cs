@@ -489,10 +489,7 @@ namespace CouchTV
                     ChangeVolume(0, false);   // shows the volume bar
                     break;
                 case "sleeptimer":
-                    _sleepAt = DateTime.Now.AddMinutes(o.Value);
-                    _sleepWarned = false;
-                    UpdateSleepCaption();
-                    Osd.ShowMessage('', "The TV will go to sleep in " + o.Value + " minutes", 4);
+                    Osd.ShowMessage('', SetSleepTimer(o.Value), 4);
                     break;
             }
         }

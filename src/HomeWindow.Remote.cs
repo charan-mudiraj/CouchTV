@@ -111,6 +111,13 @@ namespace CouchTV
             _wifi.CurrentPointer = () => _cfg.PointerStyle + " " + _cfg.PointerSize + " " + _cfg.PointerColor;
             _wifi.CurrentSuggestions = () => _phoneSuggestions;
             _wifi.Play += PlaySuggestionById;
+            _wifi.CurrentSleepTimer = SleepSecondsLeft;
+            _wifi.SleepTimer += minutes =>
+            {
+                string message = SetSleepTimer(minutes);
+                if (IsActive && !Modal) Toast(message);
+                else Osd.ShowMessage('\uE916', message, 3);
+            };
             _wifi.Trackpad += Pointer.Trackpad;
             _wifi.PointerLook += ChangePointer;
             _wifi.Start();

@@ -21,7 +21,8 @@ namespace CouchTV
     ///     (pairing: PAIR &lt;name&gt;  →  CODE, then 20 rounds of commitments to the code's bits)
     ///     AUTH &lt;proof&gt;           →  AUTH &lt;proof&gt;   and from here on every line is encrypted:
     ///     HELLO &lt;app&gt; &lt;version&gt; →  WELCOME &lt;name&gt;, POINTER &lt;look&gt;, BOARD &lt;receiver box key&gt;, AUDIO &lt;session id&gt;,
-    ///                               SUGGESTIONS &lt;count&gt; and that many SUGGEST lines (again whenever the list changes)
+    ///                               SUGGESTIONS &lt;count&gt; and that many SUGGEST lines (again whenever the list changes),
+    ///                               SLEEPTIMER &lt;seconds left, 0 when off&gt; (again whenever it changes)
     ///     PING                     →  PONG          (every second, so both sides notice a dead link quickly)
     ///     SOUND                    →  AUDIO &lt;session id&gt;   (the phone's sound service has a connection of its own)
     ///     BTN &lt;address&gt; &lt;command&gt; N|R   a button, exactly like the IR receiver's "NEC 00CE 00xx" codes
@@ -38,6 +39,7 @@ namespace CouchTV
     ///                               TV, so the phone pops up its keyboard: told to the phone used last
     ///     PLAY &lt;id&gt; [&lt;what it is&gt;]   play a suggestion (from the SUGGEST lines, or one the phone found) on the TV
     ///     TRACKPAD ON|OFF           the phone's trackpad page is open (or not): the TV shows its pointer meanwhile
+    ///     SLEEPTIMER &lt;minutes&gt;      the sleep timer: the TV goes to sleep that many minutes from now (0: off)
     /// Buttons go through the same remote.ini mapping as infrared ones, so both remotes behave the same.
     /// </summary>
     internal sealed class RemoteServer
@@ -59,12 +61,16 @@ namespace CouchTV
         public event Action<string, bool> Mirroring;         // a phone started (true) or stopped mirroring the screen: its name (UI thread)
         public event Action<string> Play;                    // a phone chose a suggestion: its id and what it is (UI thread)
         public event Action<bool> Trackpad;                  // a phone has its trackpad page open (true), or none has now (UI thread)
+        public event Action<int> SleepTimer;                 // a phone set the sleep timer: minutes from now, 0 for off (UI thread)
 
         /// <summary>The pointer's look now ("arrow 64 white"), told to each phone as it connects.</summary>
         internal Func<string> CurrentPointer;
 
         /// <summary>The suggestions' lines (Suggestions.PhoneLines), told to each phone as it connects; from the network thread.</summary>
         internal Func<List<string>> CurrentSuggestions;
+
+        /// <summary>Seconds until the sleep timer ends (0: off), told to each phone as it connects; from the network thread.</summary>
+        internal Func<int> CurrentSleepTimer;
 
         // What the trackpad lines do, straight from the network thread for the least delay. The self-test swaps
         // these to watch rather than move the real pointer.
@@ -526,6 +532,8 @@ namespace CouchTV
                         }
                         Func<List<string>> suggestions = CurrentSuggestions;
                         if (suggestions != null) welcome += "\n" + string.Join("\n", suggestions());
+                        Func<int> sleep = CurrentSleepTimer;
+                        if (sleep != null) welcome += "\nSLEEPTIMER " + sleep();
                     }
                     return welcome;
                 case "PING":
@@ -602,6 +610,11 @@ namespace CouchTV
                         }
                         KeyChange(vk, down);
                     }
+                    return null;
+                case "SLEEPTIMER":
+                    int minutes;
+                    if (parts.Length >= 2 && TryInt(parts[1], 24 * 60, out minutes) && minutes >= 0)
+                        Raise(() => { if (SleepTimer != null) SleepTimer(minutes); });
                     return null;
                 case "PLAY":
                     if (parts.Length >= 2 && parts[1].Length > 0 && parts[1].Length <= 60 && line.Length <= 4000)

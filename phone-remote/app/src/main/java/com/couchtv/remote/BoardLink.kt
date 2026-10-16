@@ -54,6 +54,9 @@ class BoardLink(context: Context) {
     @Volatile var tvOn: Boolean? = null
         private set
 
+    /** This phone has the box's key (from the TV), so it can talk to it once it answers. */
+    val known: Boolean get() = key != null
+
     /** The board answered lately, to this phone's key. */
     val connected: Boolean get() = SystemClock.elapsedRealtime() - lastHeard < GONE_AFTER_MS
 

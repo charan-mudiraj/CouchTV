@@ -8,6 +8,9 @@ import android.graphics.Paint
 import android.graphics.RadialGradient
 import android.graphics.RectF
 import android.graphics.Shader
+import android.text.Layout
+import android.text.StaticLayout
+import android.text.TextPaint
 import android.os.SystemClock
 import android.util.AttributeSet
 import android.util.TypedValue
@@ -44,6 +47,15 @@ class TrackpadView @JvmOverloads constructor(context: Context, attrs: AttributeS
             field = value
             invalidate()
         }
+
+    /** How to use the pad, faint in the middle while no finger is on it (and there's no [hint]). */
+    var help: String? = null
+        set(value) {
+            field = value
+            helpLayout = null
+            invalidate()
+        }
+    private var helpLayout: StaticLayout? = null
 
     private companion object {
         const val SLOW_GAIN = 1.4f      // TV pixels per dp, moving slowly…
@@ -126,6 +138,10 @@ class TrackpadView @JvmOverloads constructor(context: Context, attrs: AttributeS
         textAlign = Paint.Align.CENTER
         textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 14f, resources.displayMetrics)
     }
+    private val helpPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0x80A3ACBC.toInt()
+        textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 13f, resources.displayMetrics)
+    }
     private val touches = FloatArray(4)   // where up to two fingers are, for their glow
     private var touchCount = 0
 
@@ -160,6 +176,17 @@ class TrackpadView @JvmOverloads constructor(context: Context, attrs: AttributeS
         canvas.restore()
 
         hint?.let { canvas.drawText(it, w / 2, h / 2 - (hintPaint.descent() + hintPaint.ascent()) / 2, hintPaint) }
+        val text = help
+        if (hint == null && touchCount == 0 && text != null) {
+            val wide = (w - 56 * density).toInt().coerceAtLeast(1)
+            val layout = helpLayout?.takeIf { it.width == wide }
+                ?: StaticLayout.Builder.obtain(text, 0, text.length, helpPaint, wide).setAlignment(Layout.Alignment.ALIGN_CENTER)
+                    .setLineSpacing(0f, 1.25f).build().also { helpLayout = it }
+            canvas.save()
+            canvas.translate((w - wide) / 2, (h - layout.height) / 2)
+            layout.draw(canvas)
+            canvas.restore()
+        }
     }
 
     @SuppressLint("ClickableViewAccessibility")

@@ -2,21 +2,28 @@
 
 A remote control app for CouchTV. It works two ways, and picks by itself:
 
-- **Over Wi-Fi**, when the phone is on the same Wi-Fi as the TV: it finds the TV and connects as soon as you open it, with no list to choose from. No pointing needed, and it works on **any** Android phone. The top line says *Connected to … over Wi-Fi*. **Power is the exception: it goes to the receiver box behind the TV**, which handles it whether the PC is on, asleep or off: by the box's own Wi-Fi when it has one (an ESP32, see the receiver's README), from any phone, or else by infrared. Then the top line also says whether the PC and the TV are on, even while the PC is off.
+- **Over Wi-Fi**, when the phone is on the same Wi-Fi as the TV: it finds the TV and connects as soon as you open it, with no list to choose from. No pointing needed, and it works on **any** Android phone. The TV icon at the top turns green. **Power is the exception: it goes to the receiver box behind the TV**, which handles it whether the PC is on, asleep or off: by the box's own Wi-Fi when it has one (an ESP32, see the receiver's README), from any phone, or else by infrared. Then the receiver box icon is green too, and tapping the icons says whether the PC and the TV are on, even while the PC is off.
 - **By infrared**, on phones with an **IR blaster** (most Xiaomi / Redmi / POCO phones), when the TV isn't on Wi-Fi, for example while the PC is asleep. Point the phone at the TV; CouchTV's [CouchIR receiver](../ir-receiver/README.md) picks it up. This is also what wakes the PC.
 
-**Pairing, once.** Over Wi-Fi the TV only listens to phones paired with it, so neighbours sharing your Wi-Fi can't use it, hear it, or switch it on and off. The first time the app finds the TV, its top line turns yellow: *… is on this Wi-Fi. Tap here to pair*. Tap it, and the TV shows a 6-digit code; type it in the app. That's all: from then on it connects by itself, encrypted. A wrong code just asks the TV for a new one. To unpair every phone (say, one was lost), press F8 on the TV's Remote screen (*Forget phones*). Infrared needs no pairing: it only works in the room.
+**Pairing, once.** Over Wi-Fi the TV only listens to phones paired with it, so neighbours sharing your Wi-Fi can't use it, hear it, or switch it on and off. The first time the app finds the TV, the TV icon at the top turns yellow. Tap it, then **Pair**, and the TV shows a 6-digit code; type it in the app. That's all: from then on it connects by itself, encrypted. A wrong code just asks the TV for a new one. To unpair every phone (say, one was lost), press F8 on the TV's Remote screen (*Forget phones*). Infrared needs no pairing: it only works in the room.
 
 **What's on it**
 
-The top stays put (the connection status, the headphones button for the TV's sound, and **Power**), and underneath, pages swipe sideways like a phone's home screen. The app opens on the remote; the dots at the bottom show which page you're on; tap one to jump there, and Back returns to the remote.
+The top stays put (how the app reaches the TV, the TV's screen and sound on the phone, and **Power**), and underneath, pages swipe sideways like a phone's home screen: the page settles quicker the faster you flick, the pages beside it sit a little back, and the dots at the bottom follow your finger. The app opens on the remote; tap a dot to jump to its page, and Back returns to the remote.
+
+**How it reaches the TV** is a few icons at the top left, in colour:
+
+- **TV:** green when it's connected over Wi-Fi; yellow when it needs pairing (or CouchTV on the TV needs updating); grey and slowly breathing while the app looks for it; crossed out while the TV PC is asleep or off.
+- **Receiver box:** green when the box behind the TV answers on its Wi-Fi (so Power works from any phone), grey when it doesn't. Hidden until the TV has told this phone about the box.
+- **IR blaster:** shown only while infrared is what the app is using (the TV isn't on Wi-Fi); yellow if the phone's blaster can't send at 38 kHz.
+
+Tap them for the whole story in words, with what to do about each (**Pair**, **TV address**), and the app's version (tap it to check for updates).
 
 0. **Popular now** (swipe right from the remote): the films and songs the TV suggests under its apps, as posters three to a row, each with the app it plays in. Tap one and it plays on the TV. With the TV off the phone fetches the same lists itself, for the TV's apps and subscriptions, so you can choose before turning the TV on: a tap then turns the TV on (Power, through the receiver box) and plays it as soon as the TV is back. The only page that scrolls up and down.
 1. **Remote:** search, the D-pad, Back / Home / Menu, volume and Play-Pause.
 2. **Apps:** big tiles for Netflix, YouTube, Prime Video, JioHotstar and Web, plus the TV's Exit, Full screen, Sleep timer and Delete.
 3. **Trackpad:** like a laptop's, with Left and Right click buttons below it.
 4. **Keyboard:** a full PC keyboard, function keys and all.
-5. **My buttons:** your own buttons, and the app's version.
 
 The D-pad, trackpad and grids size themselves to the phone's screen. The keys look and feel like a real remote's: raised, with their sides showing, they sink when pressed and click under your finger (a short vibration going down, and a lighter one coming up on phones with a precise vibration motor).
 
@@ -24,15 +31,15 @@ The D-pad, trackpad and grids size themselves to the phone's screen. The keys lo
 - **D-pad and OK.** Hold a direction to keep moving.
 - **Back, Home, Menu.** Holding Back also goes Home.
 - **Volume down / Mute / Volume up, and Play-Pause.**
-- **Exit, Full screen, Sleep timer, Delete.**
-- **Power**, which puts the TV to sleep and wakes it.
+- **Exit, Full screen, Delete.**
+- **Sleep timer:** pick any length on two wheels, hours and minutes, and see when the TV will go to sleep; **Turn off** stops it. While it runs the key shows how long is left (*Sleep · 42 min*). Over Wi-Fi; by infrared the key steps through the TV's own 30, 60, 90 and 120 minutes, then off.
+- **Power**, which puts the TV to sleep and wakes it. Right after switching, the TV ignores its power button for about 15 seconds, so the key then shows a ring running down with the seconds left, and a line under the top says what's happening (*Switching off… The TV can be switched on again in 12 s*). A press meanwhile shakes the key and says why, instead of being missed.
 - **App shortcuts:** Netflix, YouTube, Prime Video, JioHotstar, Web.
 - **The TV's sound on this phone:** the headphones button at the top (green while it plays).
-- **A trackpad** for sites that need a mouse, like a laptop's: slide to move the pointer (a quicker slide goes further), tap to click, tap twice and slide to drag; slide two fingers to scroll (a flick glides on) or tap with two to right-click. Over Wi-Fi it follows your finger exactly; over infrared the pointer moves in steps. Swipe to other pages from outside the pad. **Pointer** (top right of the page) changes how the TV's pointer looks: an arrow, a dot or a ring; Medium to Giant; white, yellow, blue, green or pink. The TV changes as you pick. The TV shows its pointer while this page is open (over Wi-Fi), and hides it when you go to another page.
-- **The TV's screen on the phone:** the screen button at the top (left of the headphones) shows the TV's screen here, full screen in landscape, for when the TV's too far to read: find the film on Netflix and press play from the sofa. Touch it as you would a touchscreen: tap to click, drag to scroll, pinch to zoom, hold to right-click. The strip at the side has Back, Home, volume down and up, the phone's keyboard, and ✕ (or the phone's Back) to return to the remote. Over Wi-Fi only, and paired. Copy-protected video (a film playing on Netflix or Prime Video) shows black: their menus and rows don't.
+- **A trackpad** for sites that need a mouse, like a laptop's (how to use it is written faintly on the pad): slide to move the pointer (a quicker slide goes further), tap to click, tap twice and slide to drag; slide two fingers to scroll (a flick glides on) or tap with two to right-click. Over Wi-Fi it follows your finger exactly; over infrared the pointer moves in steps. Swipe to other pages from outside the pad. **Pointer** (top right of the page) changes how the TV's pointer looks: an arrow, a dot or a ring; Medium to Giant; white, yellow, blue, green or pink. The TV changes as you pick. The TV shows its pointer while this page is open (over Wi-Fi), and hides it when you go to another page.
+- **The TV's screen on the phone:** the screen button at the top (left of the headphones) shows the TV's screen here, full screen in landscape, for when the TV's too far to read: find the film on Netflix and press play from the sofa. Touch it as you would a touchscreen: tap to click, drag to scroll (CouchTV's home screen too: drag a row of films sideways, or the page up and down, and flick to glide), pinch to zoom, hold to right-click. While the page moves the picture goes a little softer so it keeps up with your finger, and sharpens as soon as it stops. The strip at the side has Back, Home, volume down and up, the phone's keyboard, and ✕ (or the phone's Back) to return to the remote. Over Wi-Fi only, and paired. Copy-protected video (a film playing on Netflix or Prime Video) shows black: their menus and rows don't.
 - **A PC keyboard:** Esc and F1–F12, numbers and symbols, letters, Tab, Caps, Enter, Backspace, Shift, Ctrl, Win, Alt, the arrows, Insert / Delete / Home / End / Page Up / Page Down, Print Screen and the menu key, laid out like a real one. Shift, Ctrl, Alt and Win stay on (lit) for the next key, so one finger does Ctrl+C; tap one twice to keep it on (a bar shows) until you tap it again, for Alt then Tab, Tab… Two fingers work too: hold Ctrl and tap C. Held keys repeat. Over Wi-Fi only.
 - **Typing with this phone's own keyboard:** when a text box on the TV gets the focus (a search box, a login form), a box pops up at the top of the phone with its keyboard, already holding what the TV's box holds. What you type appears on the TV as you type it, in any language, with swipe or voice typing; **Enter** is Enter on the TV, **Clear** empties both, **Done** closes it. A password box shows dots. **Type** on the keyboard page opens it any time, to type wherever the TV's cursor is. Over Wi-Fi only (`TypeOnPhone` in the TV's couchtv.ini turns the pop-up off).
-- **My buttons:** add buttons with your own codes, then teach the TV what they do.
 
 All the codes match CouchTV's default `remote.ini`, so the app works with the TV as soon as the receiver is plugged in, with no setup.
 
@@ -48,7 +55,7 @@ and install it. The first time, Android asks you to allow installs from your bro
 
 After the first install, the app keeps itself up to date:
 
-- **It checks GitHub when you open it** (at most every 15 minutes). To check right away, tap the version line on the *My buttons* page.
+- **It checks GitHub when you open it** (at most every 15 minutes). To check right away, tap the icons at the top left, then the version line.
 - **When a newer build exists,** a green banner shows *Update available: "commit message"*. Tap **Update**: it downloads the new APK, checks it's exactly the file GitHub built (SHA-256), and installs it.
 - **The first update** asks you to allow installs from CouchTV Remote (a switch in Settings; the app takes you there), then Android asks you to confirm. On Android 12+ later updates can install without asking, although Xiaomi's installer may still want one tap.
 - **Version numbers** come from GitHub's build count (1.1, 1.2, ...). The version line shows the version and the commit it was built from.

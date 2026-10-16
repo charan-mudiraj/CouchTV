@@ -90,6 +90,17 @@ class WifiLink(context: Context) {
     /** Called on the main thread with what the TV has ("SUGGESTSETUP", without its name), for fetching them here while it's off. */
     var onSuggestSetup: ((String) -> Unit)? = null
 
+    /** Called on the main thread when the TV's sleep timer changes (see [sleepEndsAt]). */
+    var onSleepTimer: (() -> Unit)? = null
+
+    /** When the TV's sleep timer ends (SystemClock.elapsedRealtime), as it last said; 0 when it's off. */
+    @Volatile var sleepEndsAt = 0L
+        private set
+
+    /** The TV says how its sleep timer is, so it takes any number of minutes (an older CouchTV only has its steps). */
+    @Volatile var sleepTimerKnown = false
+        private set
+
     /** The trackpad page is in front: the TV shows its pointer meanwhile, and hides it otherwise. Told again on each connection. */
     @Volatile var trackpadOpen = false
         set(value) {
@@ -433,6 +444,9 @@ class WifiLink(context: Context) {
                 line.startsWith("POINTER ") -> pointerLook = line.removePrefix("POINTER ").trim()
                 line.startsWith("BOARD ") -> Secure.fromHex(line.removePrefix("BOARD ").trim())?.takeIf { it.size == 32 }?.let { onBoardKey?.invoke(it) }
                 line.startsWith("INPUT ") -> typing(line.removePrefix("INPUT "))
+                line.startsWith("SLEEPTIMER ") -> line.removePrefix("SLEEPTIMER ").trim().toIntOrNull()?.let { seconds ->
+                    setSleepTimer(if (seconds > 0) SystemClock.elapsedRealtime() + seconds * 1000L else 0L, true)
+                }
                 line.startsWith("SUGGESTSETUP ") -> line.removePrefix("SUGGESTSETUP ").let { setup -> main.post { onSuggestSetup?.invoke(setup) } }
                 line.startsWith("SUGGESTIONS ") -> {
                     // A new list: that many SUGGEST lines follow.
@@ -460,6 +474,16 @@ class WifiLink(context: Context) {
     /** Plays a suggestion on the TV: one from its own list, or one this phone fetched. */
     fun play(s: Suggestion) = send(s.playLine())
 
+    /** The TV goes to sleep this many minutes from now (0: the timer's off). */
+    fun setSleepTimer(minutes: Int) = send("SLEEPTIMER $minutes")
+
+    private fun setSleepTimer(endsAt: Long, known: Boolean) {
+        if (endsAt == sleepEndsAt && known == sleepTimerKnown) return
+        sleepEndsAt = endsAt
+        sleepTimerKnown = known
+        main.post { onSleepTimer?.invoke() }
+    }
+
     private fun setSuggestions(lines: List<String>) {
         incoming = null
         val list = lines.mapNotNull { Suggestion.parse(it) }
@@ -486,7 +510,10 @@ class WifiLink(context: Context) {
     }
 
     private fun setTv(name: String?) {
-        if (name == null) tvAddress = null
+        if (name == null) {
+            tvAddress = null
+            setSleepTimer(0L, false)   // asleep, or out of reach: it says again when it's back
+        }
         if (tvName == name) return
         tvName = name
         main.post { onChange?.invoke() }

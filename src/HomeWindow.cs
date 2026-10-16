@@ -26,6 +26,7 @@ namespace CouchTV
         public bool Windowed;         // small corner window, for smoke tests
         public int ExitAfterSeconds;  // close by itself, for smoke tests
         public string StartupMessage; // shown once the home screen is up (e.g. after an update)
+        public Action<string> Opened; // the drag self-test: what a tap would open, instead of opening it
     }
 
     /// <summary>One tile on the home screen plus the visuals that change with focus.</summary>
@@ -86,6 +87,7 @@ namespace CouchTV
         DateTime _toastUntil, _launchUntil, _lastMouse = DateTime.Now;
         bool _toastShown;
         DateTime? _sleepAt;
+        long _sleepTicks;   // _sleepAt for other threads (0: off)
         bool _sleepWarned, _pointer = true;
         Point _keyMouse;
         Action _confirmAction;
@@ -126,6 +128,7 @@ namespace CouchTV
             MouseMove += OnMouseMove;
             PreviewMouseLeftButtonUp += OnClick;
             PreviewMouseRightButtonUp += OnRightClick;
+            HookDragging();
             Loaded += (s, e) =>
             {
                 if (!_opt.Windowed)
@@ -246,6 +249,7 @@ namespace CouchTV
         {
             Place(SectionLabel("Apps"), Side, 352);
             var appsHost = new Canvas { Width = DesignW - 2 * Side + 2 * RingPad, Height = TileH + 2 * RingPad };
+            _appsHost = appsHost;
             _appsRow = new StackPanel { Orientation = Orientation.Horizontal, RenderTransform = _shift[0] };
             appsHost.Children.Add(_appsRow);
             Place(appsHost, Side - RingPad, 400);
@@ -568,7 +572,8 @@ namespace CouchTV
 
         void HookMouse(TileView v)
         {
-            v.Root.MouseEnter += (s, e) => { if (_pointer && !Modal) FocusTile(v); };
+            // Not for a finger (the screen mirror's), nor while dragging: the row would slide back to the tile.
+            v.Root.MouseEnter += (s, e) => { if (_pointer && !Modal && e.StylusDevice == null && !(_pressed && _dragged)) FocusTile(v); };
             v.Root.MouseLeftButtonUp += (s, e) =>
             {
                 if (Modal) return;
@@ -581,6 +586,11 @@ namespace CouchTV
         /// <summary>OK on a tile: open its app, or play the film or song.</summary>
         void OpenView(TileView v)
         {
+            if (_opt.Opened != null)
+            {
+                _opt.Opened(v.Suggestion != null ? v.Suggestion.Title : v.Tile.Label);
+                return;
+            }
             if (v.Suggestion != null) PlaySuggestion(v.Suggestion);
             else Open(v.Tile);
         }
@@ -690,21 +700,31 @@ namespace CouchTV
         /// <summary>Slides a row sideways so the focused tile is always fully on screen.</summary>
         void ScrollRow(int r, bool animate)
         {
-            List<TileView> row = Row(r);
-            if (row.Count == 0) return;
-            double width = r == RowApps ? TileW : r == RowMovies ? PosterW : r == RowSongs ? CoverSize : 0;
-            double pitch = r == RowApps ? TileW + TileGap : r == RowSystem ? SysW + SysGap : width + CardGap;
-            double item = r == RowSystem ? SysW : width + 2 * RingPad;
-            double view = DesignW - 2 * Side + (r == RowSystem ? SysW - DiscSize : 2 * RingPad);
-            double total = (row.Count - 1) * pitch + item;
+            if (Row(r).Count == 0) return;
+            double pitch, item;
+            double limit = RowMetrics(r, out pitch, out item);
+            double view = RowView(r);
             double x = _col[r] * pitch;
             double offset = _scroll[r];
             if (x < offset) offset = x;
             else if (x + item > offset + view) offset = x + item - view;
-            offset = Math.Max(0, Math.Min(offset, Math.Max(0, total - view)));
+            offset = Math.Max(0, Math.Min(offset, limit));
             _scroll[r] = offset;
             Theme.AnimateTo(_shift[r], TranslateTransform.XProperty, -offset, animate);
         }
+
+        /// <summary>A row's step from one tile to the next and a tile's width (with its focus ring); returns how far it slides at most.</summary>
+        double RowMetrics(int r, out double pitch, out double item)
+        {
+            double width = r == RowApps ? TileW : r == RowMovies ? PosterW : r == RowSongs ? CoverSize : 0;
+            pitch = r == RowApps ? TileW + TileGap : r == RowSystem ? SysW + SysGap : width + CardGap;
+            item = r == RowSystem ? SysW : width + 2 * RingPad;
+            double total = (Row(r).Count - 1) * pitch + item;
+            return Math.Max(0, total - RowView(r));
+        }
+
+        /// <summary>How much of a row shows across the screen.</summary>
+        static double RowView(int r) { return DesignW - 2 * Side + (r == RowSystem ? SysW - DiscSize : 2 * RingPad); }
 
         /// <summary>
         /// Slides the whole page up so the row being chosen sits near the top (the clock goes out of view); the apps
@@ -827,7 +847,9 @@ namespace CouchTV
         /// </summary>
         void OnClick(object sender, MouseButtonEventArgs e)
         {
-            if (_pointer || SetupOpen) return;
+            if (EndPress(e)) return;   // a drag never clicks
+            // The mouse, or a finger: the tile under it opens itself (HookMouse).
+            if (_pointer || SetupOpen || e.StylusDevice != null) return;
             e.Handled = true;
             if (SearchOpen)
             {
@@ -855,6 +877,7 @@ namespace CouchTV
 
         void OnMouseMove(object sender, MouseEventArgs e)
         {
+            if (e.StylusDevice != null) return;   // a finger on the screen mirror: no pointer to show
             // Air mice jitter, so ignore small movements after the arrow keys were used.
             Point p = e.GetPosition(this);
             if (!_pointer)
@@ -1023,6 +1046,7 @@ namespace CouchTV
             Toast(_cfg.Warnings.Count > 0 ? _cfg.Warnings[0] : "Settings reloaded");
         }
 
+        /// <summary>The remote's Sleep timer key: 30, 60, 90, 120 minutes, then off.</summary>
         string CycleSleepTimer()
         {
             int[] steps = { 30, 60, 90, 120 };
@@ -1032,21 +1056,39 @@ namespace CouchTV
             {
                 if (step > left + 1) { next = step; break; }
             }
-            string message;
-            if (next == 0)
-            {
-                _sleepAt = null;
-                message = "Sleep timer off";
-            }
-            else
-            {
-                _sleepAt = DateTime.Now.AddMinutes(next);
-                _sleepWarned = false;
-                message = "The TV will go to sleep in " + next + " minutes. Press again for longer.";
-            }
+            string message = SetSleepTimer(next) + (next > 0 ? ". Press again for longer." : "");
             Toast(message);
-            UpdateSleepCaption();
             return message;
+        }
+
+        /// <summary>The sleep timer set to this many minutes (0: off), and the phones told; what to say about it.</summary>
+        string SetSleepTimer(int minutes)
+        {
+            _sleepAt = minutes > 0 ? DateTime.Now.AddMinutes(minutes) : (DateTime?)null;
+            _sleepWarned = false;
+            SleepTimerChanged();
+            return minutes > 0 ? "The TV will go to sleep in " + Duration(minutes) : "Sleep timer off";
+        }
+
+        void SleepTimerChanged()
+        {
+            System.Threading.Interlocked.Exchange(ref _sleepTicks, _sleepAt.HasValue ? _sleepAt.Value.Ticks : 0);
+            UpdateSleepCaption();
+            if (_wifi != null) _wifi.SendToPhones(new List<string> { "SLEEPTIMER " + SleepSecondsLeft() });
+        }
+
+        /// <summary>Seconds until the sleep timer sends the TV to sleep, 0 when it's off; any thread (the phones ask).</summary>
+        int SleepSecondsLeft()
+        {
+            long ticks = System.Threading.Interlocked.Read(ref _sleepTicks);
+            return ticks == 0 ? 0 : Math.Max(1, (int)Math.Ceiling((new DateTime(ticks) - DateTime.Now).TotalSeconds));
+        }
+
+        /// <summary>"45 min", "2 h", "1 h 30 min".</summary>
+        static string Duration(int minutes)
+        {
+            if (minutes < 60) return minutes + " min";
+            return minutes / 60 + " h" + (minutes % 60 > 0 ? " " + minutes % 60 + " min" : "");
         }
 
         void TickSleepTimer(DateTime now)
@@ -1056,7 +1098,7 @@ namespace CouchTV
             if (left <= TimeSpan.Zero)
             {
                 _sleepAt = null;
-                UpdateSleepCaption();
+                SleepTimerChanged();
                 Log.Info("Sleep timer");
                 SleepNow();
                 return;
@@ -1388,6 +1430,12 @@ namespace CouchTV
 
         IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
         {
+            if (msg == WM_MOUSEHWHEEL)
+            {
+                WheelSideways((short)((wParam.ToInt64() >> 16) & 0xFFFF));
+                handled = true;
+                return IntPtr.Zero;
+            }
             if (msg == WM_INPUT)
             {
                 var header = new RAWINPUTHEADER();
@@ -1409,7 +1457,7 @@ namespace CouchTV
             return IntPtr.Zero;
         }
 
-        const int WM_INPUT = 0xFF;
+        const int WM_INPUT = 0xFF, WM_MOUSEHWHEEL = 0x20E;
         const uint RIDEV_INPUTSINK = 0x100, RID_HEADER = 0x10000005;
 
         [StructLayout(LayoutKind.Sequential)]

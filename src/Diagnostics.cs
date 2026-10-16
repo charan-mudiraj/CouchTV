@@ -1166,6 +1166,102 @@ namespace CouchTV
         /// button, and one injected tap on that button (TouchInjector, as the screen mirror's touches): did the button
         /// get clicked? Touches nothing else.
         /// </summary>
+        /// <summary>
+        /// Real touches, as the screen mirror injects them, on the home screen in its small window (kept on top): a tap
+        /// on a film opens it, a swipe along the row slides the row (settling on a card) and opens nothing, a swipe up
+        /// slides the page. Nothing really opens. Needs suggestions (run the TV, or --suggesttest, once).
+        /// </summary>
+        public static int DragTest(string path)
+        {
+            var report = new StringBuilder();
+            bool ok = true;
+            Action<string, bool> check = (what, pass) =>
+            {
+                report.AppendLine((pass ? "PASS  " : "FAIL  ") + what);
+                if (!pass) ok = false;
+            };
+            var opened = new List<string>();
+            TouchInjector.AsMouse = false;
+            var app = new Application();
+            var home = new HomeWindow(Config.Load(), new HomeOptions { Windowed = true, Opened = what => { lock (opened) opened.Add(what); } });
+            home.Topmost = true;
+            int row = HomeWindow.MoviesRow;
+            // A finger's path, on another thread so the window sees it arrive as a phone's would.
+            Action<Point, Point, int> swipe = (from, to, steps) =>
+            {
+                Matrix device = PresentationSource.FromVisual(home).CompositionTarget.TransformToDevice;
+                double sw = SystemParameters.PrimaryScreenWidth * device.M11, sh = SystemParameters.PrimaryScreenHeight * device.M22;
+                Func<double, int> nx = x => (int)Math.Max(0, Math.Min(65535, x * 65535 / (sw - 1)));
+                Func<double, int> ny = y => (int)Math.Max(0, Math.Min(65535, y * 65535 / (sh - 1)));
+                new System.Threading.Thread(() =>
+                {
+                    TouchInjector.Touch("test", 0, 'D', nx(from.X), ny(from.Y));
+                    for (int i = 1; i <= steps; i++)
+                    {
+                        System.Threading.Thread.Sleep(16);
+                        TouchInjector.Touch("test", 0, 'M', nx(from.X + (to.X - from.X) * i / steps), ny(from.Y + (to.Y - from.Y) * i / steps));
+                    }
+                    System.Threading.Thread.Sleep(steps == 0 ? 60 : 8);
+                    TouchInjector.Touch("test", 0, 'U', nx(to.X), ny(to.Y));
+                }) { IsBackground = true }.Start();
+            };
+            home.ContentRendered += (s, e) =>
+            {
+                int step = 0;
+                double slidRow = 0;
+                var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1200) };
+                timer.Tick += (s2, e2) =>
+                {
+                    step++;
+                    int count;
+                    lock (opened) count = opened.Count;
+                    if (step == 1)
+                    {
+                        if (home.SlideLimit(row) <= 0 || home.SlideLimit(-1) <= 0)
+                        {
+                            report.AppendLine("SKIP  no suggestions to slide (run --suggesttest first)");
+                            timer.Stop();
+                            app.Shutdown();
+                            return;
+                        }
+                        Point poster = home.ScreenPoint(row, 112 + 300);   // the second film
+                        swipe(poster, poster, 0);
+                    }
+                    else if (step == 2)
+                    {
+                        lock (opened) check("a tap on a film opens it (" + string.Join(", ", opened) + ")", count == 1);
+                        check("...and doesn't slide the films (" + home.Slid(row) + ")", home.Slid(row) == 0);   // the page comes to their row, as for a click
+                        swipe(home.ScreenPoint(row, 1500), home.ScreenPoint(row, 600), 12);
+                    }
+                    else if (step == 3)
+                    {
+                        slidRow = home.Slid(row);
+                        double pitch = home.TilePitch(row), limit = home.SlideLimit(row);
+                        double card = slidRow / pitch;
+                        check("a swipe along the films slides them (" + Math.Round(slidRow) + " of " + Math.Round(limit) + ")", slidRow > 300);
+                        check("...settling with a film at the start (" + Math.Round(card, 2) + " films along)",
+                            Math.Abs(card - Math.Round(card)) < 0.01 || Math.Abs(slidRow - limit) < 1);
+                        check("...and opens nothing", count == 1);
+                        Point from = home.ScreenPoint(row, 900);
+                        swipe(from, new Point(from.X, from.Y - 180), 12);   // up, over the films
+                    }
+                    else if (step == 4)
+                    {
+                        check("a swipe up slides the page (" + Math.Round(home.Slid(-1)) + ")", home.Slid(-1) > 100);
+                        check("...not the films along (" + Math.Round(home.Slid(row)) + ")", Math.Abs(home.Slid(row) - slidRow) < 1);
+                        check("...and opens nothing", count == 1);
+                        timer.Stop();
+                        app.Shutdown();
+                    }
+                };
+                timer.Start();
+            };
+            app.Run(home);
+            report.AppendLine(ok ? "All passed" : "FAILED");
+            File.WriteAllText(path, report.ToString());
+            return ok ? 0 : 1;
+        }
+
         public static int TouchTest(string path, bool asMouse)
         {
             TouchInjector.AsMouse = asMouse;
@@ -1500,6 +1596,8 @@ namespace CouchTV
             server.Play += id => { lock (played) played.Add(id); };
             var trackpads = new List<bool>();
             server.Trackpad += open => { lock (trackpads) trackpads.Add(open); };
+            var sleepTimers = new List<int>();
+            server.SleepTimer += minutes => { lock (sleepTimers) sleepTimers.Add(minutes); };
             Func<string> code = () => { lock (pairing) return shown; };
             Func<string> wrongCode = () => { lock (pairing) return ((int.Parse(shown) + 1) % 1000000).ToString("D6"); };
             Func<string> pairingLog = () => { lock (pairing) return string.Join(", ", pairing); };
@@ -1544,6 +1642,7 @@ namespace CouchTV
                 byte[] pairKey;
                 string session;
                 server.CurrentSuggestions = () => new List<string> { "SUGGESTIONS 1", "SUGGEST S s1 SGF3YXllaW4= - WW91VHViZQ== - FF0000 FFFFFF" };
+                server.CurrentSleepTimer = () => 2700;
                 using (var a = new TestPhone(idA))
                 {
                     a.Hello(47791);
@@ -1558,6 +1657,7 @@ namespace CouchTV
                         welcome == "WELCOME " + RemoteServer.TvName && board == "BOARD " + Secure.Hex(phones.BoardKey) && server.FindSession(session) != null);
                     string listed = a.Receive(), item = a.Receive();
                     check("Wi-Fi: ...and the suggestions, for the phone's first page", listed == "SUGGESTIONS 1" && item == "SUGGEST S s1 SGF3YXllaW4= - WW91VHViZQ== - FF0000 FFFFFF");
+                    check("Wi-Fi: ...and the sleep timer", a.Receive() == "SLEEPTIMER 2700");
                     a.Send("PING");
                     check("Wi-Fi: PING gets PONG", a.Receive() == "PONG");
                     a.Send("SOUND");
@@ -1573,6 +1673,10 @@ namespace CouchTV
                     a.Send("PLAY s1");
                     a.Send("PLAY " + new string('x', 61));   // ignored: no id is that long
                     a.Send("TRACKPAD ON");                    // still open when the phone leaves
+                    a.Send("SLEEPTIMER 95");
+                    a.Send("SLEEPTIMER 0");
+                    a.Send("SLEEPTIMER -5");                  // ignored
+                    a.Send("SLEEPTIMER 99999");               // ignored: more than a day
                     a.Send("KEY A2 D");      // Ctrl, still held when the phone leaves
                     a.Send("KEY 43 D");
                     a.Send("KEY 43 U");
@@ -1603,8 +1707,11 @@ namespace CouchTV
                 }
                 System.Threading.Thread.Sleep(300);    // the server notices the phone left
                 server.CurrentSuggestions = null;
+                server.CurrentSleepTimer = null;
                 check("Wi-Fi: its sound session ends with the connection", server.FindSession(session) == null);
                 lock (played) check("Wi-Fi: PLAY plays a suggestion (" + string.Join(", ", played) + ")", string.Join(", ", played) == "s1");
+                lock (sleepTimers) check("Wi-Fi: SLEEPTIMER sets the sleep timer, any number of minutes, or 0 for off (" + string.Join(", ", sleepTimers) + ")",
+                    string.Join(", ", sleepTimers) == "95, 0");
                 lock (trackpads) check("Wi-Fi: the trackpad page open shows the pointer; the phone leaving hides it (" + string.Join(", ", trackpads) + ")",
                     string.Join(", ", trackpads) == "True, False");
                 lock (buttons) check("Wi-Fi: buttons arrive as the IR receiver's codes", string.Join(", ", buttons) == "NEC 00CE 0005 N, NEC 00CE 0006 R");

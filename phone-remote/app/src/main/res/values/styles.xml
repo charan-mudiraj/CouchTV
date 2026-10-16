@@ -26,7 +26,7 @@
         <item name="android:stateListAnimator">@animator/key_press</item>
     </style>
 
-    <!-- A text key; also used for "My buttons". -->
+    <!-- A text key. -->
     <style name="RemoteKey.Text" parent="android:Widget.Material.Button">
         <item name="android:background">@drawable/key_bg</item>
         <item name="android:textColor">@color/ink</item>
@@ -83,6 +83,20 @@
         <item name="android:textColor">@color/ink</item>
         <item name="android:textSize">20sp</item>
         <item name="android:fontFamily">sans-serif-medium</item>
+    </style>
+
+    <!-- A page's one action, top right (the pointer's look, typing with the phone's keyboard): a quiet pill. -->
+    <style name="PageAction">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">40dp</item>
+        <item name="android:layout_gravity">end</item>
+        <item name="android:gravity">center</item>
+        <item name="android:background">@drawable/status_bg</item>
+        <item name="android:paddingStart">18dp</item>
+        <item name="android:paddingEnd">18dp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textColor">@color/good</item>
+        <item name="android:textSize">14sp</item>
     </style>
 
     <!-- One page: as wide as the screen (the pager sets it), never scrolling. -->

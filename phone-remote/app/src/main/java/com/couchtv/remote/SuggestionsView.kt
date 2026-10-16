@@ -1,5 +1,6 @@
 package com.couchtv.remote
 
+import android.animation.AnimatorInflater
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -13,6 +14,7 @@ import android.util.LruCache
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
+import android.view.animation.PathInterpolator
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -27,7 +29,8 @@ import java.util.concurrent.Executors
 /**
  * The first page: what the TV suggests, popular films (each on the app it streams on) and top songs (on YouTube), as
  * posters and covers three to a row, scrolling up and down. A tap plays it on the TV ([onPlay]). The pictures come
- * straight from the internet, and are kept for next time.
+ * straight from the internet, and are kept for next time. A new list rises into place card by card the first time
+ * the page comes into view ([reveal]); a card sinks a little under the finger, and pictures fade in as they arrive.
  */
 class SuggestionsView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : ScrollView(context, attrs) {
     /** Called when a film or song is tapped. */
@@ -36,10 +39,12 @@ class SuggestionsView @JvmOverloads constructor(context: Context, attrs: Attribu
     private val column = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
     private var list: List<Suggestion> = emptyList()
     private var connected = false
+    private val waiting = ArrayList<View>()   // cards still to rise into place
+    private var entrance = true               // the next build's cards rise in (a new list, not just the TV coming or going)
 
     init {
         isVerticalScrollBarEnabled = false
-        overScrollMode = OVER_SCROLL_NEVER
+        overScrollMode = OVER_SCROLL_IF_CONTENT_SCROLLS   // Android 12 and newer stretch it at the top and bottom
         addView(column, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         build()
     }
@@ -47,13 +52,26 @@ class SuggestionsView @JvmOverloads constructor(context: Context, attrs: Attribu
     /** A new list from the TV, or the same one with the TV come or gone ([connected]: over Wi-Fi now). */
     fun show(suggestions: List<Suggestion>, connected: Boolean) {
         if (suggestions === list && connected == this.connected) return
+        if (suggestions.map { it.id } != list.map { it.id }) entrance = true
         list = suggestions
         this.connected = connected
         build()
     }
 
+    /** The page is coming into view: a new list's cards rise into place, one after another. */
+    fun reveal() {
+        waiting.forEachIndexed { i, card ->
+            card.animate().alpha(1f).translationY(0f)
+                .setStartDelay(minOf(i, 11) * 45L).setDuration(460).setInterpolator(RISE).start()
+        }
+        waiting.clear()
+    }
+
     private fun build() {
         column.removeAllViews()
+        waiting.clear()
+        val rise = entrance && list.isNotEmpty()
+        if (rise) entrance = false
         // A style's layout_ settings only apply in a layout file: the margins are set here.
         column.addView(TextView(context, null, 0, R.style.PageTitle).apply { setText(R.string.suggestions_title) }, wrap(0, 12))
         if (list.isEmpty()) {
@@ -73,13 +91,13 @@ class SuggestionsView @JvmOverloads constructor(context: Context, attrs: Attribu
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
             }, wrap(0, 6))
         }
-        section(R.string.suggestions_movies, list.filter { it.movie }, 1.5f)
-        section(R.string.suggestions_songs, list.filter { !it.movie }, 1f)
+        section(R.string.suggestions_movies, list.filter { it.movie }, 1.5f, rise)
+        section(R.string.suggestions_songs, list.filter { !it.movie }, 1f, rise)
         column.addView(View(context), LinearLayout.LayoutParams(1, dp(24)))
     }
 
-    /** A heading, then the cards three to a row; [ratio] is a picture's height to its width. */
-    private fun section(heading: Int, items: List<Suggestion>, ratio: Float) {
+    /** A heading, then the cards three to a row; [ratio] is a picture's height to its width; [rise]: they wait for [reveal]. */
+    private fun section(heading: Int, items: List<Suggestion>, ratio: Float, rise: Boolean) {
         if (items.isEmpty()) return
         val first = column.getChildAt(column.childCount - 1) !is LinearLayout   // nothing but text above
         column.addView(TextView(context, null, 0, R.style.Section).apply { setText(heading) }, wrap(if (first) 0 else 14, 10))
@@ -87,6 +105,11 @@ class SuggestionsView @JvmOverloads constructor(context: Context, attrs: Attribu
             val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
             for (i in start until start + 3) {
                 val cell = if (i < items.size) card(items[i], ratio) else View(context)
+                if (rise && i < items.size) {
+                    cell.alpha = 0f
+                    cell.translationY = dp(36).toFloat()
+                    waiting += cell
+                }
                 row.addView(cell, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
                     marginStart = if (i == start) 0 else dp(5)
                     marginEnd = if (i == start + 2) 0 else dp(5)
@@ -149,6 +172,7 @@ class SuggestionsView @JvmOverloads constructor(context: Context, attrs: Attribu
             addView(details)
             isClickable = true
             isFocusable = true
+            stateListAnimator = AnimatorInflater.loadStateListAnimator(context, R.animator.card_press)
             contentDescription = s.title + ", " + s.app
             setOnClickListener {
                 Haptics.press(it)
@@ -158,6 +182,10 @@ class SuggestionsView @JvmOverloads constructor(context: Context, attrs: Attribu
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density + 0.5f).toInt()
+
+    private companion object {
+        val RISE = PathInterpolator(0.2f, 0f, 0f, 1f)
+    }
 
     private fun wrap(top: Int, bottom: Int) =
         LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
@@ -191,7 +219,12 @@ class SuggestionsView @JvmOverloads constructor(context: Context, attrs: Attribu
             pool.execute {
                 val bitmap = runCatching { fetch(folder, url, width) }.getOrNull() ?: return@execute
                 memory.put(url, bitmap)
-                main.post { if (view.tag == url) view.setImageBitmap(bitmap) }
+                main.post {
+                    if (view.tag != url) return@post
+                    view.alpha = 0f   // fresh from the internet (or the disk): it fades in
+                    view.setImageBitmap(bitmap)
+                    view.animate().alpha(1f).setDuration(260).start()
+                }
             }
         }
 

@@ -1,6 +1,7 @@
 package com.couchtv.remote
 
 import android.Manifest
+import android.animation.ObjectAnimator
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
@@ -11,6 +12,8 @@ import android.content.res.ColorStateList
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
 import android.text.InputFilter
@@ -24,15 +27,16 @@ import android.view.WindowManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import java.util.concurrent.Executors
 
 /**
- * The remote, fitting the screen without scrolling: the status, the TV's sound here and power stay at the top, and
- * pages swipe sideways underneath (remote, apps, pointer, your own buttons), with dots to show which. It opens on the
- * remote; to its left, what the TV suggests (popular films and songs), to play there with a tap.
+ * The remote, fitting the screen without scrolling: how it reaches the TV (icons), the TV's screen and sound here and
+ * power stay at the top, and pages swipe sideways underneath (remote, apps, trackpad, keyboard), with dots to show
+ * which. It opens on the remote; to its left, what the TV suggests (popular films and songs), to play there with a tap.
  */
 class MainActivity : Activity() {
     companion object {
@@ -40,15 +44,17 @@ class MainActivity : Activity() {
         private const val REQUEST_BLUETOOTH = 44       // the "Nearby devices" permission, to switch Bluetooth off
         private const val REQUEST_BLUETOOTH_OFF = 45   // Android's "turn off Bluetooth?" question
         private const val ACTION_REQUEST_DISABLE = "android.bluetooth.adapter.action.REQUEST_DISABLE"
+        private const val TV_GAP_MS = 15_000L          // the TV ignores its power button this long after switching
     }
 
     private lateinit var remote: Remote
     private lateinit var feed: SuggestionFeed
     private var tvWasThere = false
     private lateinit var voice: VoiceSearch
-    private lateinit var store: CustomButtons
-    private lateinit var myButtons: MutableList<CustomButton>
-    private var editing = false
+    private lateinit var statusPanel: StatusPanel
+    private lateinit var sleepTimer: SleepTimer
+    private var pulsing: ObjectAnimator? = null
+    private val handler = Handler(Looper.getMainLooper())
     private lateinit var keyboard: KeyboardView
     private lateinit var typingBox: TypingBox
     private lateinit var mirrorView: MirrorView
@@ -58,6 +64,12 @@ class MainActivity : Activity() {
     private var pendingTyping: WifiLink.TypingField? = null   // a text box got the focus while this was in the background
     private var pendingPlay: Suggestion? = null               // tapped while the TV was off: plays once it's on...
     private var pendingUntil = 0L                             // ...if it comes on by then
+
+    // Power: when it was pressed, what it was doing, and the TV as the receiver box said then.
+    private var powerPressedAt = 0L
+    private var powerTurningOff = false
+    private var powerBlocked = false                          // pressed again too soon
+    private var powerTvOn: Boolean? = null
 
     // Updates from GitHub
     private lateinit var updater: AppUpdater
@@ -70,6 +82,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        statusPanel = StatusPanel(this)
         remote = Remote(this)
         feed = SuggestionFeed(this)
         remote.wifi.onChange = {
@@ -79,12 +92,21 @@ class MainActivity : Activity() {
             if (tvWasThere && !tvThere) fetchSuggestionsSoon()   // the TV went off: the phone's own list from now on
             tvWasThere = tvThere
         }
-        remote.board.onChange = { showStatus() }
-        remote.onPowerNeedsIr = { toast(getString(R.string.power_needs_ir)) }
-        store = CustomButtons(this)
-        myButtons = store.load()
+        remote.board.onChange = {
+            showStatus()
+            boardChanged()
+        }
+        remote.onPowerNeedsIr = {
+            powerFailed()
+            toast(getString(R.string.power_needs_ir))
+        }
 
         showStatus()
+        findViewById<View>(R.id.status).setOnClickListener { openStatus() }
+        findViewById<PowerButton>(R.id.power).apply {
+            setOnClickListener { pressPower() }
+            onReady = { hidePowerNote() }
+        }
 
         voice = VoiceSearch(this, remote)
         voice.onStatus = { findViewById<TextView>(R.id.search_hint).text = it }
@@ -134,6 +156,7 @@ class MainActivity : Activity() {
             override fun onButton(right: Boolean, down: Boolean) = remote.pointerButton(right, down)
             override fun onStop() = remote.pointerStop()
         }
+        findViewById<TrackpadView>(R.id.trackpad).help = getString(R.string.trackpad_help)
         findViewById<View>(R.id.pointer_look).setOnClickListener { choosePointer() }
 
         // The PC keyboard page, and typing into the TV's text boxes with this phone's own keyboard.
@@ -161,7 +184,6 @@ class MainActivity : Activity() {
         bindHold(findViewById<View>(R.id.right_click), { remote.pointerButton(true, true) }, { remote.pointerButton(true, false) })
 
         mapOf(
-            R.id.power to Codes.POWER,
             R.id.back to Codes.BACK,
             R.id.home to Codes.HOME,
             R.id.menu to Codes.MENU,
@@ -175,7 +197,6 @@ class MainActivity : Activity() {
             R.id.play_pause to Codes.PLAY_PAUSE,
             R.id.exit to Codes.EXIT,
             R.id.full_screen to Codes.FULL_SCREEN,
-            R.id.sleep_timer to Codes.SLEEP_TIMER,
             R.id.delete to Codes.DELETE,
             R.id.app_netflix to Codes.NETFLIX,
             R.id.app_youtube to Codes.YOUTUBE,
@@ -184,22 +205,14 @@ class MainActivity : Activity() {
             R.id.app_web to Codes.WEB,
         ).forEach { (id, command) -> bindHold(findViewById<View>(id), Codes.ADDRESS, command) }
 
-        findViewById<TextView>(R.id.edit_buttons).setOnClickListener {
-            editing = !editing
-            (it as TextView).setText(if (editing) R.string.done else R.string.edit)
-            showMyButtons()
-        }
-        findViewById<View>(R.id.add_button).setOnClickListener { editButton(null) }
-        showMyButtons()
+        // The sleep timer: any length, picked on the phone (over Wi-Fi); the key shows how long is left.
+        sleepTimer = SleepTimer(this, remote, findViewById(R.id.sleep_timer))
+        findViewById<View>(R.id.sleep_timer).setOnClickListener { sleepTimer.open() }
 
         updater = AppUpdater(this)
-        findViewById<TextView>(R.id.version).apply {
-            text = getString(R.string.version_label, BuildConfig.VERSION_NAME, BuildConfig.COMMIT)
-            setOnClickListener { checkForUpdate(manual = true) }
-        }
         findViewById<Button>(R.id.update_now).setOnClickListener { startUpdate() }
         // Keys that act on a tap still click under the finger (the held ones do in bindHold).
-        for (id in intArrayOf(R.id.listen, R.id.voice_search, R.id.search_bar, R.id.add_button, R.id.update_now)) {
+        for (id in intArrayOf(R.id.listen, R.id.voice_search, R.id.search_bar, R.id.update_now, R.id.status, R.id.power, R.id.sleep_timer)) {
             Haptics.attach(findViewById(id))
         }
 
@@ -208,6 +221,10 @@ class MainActivity : Activity() {
         pager.go(REMOTE_PAGE, animate = false)
         dots.count = pager.pageCount
         dots.current = pager.page
+        pager.onScroll = { at ->
+            dots.position = at
+            if (at < REMOTE_PAGE - 0.02f) suggestions.reveal()   // the suggestions coming into view: their cards rise in
+        }
         pager.onPageChanged = {
             dots.current = it
             keyboard.releaseAll()   // nothing stays held down on the TV after leaving the keyboard
@@ -328,7 +345,7 @@ class MainActivity : Activity() {
 
     private fun startMirror() {
         // Less of the Wi-Fi for the picture while this phone plays the TV's sound too.
-        screen.start({ remote.wifi.tvAddress?.hostAddress ?: remote.wifi.manualAddress }, { if (ListenService.running) 2500 else 4000 })
+        screen.start({ remote.wifi.tvAddress?.hostAddress ?: remote.wifi.manualAddress }, { if (ListenService.running) 2500 else 8000 })
     }
 
     @Suppress("DEPRECATION")
@@ -352,6 +369,8 @@ class MainActivity : Activity() {
     override fun onDestroy() {
         ListenService.onChange = null
         InstallReceiver.onFailure = null
+        sleepTimer.stop()
+        handler.removeCallbacksAndMessages(null)
         voice.release()
         super.onDestroy()
     }
@@ -527,18 +546,68 @@ class MainActivity : Activity() {
 
     private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
 
+    /**
+     * The icons at the top: the TV (green when connected over Wi-Fi, yellow when it needs pairing or updating, grey and
+     * breathing while it's looked for, "off" while the PC sleeps), the receiver box (green when it answers) and the IR
+     * blaster (only while infrared is what's used). Tapping them shows it all in words ([openStatus]).
+     */
     private fun showStatus() {
-        val status = findViewById<TextView>(R.id.status)
+        val tv = remote.wifi.tvName
+        val board = remote.board
+        val asleep = tv == null && board.connected && board.pcOn == false
+        val tvIcon = findViewById<ImageView>(R.id.status_tv)
+        tvIcon.setImageResource(if (asleep) R.drawable.ic_tv_off else R.drawable.ic_tv)
+        tint(tvIcon, when {
+            tv != null -> R.color.good
+            remote.wifi.unpairedTv != null || remote.wifi.tvTooOld -> R.color.warn
+            else -> R.color.muted
+        })
+        pulse(tvIcon, tv == null && !asleep)
+        val box = findViewById<ImageView>(R.id.status_box)
+        box.visibility = if (board.connected || board.known) View.VISIBLE else View.GONE
+        tint(box, if (board.connected) R.color.good else R.color.muted)
+        box.alpha = if (board.connected) 1f else 0.55f
+        val ir = findViewById<ImageView>(R.id.status_ir)
+        ir.visibility = if (tv == null && remote.ir.available) View.VISIBLE else View.GONE
+        tint(ir, if (remote.ir.supports38kHz) R.color.ink else R.color.warn)
+        val status = findViewById<View>(R.id.status)
+        val words = statusText()
+        status.contentDescription = words
+        status.tooltipText = words
+        statusPanel.update(statusRows())
+        findViewById<TrackpadView>(R.id.trackpad).hint =
+            if (tv == null && !remote.ir.available) getString(R.string.trackpad_offline) else null
+        if (::keyboard.isInitialized) keyboard.hint = if (tv == null) getString(R.string.keyboard_offline) else null
+    }
+
+    private fun tint(icon: ImageView, color: Int) {
+        icon.imageTintList = ColorStateList.valueOf(getColor(color))
+    }
+
+    /** The TV icon breathes while the TV's being looked for (or waits to be paired). */
+    private fun pulse(icon: View, on: Boolean) {
+        if (on == (pulsing != null)) return
+        pulsing?.cancel()
+        pulsing = null
+        if (on) pulsing = ObjectAnimator.ofFloat(icon, View.ALPHA, 1f, 0.35f).apply {
+            duration = 900
+            repeatMode = ObjectAnimator.REVERSE
+            repeatCount = ObjectAnimator.INFINITE
+            start()
+        } else icon.alpha = 1f
+    }
+
+    /** The status in one line, for TalkBack and a long press on the icons. */
+    private fun statusText(): String {
         val tv = remote.wifi.tvName
         val address = remote.wifi.manualAddress
         val unpaired = remote.wifi.unpairedTv
-        status.setTextColor(getColor(if (tv != null) R.color.good else if (unpaired != null) R.color.warn else R.color.muted))
         val board = remote.board
         val pcOn = board.pcOn
         val tvOn = board.tvOn
         val boardLine = if (board.connected && pcOn != null && tvOn != null)
             getString(R.string.board_state, onOff(pcOn), onOff(tvOn)) else null
-        status.text = when {
+        return when {
             tv != null -> getString(R.string.wifi_connected, tv) + (boardLine?.let { " · $it" } ?: "")
             unpaired != null -> getString(R.string.pair_offer, unpaired)
             remote.wifi.tvTooOld -> getString(R.string.tv_too_old)
@@ -548,10 +617,132 @@ class MainActivity : Activity() {
             !remote.ir.supports38kHz -> getString(R.string.no_38khz)
             else -> getString(R.string.ready)
         }
-        status.setOnClickListener { if (remote.wifi.unpairedTv != null) showPairing() else editTvAddress() }
-        findViewById<TrackpadView>(R.id.trackpad).hint =
-            if (tv == null && !remote.ir.available) getString(R.string.trackpad_offline) else null
-        if (::keyboard.isInitialized) keyboard.hint = if (tv == null) getString(R.string.keyboard_offline) else null
+    }
+
+    /** The status icons tapped: what each stands for, in words, with what to do about it, and the app's version. */
+    private fun openStatus() {
+        statusPanel.show(statusRows(), getString(R.string.version_label, BuildConfig.VERSION_NAME, BuildConfig.COMMIT)) {
+            checkForUpdate(manual = true)
+        }
+    }
+
+    private fun statusRows(): List<StatusPanel.Row> {
+        val wifi = remote.wifi
+        val board = remote.board
+        val tv = wifi.tvName
+        val unpaired = wifi.unpairedTv
+        val address = wifi.manualAddress
+        val tvTitle = getString(R.string.status_tv)
+        val boxTitle = getString(R.string.status_box)
+        val irTitle = getString(R.string.status_ir)
+        val pcOn = board.pcOn
+        val tvOn = board.tvOn
+        return listOf(
+            when {
+                tv != null -> StatusPanel.Row(R.drawable.ic_tv, R.color.good, tvTitle, getString(R.string.status_tv_connected, tv))
+                unpaired != null -> StatusPanel.Row(R.drawable.ic_tv, R.color.warn, tvTitle, getString(R.string.status_tv_unpaired, unpaired),
+                    getString(R.string.action_pair)) { showPairing() }
+                wifi.tvTooOld -> StatusPanel.Row(R.drawable.ic_tv, R.color.warn, tvTitle, getString(R.string.tv_too_old))
+                board.connected && pcOn == false -> StatusPanel.Row(R.drawable.ic_tv_off, R.color.muted, tvTitle, getString(R.string.status_tv_asleep))
+                address != null -> StatusPanel.Row(R.drawable.ic_tv, R.color.muted, tvTitle, getString(R.string.status_tv_trying, address),
+                    getString(R.string.action_address)) { editTvAddress() }
+                else -> StatusPanel.Row(R.drawable.ic_tv, R.color.muted, tvTitle, getString(R.string.status_tv_looking),
+                    getString(R.string.action_address)) { editTvAddress() }
+            },
+            when {
+                board.connected -> StatusPanel.Row(R.drawable.ic_router, R.color.good, boxTitle,
+                    if (pcOn != null && tvOn != null) getString(R.string.status_box_state, onOff(pcOn), onOff(tvOn)) else getString(R.string.status_box_on))
+                board.known -> StatusPanel.Row(R.drawable.ic_router, R.color.muted, boxTitle,
+                    getString(if (remote.ir.available) R.string.status_box_quiet else R.string.status_box_quiet_no_ir))
+                else -> StatusPanel.Row(R.drawable.ic_router, R.color.muted, boxTitle, getString(R.string.status_box_unknown))
+            },
+            when {
+                !remote.ir.available -> StatusPanel.Row(R.drawable.ic_ir, R.color.muted, irTitle, getString(R.string.status_ir_none))
+                !remote.ir.supports38kHz -> StatusPanel.Row(R.drawable.ic_ir, R.color.warn, irTitle, getString(R.string.no_38khz))
+                else -> StatusPanel.Row(R.drawable.ic_ir, if (tv == null) R.color.ink else R.color.muted, irTitle, getString(R.string.status_ir_ready))
+            },
+        )
+    }
+
+    // ---------------------------------------------------------------- power
+
+    /**
+     * Power, through the receiver box (or by infrared). For about 15 s after switching, the TV ignores its own power
+     * button (which the box presses), so the key counts that down with a line under the top saying what's going on;
+     * a press meanwhile shakes the key and says why, instead of being lost.
+     */
+    private fun pressPower() {
+        val power = findViewById<PowerButton>(R.id.power)
+        if (power.busy) {
+            power.shake()
+            powerBlocked = true
+            showPowerNote()
+            return
+        }
+        if (!remote.board.connected && !remote.ir.available) {
+            toast(getString(R.string.power_needs_ir))
+            return
+        }
+        powerTurningOff = remote.wifi.connected || remote.board.pcOn == true
+        powerBlocked = false
+        powerTvOn = remote.board.tvOn
+        powerPressedAt = SystemClock.elapsedRealtime()
+        remote.press(Codes.ADDRESS, Codes.POWER, hold = false)
+        power.waitUntil(powerPressedAt + TV_GAP_MS, TV_GAP_MS)
+        showPowerNote()
+    }
+
+    private val powerTick = Runnable { showPowerNote() }
+
+    /** The line under the top while the power key counts down, kept up to date. */
+    private fun showPowerNote() {
+        handler.removeCallbacks(powerTick)
+        val power = findViewById<PowerButton>(R.id.power)
+        if (!power.busy) {
+            hidePowerNote()
+            return
+        }
+        val note = findViewById<TextView>(R.id.power_note)
+        note.text = getString(when {
+            powerBlocked -> R.string.power_wait
+            powerTurningOff -> R.string.power_turning_off
+            else -> R.string.power_turning_on
+        }, power.secondsLeft)
+        note.setTextColor(getColor(if (powerBlocked) R.color.warn else R.color.ink))
+        if (note.visibility != View.VISIBLE) {
+            note.alpha = 0f
+            note.visibility = View.VISIBLE
+            note.animate().alpha(1f).setDuration(200).start()
+        }
+        handler.postDelayed(powerTick, 250)
+    }
+
+    private fun hidePowerNote() {
+        handler.removeCallbacks(powerTick)
+        val note = findViewById<TextView>(R.id.power_note)
+        if (note.visibility != View.VISIBLE) return
+        note.animate().alpha(0f).setDuration(200).withEndAction { note.visibility = View.GONE }.start()
+    }
+
+    /** Power couldn't be sent after all (the box didn't answer, and there's no IR blaster): nothing to wait for. */
+    private fun powerFailed() {
+        findViewById<PowerButton>(R.id.power).waitUntil(0, 1)
+        hidePowerNote()
+    }
+
+    /**
+     * The box says the TV switched while the key counts down: the box presses the TV's button once the PC has gone
+     * to sleep (or woken), so the TV's 15 s run from then.
+     */
+    private fun boardChanged() {
+        val tvOn = remote.board.tvOn ?: return
+        val power = findViewById<PowerButton>(R.id.power)
+        val before = powerTvOn
+        powerTvOn = tvOn
+        if (!power.busy || before == null || before == tvOn) return
+        val until = minOf(SystemClock.elapsedRealtime() + TV_GAP_MS, powerPressedAt + 45_000)
+        power.waitUntil(until, until - powerPressedAt)
+        showPowerNote()
     }
 
     private fun onOff(on: Boolean) = getString(if (on) R.string.state_on else R.string.state_off)
@@ -803,102 +994,6 @@ class MainActivity : Activity() {
         }
         show()
         return grid
-    }
-
-    // ---------------------------------------------------------------- your own buttons
-
-    /** Three to a row; the rows get shorter as buttons are added, so they always fit their page. */
-    private fun showMyButtons() {
-        val grid = findViewById<FitGrid>(R.id.my_buttons)
-        grid.removeAllViews()
-        findViewById<View>(R.id.my_buttons_empty).visibility = if (myButtons.isEmpty()) View.VISIBLE else View.GONE
-        for (button in myButtons) {
-            val view = Button(this, null, 0, R.style.RemoteKey_Text).apply { text = button.label }
-            if (editing) {
-                view.setOnClickListener { editButton(button) }
-                Haptics.attach(view)
-            } else bindHold(view, button.address, button.command)
-            grid.addView(view)
-        }
-    }
-
-    /** Adds a button, or edits/deletes one when [existing] is given. */
-    private fun editButton(existing: CustomButton?) {
-        val density = resources.displayMetrics.density
-        val padding = (20 * density).toInt()
-        val form = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(padding, padding / 2, padding, 0)
-        }
-        val label = EditText(this).apply {
-            hint = getString(R.string.button_name)
-            setText(existing?.label ?: "")
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS
-        }
-        val command = EditText(this).apply {
-            hint = getString(R.string.command_hint)
-            setText("%02X".format(existing?.command ?: store.nextFreeCommand(myButtons)))
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
-        }
-        val address = EditText(this).apply {
-            hint = getString(R.string.address_hint)
-            setText("%02X".format(existing?.address ?: Codes.ADDRESS))
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
-        }
-        val help = TextView(this).apply {
-            setText(R.string.custom_help)
-            setTextColor(getColor(R.color.muted))
-            gravity = Gravity.START
-            setPadding(0, padding / 2, 0, 0)
-        }
-        form.addView(caption(R.string.button_name))
-        form.addView(label)
-        form.addView(caption(R.string.command_hint))
-        form.addView(command)
-        form.addView(caption(R.string.address_hint))
-        form.addView(address)
-        form.addView(help)
-
-        val dialog = AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
-            .setTitle(if (existing == null) R.string.add_button else R.string.edit_button)
-            .setView(form)
-            .setPositiveButton(R.string.save, null)
-            .setNegativeButton(R.string.cancel, null)
-        if (existing != null) dialog.setNeutralButton(R.string.delete) { _, _ ->
-            myButtons.remove(existing)
-            store.save(myButtons)
-            showMyButtons()
-        }
-        val shown = dialog.show()
-        // Validate before closing.
-        shown.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-            val name = label.text.toString().trim()
-            val cmd = command.text.toString().trim().removePrefix("0x").toIntOrNull(16)
-            val addr = address.text.toString().trim().removePrefix("0x").toIntOrNull(16)
-            if (name.isEmpty()) {
-                label.error = getString(R.string.need_name)
-                return@setOnClickListener
-            }
-            if (cmd == null || cmd !in 0..0xFF) {
-                command.error = getString(R.string.need_hex)
-                return@setOnClickListener
-            }
-            if (addr == null || addr !in 0..0xFF) {
-                address.error = getString(R.string.need_hex)
-                return@setOnClickListener
-            }
-            val button = CustomButton(name, addr, cmd)
-            val index = if (existing == null) -1 else myButtons.indexOf(existing)
-            if (index >= 0) myButtons[index] = button else myButtons += button
-            store.save(myButtons)
-            showMyButtons()
-            shown.dismiss()
-            AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
-                .setTitle(R.string.teach_tv_title)
-                .setMessage(getString(R.string.teach_tv_message, button.label, button.code))
-                .setPositiveButton(R.string.ok, null)
-                .show()
-        }
     }
 
     private fun caption(text: Int) = TextView(this).apply {
