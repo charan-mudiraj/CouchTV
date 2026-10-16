@@ -1182,6 +1182,7 @@ namespace CouchTV
             };
             var opened = new List<string>();
             TouchInjector.AsMouse = false;
+            string started = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
             var app = new Application();
             var home = new HomeWindow(Config.Load(), new HomeOptions { Windowed = true, Opened = what => { lock (opened) opened.Add(what); } });
             home.Topmost = true;
@@ -1196,7 +1197,9 @@ namespace CouchTV
                 new System.Threading.Thread(() =>
                 {
                     TouchInjector.Touch("test", 0, 'D', nx(from.X), ny(from.Y));
-                    for (int i = 1; i <= steps; i++)
+                    // The last move is a step short of where the finger lifts, as the phone's often is (it sends a
+                    // move every 16 ms at most).
+                    for (int i = 1; i < steps; i++)
                     {
                         System.Threading.Thread.Sleep(16);
                         TouchInjector.Touch("test", 0, 'M', nx(from.X + (to.X - from.X) * i / steps), ny(from.Y + (to.Y - from.Y) * i / steps));
@@ -1257,6 +1260,8 @@ namespace CouchTV
                 timer.Start();
             };
             app.Run(home);
+            int refused = Log.Tail(300).FindAll(l => string.CompareOrdinal(l, started) >= 0 && l.Contains("a touch wasn't taken")).Count;
+            check("Windows took every touch (" + refused + " refused)", refused == 0);
             report.AppendLine(ok ? "All passed" : "FAILED");
             File.WriteAllText(path, report.ToString());
             return ok ? 0 : 1;

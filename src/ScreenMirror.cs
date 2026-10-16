@@ -450,8 +450,14 @@ namespace CouchTV
                 }
                 else if (contact != null && kind == 'U')
                 {
-                    contact.X = x;
-                    contact.Y = y;
+                    // Windows refuses a lift (error 87) anywhere but where the finger last was, and the phone sends
+                    // moves at most every 16 ms, so the lift is often a little further on: it moves there first.
+                    if (contact.X != x || contact.Y != y)
+                    {
+                        contact.X = x;
+                        contact.Y = y;
+                        Inject(contact, FlagUpdate | FlagInRange | FlagInContact);
+                    }
                     Inject(contact, FlagUp);
                     Contacts.Remove(key);
                 }

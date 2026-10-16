@@ -20,6 +20,8 @@ namespace CouchTV
     ///   tap &lt;x&gt; &lt;y&gt;                       a finger on the TV's screen, as the mirror sends it (x, y: 0-65535 across and down)
     ///   swipe &lt;x1&gt; &lt;y1&gt; &lt;x2&gt; &lt;y2&gt; [ms]     a finger sliding, in 16 ms steps as the phone sends them (300 ms if not said)
     ///   btn &lt;address&gt; &lt;command&gt;          a remote button (hex), e.g. "btn CE 05"
+    ///   key &lt;vk&gt;                          a PC key pressed and let go (Windows' virtual-key code, hex), e.g. "key 75" for F6
+    ///   send &lt;line&gt;                       any line, as the phone would send it (e.g. "send 'TOUCH 0 D 100 200'")
     ///   wait &lt;ms&gt;
     /// The report says how each went, line by line as it happens. The pairing (this PC's id, the TV's address and the
     /// key) is kept in %LOCALAPPDATA%\CouchTV\tvlink.dat, readable only by this Windows user.
@@ -176,6 +178,16 @@ namespace CouchTV
                         case "btn":
                             lock (writeLock) link.Send("BTN " + args[++i] + " " + args[++i] + " N");
                             Say("Pressed " + args[i - 1] + " " + args[i]);
+                            break;
+                        case "key":
+                            lock (writeLock) link.Send("KEY " + args[++i] + " D");
+                            Thread.Sleep(50);
+                            lock (writeLock) link.Send("KEY " + args[i] + " U");
+                            Say("Pressed key " + args[i]);
+                            break;
+                        case "send":
+                            lock (writeLock) link.Send(args[++i]);
+                            Say("Sent " + args[i]);
                             break;
                         case "wait":
                             Thread.Sleep(int.Parse(args[++i]));
