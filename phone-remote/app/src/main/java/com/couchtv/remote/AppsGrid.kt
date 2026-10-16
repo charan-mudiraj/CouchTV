@@ -3,6 +3,9 @@ package com.couchtv.remote
 import android.animation.AnimatorInflater
 import android.content.Context
 import android.content.res.ColorStateList
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.text.TextUtils
@@ -16,41 +19,52 @@ import android.widget.LinearLayout
 import android.widget.TextView
 
 /**
- * The bottom row of the remote, five across: [home] in the middle, and the TV's first four streaming apps either side
- * of it, each a rounded square with the app's own logo on its own colours (an app without a logo here gets its
- * initial on the TV's colours for its tile), its name under it. A tap opens it on the TV ([onOpen]). The TV's other
- * apps are with the shortcuts on the first page.
+ * The dock at the bottom of the remote, five across: [home] in the middle, bigger than the rest (a round blue key
+ * standing up out of the dock, easy to find without looking), and the TV's first four streaming apps either side of
+ * it on a panel, each a rounded square with the app's own logo on its own colours (an app without a logo here gets
+ * its initial on the TV's colours for its tile), its name under it. A tap opens it on the TV ([onOpen]). The TV's
+ * other apps are with the shortcuts on the first page.
  */
 class AppsGrid @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : LinearLayout(context, attrs) {
     companion object {
-        /** How many apps the row has room for, beside Home. */
+        /** How many apps the dock has room for, beside Home. */
         const val ROOM = 4
+        private const val TILE_DP = 54
+        private const val HOME_DP = 76
+        private const val HOME_WEIGHT = 1.4f   // Home's column, against an app's 1
     }
 
     var onOpen: ((TvApp) -> Unit)? = null
 
     private val density = resources.displayMetrics.density
     private var shown: List<TvApp>? = null
+    private val panel = RectF()
+    private val panelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = context.getColor(R.color.surface) }
+    private val rimPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0x14FFFFFF
+        style = Paint.Style.STROKE
+        strokeWidth = 1 * resources.displayMetrics.density
+    }
 
-    /** Home, in the middle: a key like the D-pad's centre button, held like the remote's other keys. */
+    /** Home, in the middle: held like the remote's other keys. Its key sinks as it's pressed (it shares the press). */
     val home: View = cell(FrameLayout(context).apply {
-        background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-            intArrayOf(context.getColor(R.color.key_raised_top), context.getColor(R.color.key_raised_bottom))).apply {
-            cornerRadius = dp(18).toFloat()
-            setStroke(dp(1), context.getColor(R.color.key_raised_rim))
-        }
+        background = context.getDrawable(R.drawable.home_bg)
+        isDuplicateParentStateEnabled = true
+        stateListAnimator = AnimatorInflater.loadStateListAnimator(context, R.animator.key_press)
         addView(ImageView(context).apply {
             setImageResource(R.drawable.ic_home)
             imageTintList = ColorStateList.valueOf(context.getColor(R.color.ink))
-            scaleType = ImageView.ScaleType.CENTER_INSIDE
-            setPadding(dp(15), dp(15), dp(15), dp(15))
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            // On the key's face, which sits a little above the middle (its side shows below).
+            setPadding(dp(23), dp(21), dp(23), dp(25))
         }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
-    }, context.getString(R.string.home)).apply {
-        stateListAnimator = AnimatorInflater.loadStateListAnimator(context, R.animator.key_press)
-    }
+    }, context.getString(R.string.home), HOME_DP, bright = true)
 
     init {
         orientation = HORIZONTAL
+        gravity = Gravity.BOTTOM   // the names line up; Home stands taller
+        setWillNotDraw(false)
+        setPadding(dp(2), 0, dp(2), dp(8))
         show(emptyList())
     }
 
@@ -67,15 +81,31 @@ class AppsGrid @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
                 app != null -> tile(app)
                 else -> View(context)
             }
-            addView(view, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
+            addView(view, LayoutParams(0, LayoutParams.WRAP_CONTENT, if (i == 2) HOME_WEIGHT else 1f))
         }
+    }
+
+    /** The panel behind the apps; Home stands up out of it. */
+    override fun onDraw(canvas: Canvas) {
+        val top = height - paddingBottom - dp(TILE_DP) - label() - dp(10)
+        panel.set(0f, top.toFloat(), width.toFloat(), height.toFloat())
+        val radius = dp(22).toFloat()
+        canvas.drawRoundRect(panel, radius, radius, panelPaint)
+        panel.inset(rimPaint.strokeWidth / 2, rimPaint.strokeWidth / 2)
+        canvas.drawRoundRect(panel, radius, radius, rimPaint)
+    }
+
+    /** How tall a name under a tile is. */
+    private fun label(): Int {
+        val child = (0 until childCount).map { getChildAt(it) }.firstOrNull { it is LinearLayout && it !== home } as? LinearLayout
+        return child?.getChildAt(1)?.height ?: dp(19)
     }
 
     private fun tile(app: TvApp): View {
         val look = Logos.of(app)
         val square = FrameLayout(context).apply {
             background = GradientDrawable().apply {
-                cornerRadius = dp(18).toFloat()
+                cornerRadius = dp(16).toFloat()
                 setColor(look?.background ?: app.background)
                 setStroke(dp(1), 0x26FFFFFF)
             }
@@ -83,7 +113,7 @@ class AppsGrid @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
                 addView(ImageView(context).apply {
                     setImageResource(look.logo)
                     scaleType = ImageView.ScaleType.FIT_CENTER
-                    val pad = dp(look.padding * 56 / 62)
+                    val pad = dp(look.padding * TILE_DP / 62)
                     setPadding(pad, pad, pad, pad)
                 }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
             } else {
@@ -96,7 +126,7 @@ class AppsGrid @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
                 }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
             }
         }
-        return cell(square, app.label).apply {
+        return cell(square, app.label, TILE_DP).apply {
             isClickable = true
             isFocusable = true
             stateListAnimator = AnimatorInflater.loadStateListAnimator(context, R.animator.card_press)
@@ -107,22 +137,23 @@ class AppsGrid @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
         }
     }
 
-    /** A 56 dp square with its name under it. */
-    private fun cell(square: View, name: String): LinearLayout {
+    /** A square [size] dp across with its name under it ([bright]: in white, for Home). */
+    private fun cell(square: View, name: String, size: Int, bright: Boolean = false): LinearLayout {
         val label = TextView(context).apply {
             text = name
-            setTextColor(context.getColor(R.color.muted))
+            setTextColor(context.getColor(if (bright) R.color.ink else R.color.muted))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            if (bright) typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             gravity = Gravity.CENTER
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
-            setPadding(dp(2), dp(5), dp(2), 0)
+            setPadding(dp(2), dp(4), dp(2), 0)
         }
         return LinearLayout(context).apply {
             orientation = VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             contentDescription = name
-            addView(square, LayoutParams(dp(56), dp(56)))
+            addView(square, LayoutParams(dp(size), dp(size)))
             addView(label, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         }
     }

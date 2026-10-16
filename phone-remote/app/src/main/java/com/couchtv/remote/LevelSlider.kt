@@ -26,9 +26,9 @@ import kotlin.math.exp
 import kotlin.math.roundToInt
 
 /**
- * One of the TV's levels (its volume, its brightness) as a thick pill that fills from the left, set into the remote
- * like the search bar. Drag along it, starting anywhere: the level follows by how far the finger moves, so touching
- * it never jumps. Under the finger the pill swells, past 0 or 100 it stretches like a rubber band and springs back,
+ * One of the TV's levels (its volume, its brightness) as a thick bar with rounded corners that fills from the left,
+ * set into the remote like the search bar. Drag along it, starting anywhere: the level follows by how far the finger moves, so touching
+ * it never jumps. Under the finger the bar swells, past 0 or 100 it stretches like a rubber band and springs back,
  * it ticks every 10%, its icon changes with the level ([iconFor]) and the number lights up. A tap on the icon does
  * [onIconTap] (mute). What the TV says ([show]) glides into place, except under the finger and just after.
  */
@@ -38,6 +38,7 @@ class LevelSlider @JvmOverloads constructor(context: Context, attrs: AttributeSe
         const val QUIET_MS = 900L          // after letting go, the TV's own reports wait this long (they lag behind)
         const val FOLLOW = 0.45f           // how much of the way to the finger the fill moves each frame
         const val GLIDE = 0.16f            // ...and to a level the TV reported
+        const val CORNER_DP = 14f          // its corners: rounded, not a pill
     }
 
     /** The level while dragging (a few times a second) and when let go: 0 to 100. */
@@ -208,7 +209,7 @@ class LevelSlider @JvmOverloads constructor(context: Context, attrs: AttributeSe
         val width = pill.width().coerceAtLeast(1f)
         val raw = startLevel + (x - downX) / width * 100f
         val clamped = raw.coerceIn(0f, 100f)
-        // Past either end the pill stretches, less and less the further the finger goes.
+        // Past either end the bar stretches, less and less the further the finger goes.
         val over = (raw - clamped) / 100f * width
         val most = 12 * density
         stretchAnimator?.cancel()
@@ -298,13 +299,13 @@ class LevelSlider @JvmOverloads constructor(context: Context, attrs: AttributeSe
     override fun onDraw(canvas: Canvas) {
         val w = width.toFloat()
         val h = height.toFloat()
-        // At rest the pill sits a little inside the view, leaving room to swell under the finger and stretch at the ends.
+        // At rest the bar sits a little inside the view, leaving room to swell under the finger and stretch at the ends.
         val rest = 6 * density
         val inset = rest * (1 - swell * 0.75f)
         val vertical = 3 * density * (1 - swell)
         pill.set(inset, vertical, w - inset, h - vertical)
         if (stretch > 0) pill.right += stretch else pill.left += stretch
-        val radius = pill.height() / 2
+        val radius = minOf(pill.height() / 2, CORNER_DP * density)
         val faded = !available
         val alpha = if (faded) 110 else 255
 
@@ -318,7 +319,7 @@ class LevelSlider @JvmOverloads constructor(context: Context, attrs: AttributeSe
         fill.top += 2 * density
         canvas.drawRoundRect(fill, radius, radius, slotPaint)
 
-        // The fill, clipped to the pill, with a sheen along its top and a bright edge where it ends.
+        // The fill, clipped to the bar, with a sheen along its top and a bright edge where it ends.
         val inner = innerRect.apply { set(fill) }
         clip.reset()
         clip.addRoundRect(inner, radius, radius, Path.Direction.CW)
@@ -332,7 +333,7 @@ class LevelSlider @JvmOverloads constructor(context: Context, attrs: AttributeSe
             val grey = muted || !known
             fillPaint.alpha = if (faded) 90 else if (grey) 70 else 255
             fill.set(inner.left, inner.top, end, inner.bottom)
-            // Rounded at its end too, so a little fill still looks like a pill.
+            // Rounded at its end too, so a little fill still has a rounded end.
             canvas.drawRoundRect(fill.left - radius, fill.top, fill.right, fill.bottom, radius, radius, fillPaint)
             sheenPaint.alpha = if (grey || faded) 60 else 255
             canvas.drawRoundRect(fill.left - radius, fill.top, fill.right, fill.bottom, radius, radius, sheenPaint)

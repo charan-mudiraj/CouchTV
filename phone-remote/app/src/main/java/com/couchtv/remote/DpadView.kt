@@ -128,6 +128,9 @@ class DpadView @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
         setMeasuredDimension(width, height)
     }
 
+    /** The height it needs at [width] to be as big as it gets (its side shows below it). */
+    fun naturalHeight(width: Int): Int = (min(width.toFloat(), most * density) + depth).toInt()
+
     // Everything is centred at (centerX, centerY); sides show below, down to centerY + depth.
     private val centerX get() = width / 2f
     private val centerY get() = (height - depth) / 2f

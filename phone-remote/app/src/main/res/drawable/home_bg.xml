@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Home, in the middle of the dock: a big round blue key, raised like the voice search key (its side below, a light
+    rim on top, a softly lit face), with a faint ring of light round it. Pressed, it sinks (animator/key_press) and the
+    ring brightens.
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_pressed="true">
+        <layer-list>
+            <item>
+                <shape android:shape="oval">
+                    <stroke android:width="2dp" android:color="#993D7BFF" />
+                </shape>
+            </item>
+            <item android:top="10dp" android:bottom="5dp" android:left="7dp" android:right="7dp">
+                <shape android:shape="oval">
+                    <solid android:color="@color/voice_edge" />
+                </shape>
+            </item>
+            <item android:top="6dp" android:bottom="9dp" android:left="7dp" android:right="7dp">
+                <shape android:shape="oval">
+                    <solid android:color="@color/voice_pressed_rim" />
+                </shape>
+            </item>
+            <item android:top="7dp" android:bottom="9dp" android:left="7dp" android:right="7dp">
+                <shape android:shape="oval">
+                    <gradient android:angle="270" android:startColor="@color/voice_pressed_top" android:endColor="@color/voice_pressed_bottom" />
+                </shape>
+            </item>
+        </layer-list>
+    </item>
+    <item>
+        <layer-list>
+            <item>
+                <shape android:shape="oval">
+                    <stroke android:width="2dp" android:color="#4D3D7BFF" />
+                </shape>
+            </item>
+            <item android:top="10dp" android:bottom="5dp" android:left="7dp" android:right="7dp">
+                <shape android:shape="oval">
+                    <solid android:color="@color/voice_edge" />
+                </shape>
+            </item>
+            <item android:top="6dp" android:bottom="9dp" android:left="7dp" android:right="7dp">
+                <shape android:shape="oval">
+                    <solid android:color="@color/voice_rim" />
+                </shape>
+            </item>
+            <item android:top="7dp" android:bottom="9dp" android:left="7dp" android:right="7dp">
+                <shape android:shape="oval">
+                    <gradient android:angle="270" android:startColor="@color/voice_top" android:endColor="@color/voice_bottom" />
+                </shape>
+            </item>
+        </layer-list>
+    </item>
+</selector>

@@ -20,7 +20,7 @@ The top stays put (how the app reaches the TV, the TV's screen and sound on the 
 Tap them for the whole story in words, with what to do about each (**Pair**, **TV address**), and the app's version (tap it to check for updates).
 
 0. **Shortcuts and Popular now** (swipe right from the remote): at the top, a row of five round shortcuts for the things used now and then, as in a Xiaomi phone's App Vault: **Settings**, the **Web** app, the **Sleep** timer (it shows how long is left), **Menu**, and the TV's apps that don't fit the remote's bottom row, each with its logo. The row always has five: with more than five shortcuts, the fifth is **More**, which opens the rest in a dialog. Under it, the films and songs the TV suggests under its apps, as posters three to a row, each with the app it plays in. Tap one and it plays on the TV. With the TV off the phone fetches the same lists itself, for the TV's apps and subscriptions, so you can choose before turning the TV on: a tap then turns the TV on (Power, through the receiver box) and plays it as soon as the TV is back. The only page that scrolls up and down.
-1. **Remote:** search; the TV's **volume** and **brightness** as two sliders; the D-pad, as big as the screen allows, with a key in each corner of the square round it (shaped like a right-angled triangle whose long side curves along the pad): **Full screen** and the **trackpad** above, **Back** and **play-pause** below; and at the bottom a row of five: two of the TV's streaming apps, **Home**, and two more, each app a rounded square with its own logo. Over Wi-Fi a tap opens any of the TV's apps (the TV lists them); by infrared, Netflix, YouTube, Prime Video and JioHotstar.
+1. **Remote:** search; the TV's **volume** and, under it, its **brightness**, as sliders; the D-pad, as big as the screen allows, with a key in each corner of the square round it (shaped like a right-angled triangle whose long side curves along the pad): **Full screen** and the **trackpad** above, **Back** and **play-pause** below; and at the bottom the dock: two of the TV's streaming apps, **Home**, and two more, each app a rounded square with its own logo on a panel, and Home a bigger round blue key standing up out of it, easy to find without looking. On a tall phone the height to spare is shared out evenly between these, so there's no gap round the D-pad. Over Wi-Fi a tap opens any of the TV's apps (the TV lists them); by infrared, Netflix, YouTube, Prime Video and JioHotstar.
 2. **Keyboard:** a full PC keyboard, function keys and all. Landing on this page turns the app sideways, the keyboard filling the screen for bigger keys; its ✕ or Back turns it upright again, on the remote.
 
 The **trackpad** is a dialog over the remote: its key at the D-pad's top right opens it (it grows out of the key), and ✕, Back or a tap outside it puts it away.
@@ -130,7 +130,8 @@ Each button sends an NEC frame (38 kHz, address `0xCE`), then a "still held" fra
 | `Codes.kt` | The button codes |
 | `DpadView.kt` | The round D-pad, with its corner keys |
 | `LevelSlider.kt` | The volume and brightness sliders |
-| `AppsGrid.kt`, `TvApp.kt` | The bottom row: the TV's apps with their logos, Home in the middle |
+| `AppsGrid.kt`, `TvApp.kt` | The dock: the TV's apps with their logos, a big Home in the middle |
+| `RemoteColumn.kt` | The remote page's column: sharing out the height to spare |
 | `MainActivity.kt` | The screen, and your own buttons |
 | `Haptics.kt`, `PressGesture.kt` | The click under the finger, and telling a press from a swipe |
 | `TrackpadView.kt` | The trackpad: moving, clicking, dragging and scrolling |

@@ -182,16 +182,17 @@
                     android:layout_weight="1" />
             </LinearLayout>
 
-            <!-- 1. Remote: search, the volume and brightness sliders, the D-pad as big as fits with a key in each of
-                 its corners (full screen and the trackpad above, Back and play/pause below), and a row of five: the
-                 TV's streaming apps with their logos, Home in the middle. Where the app opens. -->
-            <LinearLayout style="@style/Page">
+            <!-- 1. Remote: search, the volume and brightness sliders one above the other, the D-pad as big as fits
+                 with a key in each of its corners (full screen and the trackpad above, Back and play/pause below), and
+                 the dock: the TV's streaming apps with their logos, a big Home in the middle. Height to spare is shared
+                 out between them (RemoteColumn). Where the app opens. -->
+            <com.couchtv.remote.RemoteColumn style="@style/Page">
 
                 <!-- Search: the mic for voice search, or tap the bar to type -->
                 <LinearLayout
                     android:id="@+id/search_bar"
                     android:layout_width="match_parent"
-                    android:layout_height="60dp"
+                    android:layout_height="56dp"
                     android:background="@drawable/search_bar_bg"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
@@ -232,45 +233,45 @@
                         android:stateListAnimator="@animator/key_press" />
                 </LinearLayout>
 
-                <!-- The TV's volume (tap the speaker to mute) and brightness: drag along either -->
+                <!-- The TV's volume (tap the speaker to mute), and under it the brightness: drag along either. Each
+                     sits 6 dp inside its view at rest (room to swell under the finger), so they line up with the search
+                     bar. -->
                 <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="56dp"
+                    android:layout_height="wrap_content"
                     android:layout_marginStart="-6dp"
-                    android:layout_marginTop="12dp"
+                    android:layout_marginTop="6dp"
                     android:layout_marginEnd="-6dp"
-                    android:orientation="horizontal">
+                    android:orientation="vertical">
 
                     <com.couchtv.remote.LevelSlider
                         android:id="@+id/volume"
-                        android:layout_width="0dp"
-                        android:layout_height="match_parent"
-                        android:layout_weight="1" />
+                        android:layout_width="match_parent"
+                        android:layout_height="50dp" />
 
                     <com.couchtv.remote.LevelSlider
                         android:id="@+id/brightness"
-                        android:layout_width="0dp"
-                        android:layout_height="match_parent"
-                        android:layout_weight="1" />
+                        android:layout_width="match_parent"
+                        android:layout_height="50dp"
+                        android:layout_marginTop="2dp" />
                 </LinearLayout>
 
-                <!-- As big as the space left allows, with a key in each corner round it -->
+                <!-- As big as the width allows, with a key in each corner round it -->
                 <com.couchtv.remote.DpadView
                     android:id="@+id/dpad"
                     android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_marginTop="12dp"
-                    android:layout_marginBottom="12dp"
-                    android:layout_weight="1" />
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:layout_marginBottom="4dp" />
 
-                <!-- Two apps, Home, two apps -->
+                <!-- The dock: two apps, Home, two apps -->
                 <com.couchtv.remote.AppsGrid
                     android:id="@+id/apps"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginBottom="8dp" />
+                    android:layout_marginBottom="4dp" />
 
-            </LinearLayout>
+            </com.couchtv.remote.RemoteColumn>
 
             <!-- 2. A PC keyboard, sideways: landing here turns the app to landscape, the keyboard filling the screen -->
             <LinearLayout
