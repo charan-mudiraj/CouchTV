@@ -211,6 +211,7 @@ class MainActivity : Activity() {
         pager.onPageChanged = {
             dots.current = it
             keyboard.releaseAll()   // nothing stays held down on the TV after leaving the keyboard
+            showTvPointer()
         }
         dots.onPick = { pager.go(it) }
         InstallReceiver.onFailure = { message ->
@@ -254,6 +255,17 @@ class MainActivity : Activity() {
      */
     private fun fetchSuggestionsSoon() {
         findViewById<View>(R.id.pager).postDelayed({ if (remote.wifi.tvName == null) feed.refreshIfStale() }, 4000)
+    }
+
+    /**
+     * The TV shows its pointer only while the trackpad page is in front on this phone (and hides it otherwise, so it
+     * doesn't sit over a film): it's told whenever that changes.
+     */
+    private fun showTvPointer() {
+        val pager = findViewById<PagerView>(R.id.pager)
+        val page = findViewById<View>(R.id.trackpad).parent as View
+        val trackpadPage = (pager.getChildAt(0) as android.view.ViewGroup).indexOfChild(page)
+        remote.wifi.trackpadOpen = resumed && !mirroring && pager.page == trackpadPage
     }
 
     /** The TV's sound in this phone's headphones, sent over Wi-Fi; it keeps playing with the screen off. */
@@ -302,6 +314,7 @@ class MainActivity : Activity() {
             return
         }
         mirroring = on
+        showTvPointer()
         findViewById<View>(R.id.main_ui).visibility = if (on) View.GONE else View.VISIBLE
         findViewById<View>(R.id.mirror_layer).visibility = if (on) View.VISIBLE else View.GONE
         requestedOrientation = if (on) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
@@ -347,6 +360,7 @@ class MainActivity : Activity() {
         voice.stop()
         keyboard.releaseAll()
         resumed = false
+        showTvPointer()
         super.onPause()
     }
 
@@ -424,6 +438,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         resumed = true
+        showTvPointer()
         pendingTyping?.let {
             pendingTyping = null
             typingBox.show(it)

@@ -467,6 +467,25 @@ namespace CouchTV
             int before = Pointer.CurrentArrowSize();
             Pointer.Apply("arrow", 96, "yellow");
             int during = Pointer.CurrentArrowSize();
+
+            // Shown only while in use: hidden (a blank pointer) a few seconds after the last move, shown at once while a
+            // phone's trackpad page is open or when something else moves it.
+            Pointer.ForgetUse();
+            Pointer.Update();
+            check("not in use: hidden (" + Pointer.CurrentArrowSize() + " pixels, blank)", Pointer.Hidden && Pointer.CurrentArrowSize() == 32);
+            Pointer.Trackpad(true);
+            check("a phone's trackpad page open: shown (" + Pointer.CurrentArrowSize() + " pixels)", !Pointer.Hidden && Pointer.CurrentArrowSize() == 96);
+            Pointer.ForgetUse();
+            Pointer.Update();
+            check("...and stays shown while it's open, however long", !Pointer.Hidden);
+            Pointer.Trackpad(false);
+            check("the page left: still shown for a few seconds", !Pointer.Hidden);
+            Pointer.ForgetUse();
+            Pointer.Update();
+            check("...then hidden", Pointer.Hidden);
+            Pointer.Used();
+            for (int i = 0; i < 20 && Pointer.Hidden; i++) System.Threading.Thread.Sleep(50);
+            check("a mouse moving shows it again", !Pointer.Hidden && Pointer.CurrentArrowSize() == 96);
             Pointer.Restore();
             int after = Pointer.CurrentArrowSize();
             check("Windows' arrow becomes the 96-pixel pointer (was " + before + "), then goes back (" + after + ")",
@@ -1165,6 +1184,7 @@ namespace CouchTV
                     step++;
                     if (step == 1)
                     {
+                        report.AppendLine("Pointer before the touch: " + CursorState());
                         Point centre = button.PointToScreen(new Point(button.ActualWidth / 2, button.ActualHeight / 2));
                         int sw = (int)SystemParameters.PrimaryScreenWidth, sh = (int)SystemParameters.PrimaryScreenHeight;
                         int nx = (int)(centre.X * 65535 / (sw - 1)), ny = (int)(centre.Y * 65535 / (sh - 1));
@@ -1173,8 +1193,21 @@ namespace CouchTV
                         System.Threading.Thread.Sleep(60);
                         TouchInjector.Touch("test", 0, 'U', nx, ny);
                     }
+                    if (step == 2)
+                    {
+                        report.AppendLine("Pointer after the touch: " + CursorState());
+                        Input.MoveBy(0, 0);
+                        report.AppendLine("Pointer after a move to where it is: " + CursorState());
+                        Input.MoveBy(40, 0);   // as the phone's trackpad moves it
+                    }
+                    if (step == 3)
+                    {
+                        report.AppendLine("Pointer after a trackpad move (absolute): " + CursorState());
+                        Input.MouseMove(10, 0);   // a relative move, as a real mouse sends
+                    }
                     if (step == 4)
                     {
+                        report.AppendLine("Pointer after a relative move: " + CursorState());
                         timer.Stop();
                         report.AppendLine("Touches seen by the button: " + downs + ", clicks: " + clicks);
                         report.AppendLine(clicks == 1 ? "PASS" : "FAIL");
@@ -1187,6 +1220,24 @@ namespace CouchTV
             File.WriteAllText(path, report.ToString());
             return clicks == 1 ? 0 : 1;
         }
+
+        /// <summary>Whether Windows draws the pointer: shown, hidden, or suppressed (after touch, until mouse input).</summary>
+        static string CursorState()
+        {
+            var info = new CURSORINFO { cbSize = System.Runtime.InteropServices.Marshal.SizeOf(typeof(CURSORINFO)) };
+            if (!GetCursorInfo(ref info)) return "unknown";
+            return (info.flags & 1) != 0 ? "shown" : (info.flags & 2) != 0 ? "suppressed" : "hidden";
+        }
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        struct CURSORINFO
+        {
+            public int cbSize, flags;
+            public IntPtr hCursor;
+            public int x, y;
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool GetCursorInfo(ref CURSORINFO info);
 
         /// <summary>
         /// CouchTV.exe --browsertouchtest report.txt [--hold 60]: a small Edge window (a profile of its own) in the
@@ -1441,6 +1492,8 @@ namespace CouchTV
             server.PairingEnded += (name, outcome) => { lock (pairing) pairing.Add(name + " " + outcome); };
             var played = new List<string>();
             server.Play += id => { lock (played) played.Add(id); };
+            var trackpads = new List<bool>();
+            server.Trackpad += open => { lock (trackpads) trackpads.Add(open); };
             Func<string> code = () => { lock (pairing) return shown; };
             Func<string> wrongCode = () => { lock (pairing) return ((int.Parse(shown) + 1) % 1000000).ToString("D6"); };
             Func<string> pairingLog = () => { lock (pairing) return string.Join(", ", pairing); };
@@ -1513,6 +1566,7 @@ namespace CouchTV
                     check("Wi-Fi: a new list of suggestions goes to the phone", a.Receive() == "SUGGESTIONS 0");
                     a.Send("PLAY s1");
                     a.Send("PLAY " + new string('x', 61));   // ignored: no id is that long
+                    a.Send("TRACKPAD ON");                    // still open when the phone leaves
                     a.Send("KEY A2 D");      // Ctrl, still held when the phone leaves
                     a.Send("KEY 43 D");
                     a.Send("KEY 43 U");
@@ -1545,6 +1599,8 @@ namespace CouchTV
                 server.CurrentSuggestions = null;
                 check("Wi-Fi: its sound session ends with the connection", server.FindSession(session) == null);
                 lock (played) check("Wi-Fi: PLAY plays a suggestion (" + string.Join(", ", played) + ")", string.Join(", ", played) == "s1");
+                lock (trackpads) check("Wi-Fi: the trackpad page open shows the pointer; the phone leaving hides it (" + string.Join(", ", trackpads) + ")",
+                    string.Join(", ", trackpads) == "True, False");
                 lock (buttons) check("Wi-Fi: buttons arrive as the IR receiver's codes", string.Join(", ", buttons) == "NEC 00CE 0005 N, NEC 00CE 0006 R");
                 lock (words) check("Wi-Fi: words arrive whole, Hindi included", words.Count == 1 && words[0] == "पंचायत season 3");
                 lock (pointer) check("Wi-Fi: the trackpad moves, scrolls and drags; a phone that leaves mid-drag lets go",

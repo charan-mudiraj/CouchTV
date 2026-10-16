@@ -90,6 +90,14 @@ class WifiLink(context: Context) {
     /** Called on the main thread with what the TV has ("SUGGESTSETUP", without its name), for fetching them here while it's off. */
     var onSuggestSetup: ((String) -> Unit)? = null
 
+    /** The trackpad page is in front: the TV shows its pointer meanwhile, and hides it otherwise. Told again on each connection. */
+    @Volatile var trackpadOpen = false
+        set(value) {
+            if (field == value) return
+            field = value
+            send("TRACKPAD " + if (value) "ON" else "OFF")
+        }
+
     private val app = context.applicationContext
     private val connectivity = app.getSystemService(ConnectivityManager::class.java)
     private val main = Handler(Looper.getMainLooper())
@@ -404,6 +412,7 @@ class WifiLink(context: Context) {
         val current = Link(s, lines, Channel(keys.phoneEnc, keys.phoneMac, keys.tvEnc, keys.tvMac))
         link = current
         send("HELLO CouchTV-Remote ${BuildConfig.VERSION_NAME}")
+        if (trackpadOpen) send("TRACKPAD ON")
         Thread {
             while (link === current) {
                 send("PING")

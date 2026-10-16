@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
@@ -14,6 +15,10 @@ namespace CouchTV
     /// Windows' own back when it closes. Over a link it turns a highlight colour, so you can see what's clickable.
     ///   Styles: arrow, dot, ring. Sizes: 32 to 128 pixels (Windows' own is 32). Colours: white, yellow, blue, green, pink.
     /// Set in couchtv.ini (PointerStyle, PointerSize, PointerColor) or from the phone remote's trackpad page.
+    /// On the TV it's only shown while it's in use: while a phone has its trackpad page open, and for a few seconds
+    /// after anything else moves it (the trackpad by infrared, an air mouse, a real mouse); otherwise it's hidden
+    /// everywhere, so it doesn't sit over a film or the home screen's tiles. Hidden means a blank pointer in place of
+    /// all of Windows' pointers.
     /// </summary>
     internal static class Pointer
     {
@@ -23,12 +28,16 @@ namespace CouchTV
         static readonly string[] ColorValues = { "#FFFFFF", "#FFD43B", "#4D8BFF", "#3DDC84", "#FF5FA2" };
         const string Outline = "#0B0E14", LinkBlue = "#3D7BFF";
         const string Version = "1";   // bump when the drawing changes, so cached cursor files are redrawn
+        public const int ShowForMs = 5000;   // moved by something other than the phone's trackpad page: shown this long
 
         internal enum Kind { Normal, Link, Text }
 
         static string _style = "arrow", _color = "white";
         static int _size = DefaultSize;
-        static bool _applied;
+        static volatile bool _applied, _hidden, _trackpad;
+        static string _dir;
+        static int _lastUse = Environment.TickCount, _updateQueued;
+        static readonly object Lock = new object();
 
         /// <summary>The current pointer, as the phone remote is told it: "arrow 64 white".</summary>
         public static string Describe() { return _style + " " + _size + " " + _color; }
@@ -50,13 +59,16 @@ namespace CouchTV
             _color = color;
             try
             {
-                string dir = Path.Combine(Config.DataDir, "pointers");
-                Directory.CreateDirectory(dir);
-                Replace(dir, Kind.Normal, OCR_NORMAL);
-                Replace(dir, Kind.Normal, OCR_APPSTARTING);   // "working in the background": the same, so it doesn't shrink
-                Replace(dir, Kind.Link, OCR_HAND);
-                Replace(dir, Kind.Text, OCR_IBEAM);
-                _applied = true;
+                _dir = Path.Combine(Config.DataDir, "pointers");
+                Directory.CreateDirectory(_dir);
+                foreach (Kind kind in new[] { Kind.Normal, Kind.Link, Kind.Text }) Prepare(kind);   // drawn here: WPF needs the UI thread
+                if (!File.Exists(BlankPath)) File.WriteAllBytes(BlankPath, CursorFile(new byte[32 * 32 * 4], 32, 0, 0));
+                lock (Lock)
+                {
+                    if (_hidden) Blank();
+                    else Show();
+                    _applied = true;
+                }
                 Log.Info("Pointer: " + Describe());
             }
             catch (Exception ex) { Log.Error("Pointer", ex); }
@@ -65,27 +77,115 @@ namespace CouchTV
         /// <summary>Windows' own pointers again, as set in its Mouse settings.</summary>
         public static void Restore()
         {
-            if (!_applied) return;
-            SystemParametersInfo(SPI_SETCURSORS, 0, IntPtr.Zero, 0);
-            _applied = false;
+            lock (Lock)
+            {
+                if (!_applied) return;
+                SystemParametersInfo(SPI_SETCURSORS, 0, IntPtr.Zero, 0);
+                _applied = false;
+                _hidden = false;
+            }
         }
 
-        static void Replace(string dir, Kind kind, uint id)
+        static string PathFor(Kind kind)
         {
-            string path = Path.Combine(dir, "v" + Version + "-" + _style + "-" + _size + "-" + _color + "-" + kind.ToString().ToLowerInvariant() + ".cur");
-            if (!File.Exists(path))
-            {
-                int hotX, hotY;
-                byte[] pixels = Render(_style, _size, _color, kind, out hotX, out hotY);
-                File.WriteAllBytes(path, CursorFile(pixels, _size, hotX, hotY));
-            }
+            return Path.Combine(_dir, "v" + Version + "-" + _style + "-" + _size + "-" + _color + "-" + kind.ToString().ToLowerInvariant() + ".cur");
+        }
+
+        static string BlankPath { get { return Path.Combine(_dir, "v" + Version + "-blank.cur"); } }
+
+        static void Prepare(Kind kind)
+        {
+            string path = PathFor(kind);
+            if (File.Exists(path)) return;
+            int hotX, hotY;
+            byte[] pixels = Render(_style, _size, _color, kind, out hotX, out hotY);
+            File.WriteAllBytes(path, CursorFile(pixels, _size, hotX, hotY));
+        }
+
+        /// <summary>CouchTV's pointer as Windows' arrow, link hand and text cursor, and Windows' own for the rest. Under Lock.</summary>
+        static void Show()
+        {
+            if (_hidden) SystemParametersInfo(SPI_SETCURSORS, 0, IntPtr.Zero, 0);   // the resize arrows, the hourglass... back
+            Replace(PathFor(Kind.Normal), _size, OCR_NORMAL);
+            Replace(PathFor(Kind.Normal), _size, OCR_APPSTARTING);   // "working in the background": the same, so it doesn't shrink
+            Replace(PathFor(Kind.Link), _size, OCR_HAND);
+            Replace(PathFor(Kind.Text), _size, OCR_IBEAM);
+            _hidden = false;
+        }
+
+        /// <summary>No pointer at all, whatever an app asks for. Under Lock.</summary>
+        static void Blank()
+        {
+            foreach (uint id in AllPointers) Replace(BlankPath, 32, id);
+            _hidden = true;
+        }
+
+        static void Replace(string path, int size, uint id)
+        {
             // Loaded at its own size: Windows would otherwise shrink it to the standard 32 pixels.
-            IntPtr cursor = LoadImage(IntPtr.Zero, path, IMAGE_CURSOR, _size, _size, LR_LOADFROMFILE);
+            IntPtr cursor = LoadImage(IntPtr.Zero, path, IMAGE_CURSOR, size, size, LR_LOADFROMFILE);
             if (cursor == IntPtr.Zero) throw new Exception("couldn't load " + path + " (error " + Marshal.GetLastWin32Error() + ")");
             if (!SetSystemCursor(cursor, id))   // takes the cursor over, and frees it, when it works
             {
                 DestroyCursor(cursor);
                 throw new Exception("SetSystemCursor failed (error " + Marshal.GetLastWin32Error() + ")");
+            }
+        }
+
+        // ---------------------------------------------------------------- shown only while in use
+
+        /// <summary>For the self-test: hidden now, and as if the last move was long ago.</summary>
+        internal static bool Hidden { get { return _hidden; } }
+        internal static void ForgetUse() { _lastUse = unchecked(Environment.TickCount - ShowForMs - 1); }
+
+        /// <summary>A phone opened (true) or left (false) its trackpad page. UI thread.</summary>
+        public static void Trackpad(bool open)
+        {
+            _trackpad = open;
+            _lastUse = Environment.TickCount;   // just left it: hidden a few seconds later, like after any move
+            Update();
+        }
+
+        /// <summary>Something other than the phone's trackpad page moved or clicked it. Any thread, and quick (WM_INPUT calls it).</summary>
+        public static void Used()
+        {
+            _lastUse = Environment.TickCount;
+            if (_applied && _hidden && Interlocked.Exchange(ref _updateQueued, 1) == 0)
+            {
+                ThreadPool.QueueUserWorkItem(state =>
+                {
+                    _updateQueued = 0;
+                    Update();
+                });
+            }
+        }
+
+        /// <summary>Shows or hides the pointer as it's wanted now; the home screen calls it every second. Any thread.</summary>
+        public static void Update()
+        {
+            if (!_applied) return;
+            bool want = _trackpad || unchecked(Environment.TickCount - _lastUse) < ShowForMs;
+            lock (Lock)
+            {
+                if (!_applied || want == !_hidden) return;
+                try
+                {
+                    if (!want)
+                    {
+                        Blank();
+                        return;
+                    }
+                    Show();
+                    // After a touch (the screen mirror's) Windows stops drawing the pointer until the mouse moves:
+                    // a pixel there and back.
+                    var info = new CURSORINFO { cbSize = Marshal.SizeOf(typeof(CURSORINFO)) };
+                    if (GetCursorInfo(ref info) && (info.flags & CURSOR_SUPPRESSED) != 0)
+                    {
+                        Input.MoveBy(1, 0);
+                        Input.MoveBy(-1, 0);
+                    }
+                }
+                catch (Exception ex) { Log.Error("Pointer", ex); }
             }
         }
 
@@ -231,6 +331,16 @@ namespace CouchTV
 
         const uint OCR_NORMAL = 32512, OCR_IBEAM = 32513, OCR_HAND = 32649, OCR_APPSTARTING = 32650;
         const uint IMAGE_CURSOR = 2, LR_LOADFROMFILE = 0x10, SPI_SETCURSORS = 0x57;
+        const int CURSOR_SUPPRESSED = 2;
+        // Every pointer Windows has: the arrow, text, hourglass, cross, up arrow, the four resize arrows, move, no, hand,
+        // working in the background, help, and the pen and location ones.
+        static readonly uint[] AllPointers =
+            { 32512, 32513, 32514, 32515, 32516, 32642, 32643, 32644, 32645, 32646, 32648, 32649, 32650, 32651, 32671, 32672 };
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct CURSORINFO { public int cbSize, flags; public IntPtr hCursor; public int x, y; }
+
+        [DllImport("user32.dll")] static extern bool GetCursorInfo(ref CURSORINFO info);
 
         [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
         static extern IntPtr LoadImage(IntPtr instance, string name, uint type, int cx, int cy, uint flags);

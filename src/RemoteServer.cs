@@ -37,6 +37,7 @@ namespace CouchTV
     ///                  →  INPUT TEXT|PASSWORD &lt;name&gt; &lt;value&gt;, INPUT OFF   a text box got (or lost) the focus on the
     ///                               TV, so the phone pops up its keyboard: told to the phone used last
     ///     PLAY &lt;id&gt; [&lt;what it is&gt;]   play a suggestion (from the SUGGEST lines, or one the phone found) on the TV
+    ///     TRACKPAD ON|OFF           the phone's trackpad page is open (or not): the TV shows its pointer meanwhile
     /// Buttons go through the same remote.ini mapping as infrared ones, so both remotes behave the same.
     /// </summary>
     internal sealed class RemoteServer
@@ -57,6 +58,7 @@ namespace CouchTV
         public event Action<int> PhonesChanged;              // how many phones are connected as remotes now (UI thread)
         public event Action<string, bool> Mirroring;         // a phone started (true) or stopped mirroring the screen: its name (UI thread)
         public event Action<string> Play;                    // a phone chose a suggestion: its id and what it is (UI thread)
+        public event Action<bool> Trackpad;                  // a phone has its trackpad page open (true), or none has now (UI thread)
 
         /// <summary>The pointer's look now ("arrow 64 white"), told to each phone as it connects.</summary>
         internal Func<string> CurrentPointer;
@@ -267,6 +269,7 @@ namespace CouchTV
                     session.Closed = true;
                     LiftTouches(session.Id);
                     lock (_sessions) _sessions.Remove(session.Id);
+                    if (session.Trackpad) TellTrackpad();
                     if (session.Remote) Raise(() => { if (PhonesChanged != null) PhonesChanged(Phones()); });
                 }
                 if (channel != null) lock (session.SendLock) channel.Dispose();
@@ -549,11 +552,20 @@ namespace CouchTV
                     }
                     return null;
                 case "MOVE":
+                    Pointer.Used();   // a phone too old to say TRACKPAD: shown while it moves
                     if (parts.Length >= 3 && TryInt(parts[1], 2000, out dx) && TryInt(parts[2], 2000, out dy)) Move(dx, dy);
                     return null;
                 case "WHEEL":
+                    Pointer.Used();
                     if (parts.Length >= 2 && TryInt(parts[1], 2400, out dy) && dy != 0) Wheel(dy, false);
                     if (parts.Length >= 3 && TryInt(parts[2], 2400, out dx) && dx != 0) Wheel(dx, true);
+                    return null;
+                case "TRACKPAD":
+                    if (session != null && parts.Length >= 2 && (parts[1] == "ON" || parts[1] == "OFF"))
+                    {
+                        session.Trackpad = parts[1] == "ON";
+                        TellTrackpad();
+                    }
                     return null;
                 case "POINTER":
                     int size;
@@ -564,6 +576,7 @@ namespace CouchTV
                     }
                     return null;
                 case "MOUSE":
+                    Pointer.Used();
                     if (parts.Length >= 3 && (parts[1] == "L" || parts[1] == "R") && (parts[2] == "D" || parts[2] == "U"))
                     {
                         bool right = parts[1] == "R", down = parts[2] == "D";
@@ -643,6 +656,16 @@ namespace CouchTV
                 _typingTold = target;
                 if (target != null) TrySend(target, TypingLine(field));
             }
+        }
+
+        /// <summary>Whether any connected phone has its trackpad page open, to the UI thread.</summary>
+        void TellTrackpad()
+        {
+            bool open = false;
+            lock (_sessions)
+                foreach (RemoteSession s in _sessions.Values)
+                    if (s.Trackpad && !s.Closed) open = true;
+            Raise(() => { if (Trackpad != null) Trackpad(open); });
         }
 
         /// <summary>Tells every connected phone remote these lines (a new list of suggestions); from any thread.</summary>
@@ -755,6 +778,7 @@ namespace CouchTV
         public long LastListen;        // the number of its last sound request: each must be higher (no replays)
         public volatile bool Closed;
         public volatile bool Remote;   // said HELLO: the remote itself (not the phone's sound service)
+        public volatile bool Trackpad; // its trackpad page is open
         public DateTime LastUsed;      // when it last sent a button, words, a pointer move... (to tell it about text boxes)
         internal TcpClient Client;
         internal Stream Stream;

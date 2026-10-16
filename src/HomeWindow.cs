@@ -815,8 +815,11 @@ namespace CouchTV
         {
             _pointer = false;
             _keyMouse = Mouse.GetPosition(this);
-            if (IsActive) Mouse.OverrideCursor = Cursors.None;
+            if (IsActive && !PointerManaged) Mouse.OverrideCursor = Cursors.None;
         }
+
+        /// <summary>On the TV, Pointer shows and hides the pointer everywhere (see Pointer.Update), so this screen doesn't.</summary>
+        bool PointerManaged { get { return !_opt.Windowed && !_opt.Preview; } }
 
         /// <summary>
         /// Many remotes send a mouse click for OK while in air-mouse mode. After the arrow keys were used the
@@ -1186,7 +1189,8 @@ namespace CouchTV
                 Theme.AnimateTo(_toast, OpacityProperty, 0, true);
             }
             TickSleepTimer(now);
-            if (_pointer && IsActive && Mouse.OverrideCursor == null && (now - _lastMouse).TotalSeconds > 4) Mouse.OverrideCursor = Cursors.None;
+            if (PointerManaged) Pointer.Update();   // hidden once it's no longer in use
+            else if (_pointer && IsActive && Mouse.OverrideCursor == null && (now - _lastMouse).TotalSeconds > 4) Mouse.OverrideCursor = Cursors.None;
         }
 
         void UpdateClock()
@@ -1299,6 +1303,7 @@ namespace CouchTV
             _hwnd = new WindowInteropHelper(this).Handle;
             HwndSource.FromHwnd(_hwnd).AddHook(WndProc);
             RegisterKeys();
+            if (PointerManaged) WatchRealMouse();
         }
 
         void RegisterKeys()
@@ -1370,8 +1375,27 @@ namespace CouchTV
             }
         }
 
+        /// <summary>
+        /// Raw input from mice, even while another app is in front: a real mouse or an air mouse moving shows the
+        /// pointer (Pointer.Used). CouchTV's own moves (the phone's trackpad) come from no device, so they're told apart.
+        /// </summary>
+        void WatchRealMouse()
+        {
+            var device = new RAWINPUTDEVICE { usUsagePage = 1, usUsage = 2, dwFlags = RIDEV_INPUTSINK, hwndTarget = _hwnd };
+            if (!RegisterRawInputDevices(new[] { device }, 1, (uint)Marshal.SizeOf(typeof(RAWINPUTDEVICE))))
+                Log.Info("Watching the mouse failed (error " + Marshal.GetLastWin32Error() + ")");
+        }
+
         IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
         {
+            if (msg == WM_INPUT)
+            {
+                var header = new RAWINPUTHEADER();
+                uint size = (uint)Marshal.SizeOf(typeof(RAWINPUTHEADER));
+                if (GetRawInputData(lParam, RID_HEADER, out header, ref size, size) != unchecked((uint)-1) && header.hDevice != IntPtr.Zero)
+                    Pointer.Used();
+                return IntPtr.Zero;   // Windows tidies up the input
+            }
             if (msg != Native.WM_HOTKEY) return IntPtr.Zero;
             int id = wParam.ToInt32();
             switch (id)
@@ -1384,6 +1408,20 @@ namespace CouchTV
             handled = true;
             return IntPtr.Zero;
         }
+
+        const int WM_INPUT = 0xFF;
+        const uint RIDEV_INPUTSINK = 0x100, RID_HEADER = 0x10000005;
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct RAWINPUTDEVICE { public ushort usUsagePage, usUsage; public uint dwFlags; public IntPtr hwndTarget; }
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct RAWINPUTHEADER { public uint dwType, dwSize; public IntPtr hDevice, wParam; }
+
+        [DllImport("user32.dll", SetLastError = true)]
+        static extern bool RegisterRawInputDevices(RAWINPUTDEVICE[] devices, uint count, uint size);
+        [DllImport("user32.dll")]
+        static extern uint GetRawInputData(IntPtr rawInput, uint command, out RAWINPUTHEADER data, ref uint size, uint headerSize);
 
         /// <summary>
         /// Watches for two Home gestures that RegisterHotKey can't express: a tap of the Windows key on its own

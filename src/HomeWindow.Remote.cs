@@ -111,6 +111,7 @@ namespace CouchTV
             _wifi.CurrentPointer = () => _cfg.PointerStyle + " " + _cfg.PointerSize + " " + _cfg.PointerColor;
             _wifi.CurrentSuggestions = () => _phoneSuggestions;
             _wifi.Play += PlaySuggestionById;
+            _wifi.Trackpad += Pointer.Trackpad;
             _wifi.PointerLook += ChangePointer;
             _wifi.Start();
             ApplyPointer();
@@ -344,11 +345,11 @@ namespace CouchTV
                     string message = CycleSleepTimer();
                     if (!IsActive) Osd.ShowMessage('', message, 3);
                     return;
-                case "mouse:click": Input.Click(false); return;
-                case "mouse:rightclick": Input.Click(true); return;
-                case "mouse:scrollup": Input.Wheel(1); return;
-                case "mouse:scrolldown": Input.Wheel(-1); return;
-                case "mouse:up": case "mouse:down": case "mouse:left": case "mouse:right": StartPointer(); return;
+                case "mouse:click": Pointer.Used(); Input.Click(false); return;
+                case "mouse:rightclick": Pointer.Used(); Input.Click(true); return;
+                case "mouse:scrollup": Pointer.Used(); Input.Wheel(1); return;
+                case "mouse:scrolldown": Pointer.Used(); Input.Wheel(-1); return;
+                case "mouse:up": case "mouse:down": case "mouse:left": case "mouse:right": Pointer.Used(); StartPointer(); return;
             }
             if (name.StartsWith("open:"))
             {
@@ -386,6 +387,7 @@ namespace CouchTV
                     int dx = action == "mouse:left" ? -step : action == "mouse:right" ? step : 0;
                     int dy = action == "mouse:up" ? -step : action == "mouse:down" ? step : 0;
                     Input.MouseMove(dx, dy);
+                    Pointer.Used();
                 };
             }
             _irPointer.Start();
