@@ -235,13 +235,30 @@ namespace CouchTV
                 var sender = new UdpClient(new IPEndPoint(_bind, 0));
                 // When nothing plays (a paused video), Windows produces no sound data at all. Phones would run dry
                 // and keep more in reserve each time, so after 20 ms without data, send silence at the real pace.
+                // But when Windows' audio only hiccups, the sound it held up turns up afterwards: as much of it as the
+                // silence already stood in for is dropped (going by the time Windows stamps on each piece), or every
+                // hiccup would leave the phones that much further behind the picture.
                 var clock = System.Diagnostics.Stopwatch.StartNew();
                 long quietSince = -1, silence = 0;
+                long heardUntil = 0;   // where the last real sound ended, on Windows' clock (100 ns units)
                 try
                 {
                     while (!_stop && Listeners > 0)
                     {
-                        if (loopback.Read(pcm)) quietSince = -1;
+                        int before = pcm.Count;
+                        if (loopback.Read(pcm))
+                        {
+                            if (silence > 0 && heardUntil > 0 && loopback.FirstStart > 0)
+                            {
+                                long silenceEnds = heardUntil + silence * 10000000L / loopback.SampleRate;
+                                long covered = (silenceEnds - loopback.FirstStart) * loopback.SampleRate / 10000000L;
+                                int drop = (int)Math.Min(Math.Max(0, covered), (pcm.Count - before) / 2);
+                                if (drop > 0) pcm.RemoveRange(before, drop * 2);
+                            }
+                            if (loopback.LastEnd > 0) heardUntil = loopback.LastEnd;
+                            quietSince = -1;
+                            silence = 0;
+                        }
                         else
                         {
                             long now = clock.ElapsedMilliseconds;
@@ -326,6 +343,10 @@ namespace CouchTV
 
             public int SampleRate { get; private set; }
             public string Description { get; private set; }
+
+            /// <summary>When the sound the last Read got starts and ends, on Windows' clock (100 ns units; 0 if unknown).</summary>
+            public long FirstStart { get; private set; }
+            public long LastEnd { get; private set; }
 
             /// <summary>True where Windows applies its volume before the loopback, so it's undone here.</summary>
             public bool UndoesVolume { get { return _level != null; } }
@@ -420,6 +441,8 @@ namespace CouchTV
                     uint frames, flags;
                     ulong position, qpc;
                     Check(_reader.GetBuffer(out data, out frames, out flags, out position, out qpc), "read");
+                    if (!any) FirstStart = (long)qpc;
+                    LastEnd = qpc > 0 ? (long)qpc + frames * 10000000L / SampleRate : 0;
                     AppendStereo(data, (int)frames, (flags & BufferFlagsSilent) != 0, pcm, floats);
                     Check(_reader.ReleaseBuffer(frames), "release");
                     any = true;

@@ -36,8 +36,15 @@ import java.util.concurrent.atomic.AtomicLong
  * whenever the phone's own audio system is full, so the phone sets the pace. The cushion (how much sound is ready
  * in the audio system) covers Wi-Fi hiccups: 60 ms for the speaker and wired earphones, 160 ms for Bluetooth, which
  * takes sound in big irregular gulps and shares the phone's radio with the Wi-Fi. If sound still runs out, the
- * cushion grows (up to 300 ms). The TV's and the phone's clocks differ very slightly, so the sound plays a hair
- * faster or slower to keep pace (Resampler), and sound lost along with its repair copy is filled in (Concealer).
+ * cushion grows (up to 300 ms), and after half a minute without running out it shrinks back 10 ms at a time. Sound
+ * lost along with its repair copy is filled in (Concealer).
+ *
+ * Staying in step with the TV: the cushion is all the delay there should be, so sound waiting beyond it is sound
+ * that has fallen behind: held up on the Wi-Fi and then arriving all at once, or the TV's clock running a hair fast.
+ * Each half second, the fewest packets that were waiting at any moment in it is how far behind the phone is all the
+ * time (bursts come and go; that doesn't). A little behind, the sound plays up to 1% faster until it's caught up
+ * (Resampler; inaudible); more than 22 ms behind, the late sound is cut at once, cross-faded so there's no click, so
+ * the delay never adds up. Running low, it plays a hair slower.
  *
  * The sound goes to wired earphones (or USB, or line out) when they're plugged in, else the phone's speaker: never
  * Bluetooth, even if Bluetooth headphones are connected (BluetoothGuard also keeps Bluetooth off). The Bluetooth
@@ -52,7 +59,11 @@ class AudioListener(context: Context, private val tvHost: String) {
         private const val BLUETOOTH_MS = 160
         private const val MOST_MS = 300
         private const val EASING = 7200.0   // frames owed / this = how much faster or slower (0.15 s to settle)
-        private const val MOST_SPEED = 0.006   // 0.6%: a little over one frame per chunk
+        private const val MOST_SPEED = 0.01    // 1%: under two frames per chunk, too little to hear
+        private const val WINDOW_MS = 500L     // how long the fewest packets waiting is watched before acting on it
+        private const val KEEP = 1             // packets that may always be waiting (one's taken as the next to play)
+        private const val CUT = 6              // more than this many packets behind (22 ms): cut, rather than catch up
+        private const val CALM_MS = 30_000L    // this long without running dry: the cushion shrinks 10 ms
 
         /** Where the sound goes, first one present wins. */
         private val OUTPUTS = intArrayOf(
@@ -85,6 +96,7 @@ class AudioListener(context: Context, private val tvHost: String) {
     @Volatile private var repaired = 0
     @Volatile private var gaps = 0
     @Volatile private var adjusted = 0
+    @Volatile private var cuts = 0
 
     fun start() {
         if (running) return
@@ -229,10 +241,13 @@ class AudioListener(context: Context, private val tvHost: String) {
             var lastCheck = 0L
             var underruns = 0
             var bluetooth = false
-            var backlog = 0.0   // packets waiting here, smoothed over about a second
-            var fill = 0.0      // ms of sound ready in the audio system, smoothed likewise
+            var fill = 0.0      // ms of sound ready in the audio system, smoothed over about a second
             var written = 0L    // frames handed to the audio system
             var owed = 0.0      // frames to drop (above 0) or add (below) by playing a hair faster or slower
+            var fewest = Int.MAX_VALUE   // the fewest packets waiting at any moment in this window
+            var windowStart = 0L
+            var calmSince = 0L           // since the sound last ran dry, or the cushion last changed
+            var fadeFrom: ByteArray? = null   // after a cut: the sound that would have come next, to cross-fade out of
             val concealer = Concealer()
             val resampler = Resampler()
             while (running) {
@@ -249,44 +264,75 @@ class AudioListener(context: Context, private val tvHost: String) {
                     track = created
                     started = SystemClock.elapsedRealtime()
                     underruns = 0
-                    backlog = 0.0
                     fill = cushionMs.toDouble()
                     written = 0
+                    owed = 0.0
+                    fewest = Int.MAX_VALUE
+                    windowStart = started
+                    calmSince = started
+                    fadeFrom = null
                 }
                 val t = track ?: continue
+                // Just after a cut, this (the sound after the late part) fades in from what was cut.
+                var input = chunk.samples
+                fadeFrom?.let { from ->
+                    fadeFrom = null
+                    if (input != null) input = crossfade(from, input!!)
+                }
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastCheck >= 1000) {
                     lastCheck = now
                     route(t)   // earphones plugged in or out
                     // Headphones connected or disconnected meanwhile: start again from that kind's cushion.
                     val bt = isBluetooth(t)
+                    val base = if (bt) BLUETOOTH_MS else SPEAKER_MS
                     if (bt != bluetooth) {
                         bluetooth = bt
-                        setCushion(t, if (bt) BLUETOOTH_MS else SPEAKER_MS, rate)
+                        setCushion(t, base, rate)
+                        calmSince = now
                     }
-                    // Ran dry since the last check (not counting the first moments): keep 20 ms more ready.
                     if (now - started > 2000 && t.underrunCount > underruns) {
+                        // Ran dry since the last check (not counting the first moments): keep 20 ms more ready.
                         gaps += t.underrunCount - underruns
                         setCushion(t, cushionMs + 20, rate)
+                        calmSince = now
+                    } else if (cushionMs > base && now - calmSince > CALM_MS) {
+                        // Half a minute without running dry: the extra reserve is delay that isn't needed now.
+                        setCushion(t, maxOf(base, cushionMs - 10), rate)
+                        calmSince = now
                     }
                     underruns = t.underrunCount
                 }
-                // The TV's and the phone's clocks never tick at exactly the same speed. Rather than dropping or
-                // padding 5 ms at once (a break you can hear), each check that finds sound piling up or running low
-                // owes a frame, and the sound plays up to 0.6% faster or slower, easing in and out, until it's paid:
-                // inaudible. Checks that disagree cancel out rather than wobbling the sound.
-                backlog = backlog * 0.995 + queue.size * 0.005
+                // Staying in step with the TV. Packets waiting beyond the cushion are sound that has fallen behind;
+                // the fewest waiting at any moment over half a second is how far behind it is all the time (a burst
+                // from the Wi-Fi comes and goes, that doesn't).
+                fewest = minOf(fewest, queue.size)
+                if (now - windowStart >= WINDOW_MS) {
+                    val behind = fewest - KEEP
+                    if (behind > CUT) {
+                        // Well behind (held up on the Wi-Fi, then all at once): cut the late sound now, cross-fading
+                        // from what would have come next into what comes after it, so the delay doesn't add up.
+                        fadeFrom = cut(behind)
+                        cuts++
+                        owed = 0.0
+                    } else if (behind > 0 && owed < behind * chunk.frames) {
+                        // A little behind (the TV's clock a hair fast): catch up by playing up to 1% faster.
+                        adjusted++
+                        owed = behind * chunk.frames.toDouble()
+                    }
+                    fewest = Int.MAX_VALUE
+                    windowStart = now
+                }
+                // Running low (the TV's clock a hair slow): owe a frame now and then, and play a hair slower. Owing
+                // eases the speed in and out, and corrections that disagree cancel out rather than wobbling the sound.
                 val head = t.playbackHeadPosition.toLong() and 0xFFFFFFFFL
                 fill = fill * 0.995 + (written - head) * 1000.0 / rate * 0.005
-                if (backlog > (if (bluetooth) 6 else 3)) {                                    // piling up: the TV runs a hair fast
-                    adjusted++
-                    owed += 1
-                } else if (now - started > 3000 && queue.isEmpty() && fill < cushionMs * 0.4) {   // running low: a hair slow
+                if (now - started > 3000 && queue.isEmpty() && fill < cushionMs * 0.4) {
                     adjusted++
                     owed -= 1
                 }
                 val step = 1.0 + (owed / EASING).coerceIn(-MOST_SPEED, MOST_SPEED)
-                val samples = resampler.process(concealer.next(chunk.samples, chunk.frames), step)
+                val samples = resampler.process(concealer.next(input, chunk.frames), step)
                 owed -= samples.size / 4 * (step - 1)   // what this chunk dropped or added
                 val n = t.write(samples, 0, samples.size)   // waits while the phone's audio system is full
                 if (n > 0) written += n / 4
@@ -298,8 +344,34 @@ class AudioListener(context: Context, private val tvHost: String) {
         }
     }
 
-    /** For the notification: cushion, packets lost on the Wi-Fi, times the sound ran out, smooth clock corrections. */
-    fun stats(): IntArray = intArrayOf(cushionMs, lost, repaired, gaps, adjusted)
+    /** Drops the [count] oldest packets waiting (sound that has fallen behind); returns the first one's sound, to fade out of. */
+    private fun cut(count: Int): ByteArray? {
+        var first: ByteArray? = null
+        for (i in 0 until count) {
+            val dropped = queue.poll() ?: break
+            if (i == 0) first = dropped.samples
+        }
+        return first
+    }
+
+    /** [to], fading in over its length from [from] (the sound that would have played instead), with no click. */
+    private fun crossfade(from: ByteArray, to: ByteArray): ByteArray {
+        val out = to.copyOf()
+        val n = minOf(from.size, to.size) / 4
+        for (i in 0 until n * 2) {
+            val w = (0.5 - 0.5 * kotlin.math.cos(Math.PI * (i / 2 + 0.5) / n)).toFloat()
+            val v = (sample(to, i * 2) * w + sample(from, i * 2) * (1 - w)).toInt().coerceIn(-32768, 32767)
+            out[i * 2] = v.toByte()
+            out[i * 2 + 1] = (v shr 8).toByte()
+        }
+        return out
+    }
+
+    /**
+     * For the notification: cushion, packets lost on the Wi-Fi (and repaired), times the sound ran out, smooth
+     * corrections, and times late sound was cut to catch up with the TV.
+     */
+    fun stats(): IntArray = intArrayOf(cushionMs, lost, repaired, gaps, adjusted, cuts)
 
     private fun setCushion(track: AudioTrack, ms: Int, rate: Int) {
         cushionMs = ms.coerceIn(SPEAKER_MS, MOST_MS)

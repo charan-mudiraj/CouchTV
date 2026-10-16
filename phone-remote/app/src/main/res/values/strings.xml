@@ -13,7 +13,7 @@
     <string name="listen_notification_title">Playing the TV\'s sound</string>
     <string name="listen_notification_text">In this phone\'s headphones. Tap Stop to end.</string>
     <string name="stop">Stop</string>
-    <string name="listen_stats">Cushion %1$d ms · lost %2$d (repaired %3$d) · gaps %4$d · smoothed %5$d</string>
+    <string name="listen_stats">Cushion %1$d ms · lost %2$d (repaired %3$d) · gaps %4$d · smoothed %5$d · caught up %6$d</string>
     <string name="bluetooth_off_title">Turn off Bluetooth?</string>
     <string name="bluetooth_off_message">The TV\'s sound plays at its best on wired earphones or this phone\'s speaker, and Bluetooth slows down the Wi-Fi it comes over. So CouchTV Remote keeps Bluetooth off while you use it.\n\nTo do that, it needs “Nearby devices”: allow it on the next screen.</string>
     <string name="turn_off">Turn off</string>
