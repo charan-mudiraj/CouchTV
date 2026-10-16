@@ -25,6 +25,10 @@ import kotlin.math.min
  * quickly they stay down until tapped again (hold Alt, then Tab, Tab… to switch apps). Two fingers work too: hold
  * Ctrl, tap C. A held key repeats, as on a real keyboard (Windows only repeats real keyboards' keys). A swipe that
  * starts on the keys still turns the page.
+ *
+ * [sideways]: drawn turned a quarter, along the screen's length, for holding the phone sideways (its top to the left)
+ * while the app stays upright: much bigger keys. [action] is a button above the keys (typing with the phone's own
+ * keyboard), turned with them.
  */
 class KeyboardView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : View(context, attrs) {
 
@@ -33,6 +37,23 @@ class KeyboardView @JvmOverloads constructor(context: Context, attrs: AttributeS
     }
 
     var listener: Listener? = null
+
+    /** Laid along the screen's length, for holding the phone sideways with its top to the left. */
+    var sideways = false
+        set(value) {
+            field = value
+            layoutKeys()
+            invalidate()
+        }
+
+    /** A button above the keys (null for none), and what it does. */
+    var action: String? = null
+        set(value) {
+            field = value
+            layoutKeys()
+            invalidate()
+        }
+    var onAction: (() -> Unit)? = null
 
     /** Shown over the keys when they can't reach the TV, e.g. "Connect to the TV over Wi-Fi first". */
     var hint: String? = null
@@ -211,11 +232,18 @@ class KeyboardView @JvmOverloads constructor(context: Context, attrs: AttributeS
         press(key)
     }
 
+    // Where a touch is across and down the keyboard itself (turned a quarter, when sideways).
+    private fun keyX(x: Float, y: Float) = if (sideways) height - y else x
+    private fun keyY(x: Float, y: Float) = if (sideways) x else y
+
+    private var actionDown = false
+
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (actionTouch(event)) return true
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                val key = keyAt(event.x, event.y) ?: return false
+                val key = keyAt(keyX(event.x, event.y), keyY(event.x, event.y)) ?: return false
                 firstPointer = event.getPointerId(0)
                 firstKey = key
                 downX = event.x
@@ -225,7 +253,7 @@ class KeyboardView @JvmOverloads constructor(context: Context, attrs: AttributeS
             MotionEvent.ACTION_POINTER_DOWN -> {
                 beginFirst()
                 val i = event.actionIndex
-                val key = keyAt(event.getX(i), event.getY(i)) ?: return true
+                val key = keyAt(keyX(event.getX(i), event.getY(i)), keyY(event.getX(i), event.getY(i))) ?: return true
                 parent?.requestDisallowInterceptTouchEvent(true)
                 down[event.getPointerId(i)] = key
                 press(key)
@@ -251,6 +279,33 @@ class KeyboardView @JvmOverloads constructor(context: Context, attrs: AttributeS
             }
         }
         return true
+    }
+
+    /** The [action] button: pressed, and tapped when lifted on it. True while it has the touch. */
+    private fun actionTouch(event: MotionEvent): Boolean {
+        val a = keyX(event.x, event.y)
+        val d = keyY(event.x, event.y)
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                if (action == null || !actionRect.contains(a, d)) return false
+                actionDown = true
+                Haptics.press(this)
+                invalidate()
+                return true
+            }
+            MotionEvent.ACTION_MOVE -> return actionDown
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (!actionDown) return false
+                actionDown = false
+                invalidate()
+                if (event.actionMasked == MotionEvent.ACTION_UP && actionRect.contains(a, d)) {
+                    Haptics.release(this)
+                    onAction?.invoke()
+                }
+                return true
+            }
+        }
+        return actionDown
     }
 
     private fun keyAt(x: Float, y: Float): Key? {
@@ -309,9 +364,36 @@ class KeyboardView @JvmOverloads constructor(context: Context, attrs: AttributeS
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
+        layoutKeys()
+    }
+
+    // The keyboard's own width and height: the view's, or the other way round when sideways.
+    private val keyboardWidth get() = if (sideways) height else width
+    private val keyboardHeight get() = if (sideways) width else height
+    private val actionRect = RectF()
+    private val actionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = context.getColor(R.color.surface) }
+    private val actionPressedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = context.getColor(R.color.surface_pressed) }
+    private val actionTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = context.getColor(R.color.good)
+        textAlign = Paint.Align.CENTER
+        isFakeBoldText = true
+        textSize = 14 * resources.displayMetrics.scaledDensity
+    }
+
+    private fun layoutKeys() {
+        val w = keyboardWidth
+        val h = keyboardHeight
+        if (w <= 0 || h <= 0) return
         val unit = w / UNITS
-        rowPitch = min(h / rows.size.toFloat(), MOST_ROW_DP * density)
+        val header = if (action != null) 52 * density else 0f   // room for the action above the keys
+        rowPitch = min((h - header) / rows.size, MOST_ROW_DP * density)
         top = h - rowPitch * rows.size   // at the bottom, where thumbs reach
+        action?.let {
+            val pillWidth = actionTextPaint.measureText(it) + 40 * density
+            val pillHeight = 38 * density
+            val middle = top / 2
+            actionRect.set(w - 4 * density - pillWidth, middle - pillHeight / 2, w - 4 * density, middle + pillHeight / 2)
+        }
         rows.forEachIndexed { r, row ->
             var x = 0f
             val y = top + r * rowPitch
@@ -336,6 +418,22 @@ class KeyboardView @JvmOverloads constructor(context: Context, attrs: AttributeS
 
     override fun onDraw(canvas: Canvas) {
         if (faces.isEmpty()) return
+        canvas.save()
+        if (sideways) {
+            // The keyboard's top along the screen's left edge, its left along the bottom.
+            canvas.translate(0f, height.toFloat())
+            canvas.rotate(-90f)
+        }
+        action?.let {
+            val radius = actionRect.height() / 2
+            canvas.drawRoundRect(actionRect, radius, radius, if (actionDown) actionPressedPaint else actionPaint)
+            canvas.drawText(it, actionRect.centerX(), actionRect.centerY() - (actionTextPaint.descent() + actionTextPaint.ascent()) / 2, actionTextPaint)
+        }
+        drawKeys(canvas)
+        canvas.restore()
+    }
+
+    private fun drawKeys(canvas: Canvas) {
         val shifted = shift
         for (key in keys) {
             val sunk = key in shownDown
@@ -374,8 +472,8 @@ class KeyboardView @JvmOverloads constructor(context: Context, attrs: AttributeS
             }
         }
         hint?.let {
-            canvas.drawRect(0f, top, width.toFloat(), height.toFloat(), hintBack)
-            canvas.drawText(it, width / 2f, top + rowPitch * rows.size / 2f, hintPaint)
+            canvas.drawRect(0f, top, keyboardWidth.toFloat(), keyboardHeight.toFloat(), hintBack)
+            canvas.drawText(it, keyboardWidth / 2f, top + rowPitch * rows.size / 2f, hintPaint)
         }
     }
 }

@@ -130,7 +130,6 @@
     <string name="mirror_reconnecting">Lost the TV\'s screen. Getting it again…</string>
     <string name="mirror_needs_wifi">Connect to the TV over Wi-Fi first (the TV at the top turns green).</string>
     <string name="keyboard_type">Type with the phone\'s keyboard</string>
-    <string name="keyboard_sideways">Opens sideways, for bigger keys</string>
     <string name="keyboard_offline">Connect to the TV over Wi-Fi first</string>
     <string name="typing_title">Typing on the TV</string>
     <string name="typing_into">Typing into “%1$s” on the TV</string>

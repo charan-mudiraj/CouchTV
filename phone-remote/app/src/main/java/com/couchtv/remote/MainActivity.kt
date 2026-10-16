@@ -41,12 +41,12 @@ import kotlin.math.abs
  * The remote, fitting the screen without scrolling: how it reaches the TV (icons), the TV's screen and sound here and
  * power stay at the top, and pages swipe sideways underneath, with dots to show which. It opens on the remote; to its
  * left, the shortcuts and what the TV suggests (popular films and songs, to play there with a tap); to its right, a PC
- * keyboard, which turns the app sideways. The trackpad is a dialog, from its key at the D-pad's top right.
+ * keyboard laid along the screen's length, for holding the phone sideways. The trackpad is a dialog, from its key at
+ * the D-pad's top right.
  */
 class MainActivity : Activity() {
     companion object {
         private const val REMOTE_PAGE = 1                // the page it opens on; the suggestions are page 0
-        private const val KEYBOARD_PAGE = 2              // the keyboard: landing there turns the app sideways
         private const val REQUEST_BLUETOOTH = 44       // the "Nearby devices" permission, to switch Bluetooth off
         private const val REQUEST_BLUETOOTH_OFF = 45   // Android's "turn off Bluetooth?" question
         private const val ACTION_REQUEST_DISABLE = "android.bluetooth.adapter.action.REQUEST_DISABLE"
@@ -64,7 +64,6 @@ class MainActivity : Activity() {
     private var pulsing: ObjectAnimator? = null
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var keyboard: KeyboardView
-    private var keyboardMode = false                          // the keyboard's page in front, sideways
     private var trackpadShown = false
     private lateinit var volumeSlider: LevelSlider
     private lateinit var brightnessSlider: LevelSlider
@@ -259,12 +258,15 @@ class MainActivity : Activity() {
         }
         findViewById<TrackpadView>(R.id.trackpad).help = getString(R.string.trackpad_help)
 
-        // The PC keyboard page (sideways), and typing into the TV's text boxes with this phone's own keyboard.
+        // The PC keyboard page, laid along the screen's length (the app stays upright: turn the phone to type), with a
+        // button above the keys for typing into the TV's text boxes with this phone's own keyboard.
         keyboard = findViewById(R.id.keyboard)
         keyboard.listener = KeyboardView.Listener { vk, down -> if (remote.wifi.connected) remote.wifi.key(vk, down) }
         keyboard.hint = if (remote.wifi.tvName == null) getString(R.string.keyboard_offline) else null
         typingBox = TypingBox(this, remote.wifi)
-        findViewById<View>(R.id.keyboard_type).setOnClickListener {
+        keyboard.sideways = true
+        keyboard.action = getString(R.string.keyboard_type)
+        keyboard.onAction = {
             if (remote.wifi.connected) typingBox.show(null) else toast(getString(R.string.keyboard_offline))
         }
         remote.wifi.onTyping = { field ->
@@ -322,7 +324,6 @@ class MainActivity : Activity() {
                     sleepTimer.dismiss()
                     findViewById<SettingsScreen>(R.id.settings_screen).close()
                     closeTrackpad()
-                    setKeyboardMode(false)
                     true
                 }
                 "trackpad" -> {
@@ -363,10 +364,6 @@ class MainActivity : Activity() {
         pager.onPageChanged = {
             dots.current = it
             keyboard.releaseAll()   // nothing stays held down on the TV after leaving the keyboard
-            // On the keyboard's page, once it has slid into place, the app turns sideways; off it, upright again.
-            handler.removeCallbacks(enterKeyboard)
-            if (it == KEYBOARD_PAGE) handler.postDelayed(enterKeyboard, 320)
-            else if (keyboardMode) setKeyboardMode(false, toRemote = false)
         }
         dots.onPick = { pager.go(it) }
         InstallReceiver.onFailure = { message ->
@@ -483,38 +480,6 @@ class MainActivity : Activity() {
         card.pivotY = at[1] + key.y - from[1]
     }
 
-    // ---------------------------------------------------------------- the keyboard, sideways
-
-    private val enterKeyboard = Runnable { setKeyboardMode(true) }
-
-    /**
-     * The keyboard's page in front: the app turns to landscape, and the keyboard fits in its page like any other, with
-     * the phone's bars, the remote's top (with Type, for this phone's own keyboard) and the page dots round it; the top
-     * and the dots slim down to leave the keys as much height as they can have. Back, or swiping to another page,
-     * turns it upright again ([toRemote]: and goes to the remote).
-     */
-    private fun setKeyboardMode(on: Boolean, toRemote: Boolean = true) {
-        handler.removeCallbacks(enterKeyboard)
-        if (on == keyboardMode) return
-        keyboardMode = on
-        keyboard.releaseAll()
-        findViewById<View>(R.id.keyboard_preview).visibility = if (on) View.GONE else View.VISIBLE
-        findViewById<View>(R.id.keyboard_panel).visibility = if (on) View.VISIBLE else View.GONE
-        findViewById<View>(R.id.keyboard_type).visibility = if (on) View.VISIBLE else View.GONE
-        val density = resources.displayMetrics.density
-        fun dp(v: Int) = (v * density + 0.5f).toInt()
-        val top = findViewById<View>(R.id.top_bar)
-        top.setPadding(top.paddingLeft, dp(if (on) 4 else 10), top.paddingRight, dp(if (on) 2 else 6))
-        val dots = findViewById<View>(R.id.dots)
-        (dots.layoutParams as ViewGroup.MarginLayoutParams).apply {
-            height = dp(if (on) 20 else 32)
-            bottomMargin = dp(if (on) 0 else 4)
-        }
-        dots.requestLayout()
-        requestedOrientation = if (on) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-        if (!on && toRemote) findViewById<PagerView>(R.id.pager).go(REMOTE_PAGE, animate = false)
-    }
-
     // ---------------------------------------------------------------- volume and brightness
 
     /** The sliders, as the TV last said (it says whenever its levels change); brightness needs it over Wi-Fi. */
@@ -583,10 +548,6 @@ class MainActivity : Activity() {
         if (findViewById<SettingsScreen>(R.id.settings_screen).back()) return
         if (trackpadShown) {
             closeTrackpad()
-            return
-        }
-        if (keyboardMode) {
-            setKeyboardMode(false)
             return
         }
         if (mirroring) {
