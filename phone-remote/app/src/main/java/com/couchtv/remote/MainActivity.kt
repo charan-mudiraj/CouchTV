@@ -128,6 +128,7 @@ class MainActivity : Activity() {
             setOnClickListener { pressPower() }
             onReady = { hidePowerNote() }
         }
+        findViewById<View>(R.id.power_note).setOnClickListener { hidePowerNote() }   // a tap puts it away
         findViewById<View>(R.id.power_cancel).setOnClickListener { cancelPowerOff() }
         findViewById<View>(R.id.power_now).setOnClickListener { powerOffNow() }
         findViewById<View>(R.id.power_overlay).setOnClickListener { cancelPowerOff() }   // a tap outside the card: no
@@ -935,7 +936,7 @@ class MainActivity : Activity() {
         if (power.busy) {
             power.shake()
             powerBlocked = true
-            showPowerNote()
+            showPowerNote(pop = true)   // says why the press did nothing, and how long to wait
             return
         }
         if (!remote.board.connected && !remote.ir.available) {
@@ -1234,7 +1235,7 @@ class MainActivity : Activity() {
         powerPressedAt = SystemClock.elapsedRealtime()
         remote.press(Codes.ADDRESS, Codes.POWER, hold = false)
         power.waitUntil(powerPressedAt + TV_GAP_MS, TV_GAP_MS)
-        showPowerNote()
+        showPowerNote(pop = true)
         if (boardAfterPower) {
             // Sent while the app's in the background: the box link closes once the box has had it.
             boardAfterPower = false
@@ -1242,36 +1243,76 @@ class MainActivity : Activity() {
         }
     }
 
-    private val powerTick = Runnable { showPowerNote() }
+    private val powerTick = Runnable { showPowerNote(pop = false) }
+    private val powerNoteGone = Runnable { hidePowerNote() }
 
-    /** The line under the top while the power key counts down, kept up to date. */
-    private fun showPowerNote() {
+    /**
+     * A note floating over the app, just under the top, while the power key counts down: what's happening and how
+     * long until the TV listens to its power button again, kept up to date. [pop]: it slides down (or, already
+     * showing, gives a nudge) and stays a few seconds; without it, only a note already showing is brought up to date.
+     */
+    private fun showPowerNote(pop: Boolean) {
         handler.removeCallbacks(powerTick)
         val power = findViewById<PowerButton>(R.id.power)
+        val note = findViewById<View>(R.id.power_note)
         if (!power.busy) {
             hidePowerNote()
             return
         }
-        val note = findViewById<TextView>(R.id.power_note)
-        note.text = getString(when {
+        val showing = note.visibility == View.VISIBLE && note.tag != "going"
+        if (!pop && !showing) return
+        findViewById<TextView>(R.id.power_note_text).text = getString(when {
             powerBlocked -> R.string.power_wait
             powerTurningOff -> R.string.power_turning_off
             else -> R.string.power_turning_on
         }, power.secondsLeft)
-        note.setTextColor(getColor(if (powerBlocked) R.color.warn else R.color.ink))
-        if (note.visibility != View.VISIBLE) {
-            note.alpha = 0f
-            note.visibility = View.VISIBLE
-            note.animate().alpha(1f).setDuration(200).start()
+        // Red with a white power sign; yellow with a dark one when the press was too soon.
+        findViewById<ImageView>(R.id.power_note_icon).apply {
+            backgroundTintList = ColorStateList.valueOf(getColor(if (powerBlocked) R.color.warn else R.color.power))
+            imageTintList = ColorStateList.valueOf(getColor(if (powerBlocked) R.color.background else R.color.ink))
+        }
+        if (pop) {
+            handler.removeCallbacks(powerNoteGone)
+            handler.postDelayed(powerNoteGone, 3500)
+            // Just under the top bar, wherever that is (the status bar's height differs from phone to phone).
+            val barAt = IntArray(2)
+            val parentAt = IntArray(2)
+            val bar = findViewById<View>(R.id.top_bar)
+            bar.getLocationInWindow(barAt)
+            (note.parent as View).getLocationInWindow(parentAt)
+            val at = barAt[1] - parentAt[1] + bar.height + 6 * resources.displayMetrics.density
+            note.animate().cancel()
+            note.tag = null
+            if (showing) {
+                // Pressed again: a nudge, so it's clear the press was seen.
+                note.translationY = at
+                note.animate().translationY(at + 10 * resources.displayMetrics.density).setDuration(90).withEndAction {
+                    note.animate().translationY(at).setDuration(260).setInterpolator(android.view.animation.OvershootInterpolator(3f)).start()
+                }.start()
+            } else {
+                note.visibility = View.VISIBLE
+                note.alpha = 0f
+                note.translationY = at - 24 * resources.displayMetrics.density
+                note.animate().alpha(1f).translationY(at).setDuration(320)
+                    .setInterpolator(android.view.animation.OvershootInterpolator(1.2f)).withEndAction(null).start()
+            }
         }
         handler.postDelayed(powerTick, 250)
     }
 
+    /** The note slides back up and fades. */
     private fun hidePowerNote() {
         handler.removeCallbacks(powerTick)
-        val note = findViewById<TextView>(R.id.power_note)
-        if (note.visibility != View.VISIBLE) return
-        note.animate().alpha(0f).setDuration(200).withEndAction { note.visibility = View.GONE }.start()
+        handler.removeCallbacks(powerNoteGone)
+        val note = findViewById<View>(R.id.power_note)
+        if (note.visibility != View.VISIBLE || note.tag == "going") return
+        note.tag = "going"
+        note.animate().cancel()
+        note.animate().alpha(0f).translationY(note.translationY - 16 * resources.displayMetrics.density).setDuration(220)
+            .setInterpolator(android.view.animation.AccelerateInterpolator()).withEndAction {
+                note.visibility = View.GONE
+                note.tag = null
+            }.start()
     }
 
     /** Power couldn't be sent after all (the box didn't answer, and there's no IR blaster): nothing to wait for. */
@@ -1292,7 +1333,7 @@ class MainActivity : Activity() {
         if (offAt != 0L || !power.busy || before == null || before == tvOn) return
         val until = minOf(SystemClock.elapsedRealtime() + TV_GAP_MS, powerPressedAt + 45_000)
         power.waitUntil(until, until - powerPressedAt)
-        showPowerNote()
+        showPowerNote(pop = false)   // a note showing says the new wait
     }
 
     private fun onOff(on: Boolean) = getString(if (on) R.string.state_on else R.string.state_off)
