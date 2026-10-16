@@ -42,6 +42,8 @@ namespace CouchTV
                     return result;
                 }
                 if (browserTouch != null) return Diagnostics.BrowserTouchTest(browserTouch, int.Parse(Arg(args, "--hold") ?? "60"), Arg(args, "--browser"), Has(args, "--drag"));
+                int tv = Array.IndexOf(args, "--tv");
+                if (tv >= 0 && tv + 1 < args.Length) return TvLink.Run(args, tv + 1);
                 string dragTest = Arg(args, "--dragtest");
                 if (dragTest != null) return Diagnostics.DragTest(dragTest);
                 string touchTest = Arg(args, "--touchtest");

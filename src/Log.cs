@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 
 namespace CouchTV
@@ -23,6 +24,27 @@ namespace CouchTV
         }
 
         public static void Info(string message) { Write("INFO ", message); }
+
+        /// <summary>The log's last lines, at most count (a paired phone, or the laptop's test tool, asked for them).</summary>
+        public static List<string> Tail(int count)
+        {
+            var last = new Queue<string>();
+            try
+            {
+                using (var stream = new FileStream(_path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                using (var reader = new StreamReader(stream))
+                {
+                    string line;
+                    while ((line = reader.ReadLine()) != null)
+                    {
+                        last.Enqueue(line);
+                        if (last.Count > count) last.Dequeue();
+                    }
+                }
+            }
+            catch (Exception) { }
+            return new List<string>(last);
+        }
 
         public static void Error(string message, Exception ex)
         {

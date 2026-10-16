@@ -40,6 +40,7 @@ namespace CouchTV
     ///     PLAY &lt;id&gt; [&lt;what it is&gt;]   play a suggestion (from the SUGGEST lines, or one the phone found) on the TV
     ///     TRACKPAD ON|OFF           the phone's trackpad page is open (or not): the TV shows its pointer meanwhile
     ///     SLEEPTIMER &lt;minutes&gt;      the sleep timer: the TV goes to sleep that many minutes from now (0: off)
+    ///     LOG [&lt;lines&gt;]             →  LOG &lt;count&gt;, then that many lines "| &lt;line&gt;": the end of the TV's log (CouchTV.exe --tv)
     /// Buttons go through the same remote.ini mapping as infrared ones, so both remotes behave the same.
     /// </summary>
     internal sealed class RemoteServer
@@ -611,6 +612,16 @@ namespace CouchTV
                         KeyChange(vk, down);
                     }
                     return null;
+                case "LOG":
+                    // The end of couchtv.log, for looking into the TV from a laptop (CouchTV.exe --tv); paired only.
+                    if (session == null) return null;
+                    int wanted;
+                    if (parts.Length < 2 || !TryInt(parts[1], 2000, out wanted) || wanted <= 0) wanted = 300;
+                    List<string> tail = Log.Tail(wanted);
+                    Log.Info("Wi-Fi remote: sent the end of the log to " + session.Name);
+                    var log = new StringBuilder("LOG " + tail.Count);
+                    foreach (string l in tail) log.Append("\n| ").Append(l.Length > 4000 ? l.Substring(0, 4000) : l);
+                    return log.ToString();
                 case "SLEEPTIMER":
                     int minutes;
                     if (parts.Length >= 2 && TryInt(parts[1], 24 * 60, out minutes) && minutes >= 0)

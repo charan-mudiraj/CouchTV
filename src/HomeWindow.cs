@@ -1430,6 +1430,11 @@ namespace CouchTV
 
         IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
         {
+            if (OnPointer(msg, wParam, lParam))
+            {
+                handled = true;
+                return IntPtr.Zero;
+            }
             if (msg == WM_MOUSEHWHEEL)
             {
                 WheelSideways((short)((wParam.ToInt64() >> 16) & 0xFFFF));

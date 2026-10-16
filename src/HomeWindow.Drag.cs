@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -14,6 +15,8 @@ namespace CouchTV
     /// A press that moves less than DragSlop is still a tap, and opens what's under it; a drag never opens anything.
     /// The wheel scrolls too: the page up and down, or sideways along the row under the pointer (a tilting wheel,
     /// Shift and the wheel, or the mirror's fingers when they work as the mouse).
+    /// Fingers are read straight from Windows' pointer messages (OnPointer), not WPF's touch events: those depend on
+    /// how the PC is set up, and where they don't arrive Windows turns a swipe into a click.
     /// </summary>
     partial class HomeWindow
     {
@@ -23,35 +26,26 @@ namespace CouchTV
 
         enum DragAxis { None, Row, Page }
 
-        bool _pressed, _dragged, _swallowClick;
+        bool _pressed, _dragged, _fingerDown;
         DragAxis _axis;
-        int _dragRow, _wheelRow = -1, _wheelAt;
+        int _dragRow, _wheelRow = -1, _wheelAt, _fingerUpAt;
+        uint _finger;   // the finger being followed (Windows' pointer id), while _fingerDown
         double _dragFrom, _wheelTarget;
         Point _pressAt;
-        TouchDevice _touch;
         FrameworkElement _appsHost;
         readonly List<KeyValuePair<int, double>> _trail = new List<KeyValuePair<int, double>>();   // (time, offset) lately, for a flick's speed
         static readonly IEasingFunction GlideEase = CreateGlideEase();
 
         void HookDragging()
         {
-            PreviewTouchDown += (s, e) =>
-            {
-                _swallowClick = false;
-                if (_touch == null && Press(e.GetTouchPoint(_layers).Position)) _touch = e.TouchDevice;
-            };
-            PreviewTouchMove += (s, e) => { if (e.TouchDevice == _touch) DragTo(e.GetTouchPoint(_layers).Position); };
-            PreviewTouchUp += (s, e) =>
-            {
-                if (e.TouchDevice != _touch) return;
-                _touch = null;
-                if (Release()) _swallowClick = true;   // the click Windows makes of this touch comes next: not that
-            };
-            // The mouse itself (not a finger made into a mouse by WPF, which the touch events have already handled).
+            // The mouse itself; not a finger WPF has made into a mouse, which OnPointer has dealt with already.
             PreviewMouseLeftButtonDown += (s, e) =>
             {
-                if (e.StylusDevice != null) return;
-                _swallowClick = false;
+                if (e.StylusDevice != null)
+                {
+                    if (FingerJustHere) e.Handled = true;
+                    return;
+                }
                 Press(e.GetPosition(_layers));
             };
             PreviewMouseMove += (s, e) =>
@@ -61,14 +55,81 @@ namespace CouchTV
             MouseWheel += OnWheel;
         }
 
-        /// <summary>The left button or a finger let go (OnClick asks first): true when it was a drag, so it doesn't click.</summary>
+        /// <summary>
+        /// The left button let go (OnClick asks first): true when there's nothing more to do: it was a drag, which
+        /// doesn't click, or WPF's click made of a finger OnPointer has dealt with.
+        /// </summary>
         bool EndPress(MouseButtonEventArgs e)
         {
-            bool drag = e.StylusDevice == null ? Release() : _swallowClick;
-            _swallowClick = false;
-            if (drag) e.Handled = true;
-            return drag;
+            bool done = e.StylusDevice == null ? Release() : FingerJustHere;
+            if (done) e.Handled = true;
+            return done;
         }
+
+        // ---------------------------------------------------------------- fingers, from Windows
+
+        const int WM_POINTERUPDATE = 0x245, WM_POINTERDOWN = 0x246, WM_POINTERUP = 0x247, WM_POINTERCAPTURECHANGED = 0x24C;
+        const int PT_TOUCH = 2, POINTER_FLAG_PRIMARY = 0x2000;
+
+        /// <summary>A finger was followed here a moment ago (or still is): WPF's own mouse clicks made of it are ignored.</summary>
+        bool FingerJustHere { get { return _fingerDown || unchecked(Environment.TickCount - _fingerUpAt) < 1500; } }
+
+        /// <summary>
+        /// A finger on the screen (the screen mirror's touches), as Windows' pointer messages, before WPF sees them:
+        /// true if it's been dealt with here. The first finger slides a row or the page; lifted without sliding, it's a
+        /// click there (a real one, so whatever's under it, a tile or the update button, does what a click does).
+        /// While a dialog's open, fingers are left to Windows and WPF as before.
+        /// </summary>
+        bool OnPointer(int msg, IntPtr wParam, IntPtr lParam)
+        {
+            if (msg != WM_POINTERDOWN && msg != WM_POINTERUPDATE && msg != WM_POINTERUP && msg != WM_POINTERCAPTURECHANGED) return false;
+            uint id = (uint)(wParam.ToInt64() & 0xFFFF);
+            if (msg == WM_POINTERCAPTURECHANGED)
+            {
+                if (_fingerDown && id == _finger)
+                {
+                    _fingerDown = false;
+                    _fingerUpAt = Environment.TickCount;
+                    Release();
+                }
+                return false;
+            }
+            int type;
+            if (!GetPointerType(id, out type) || type != PT_TOUCH) return false;
+            int x = (short)(lParam.ToInt64() & 0xFFFF), y = (short)((lParam.ToInt64() >> 16) & 0xFFFF);
+            Point at = _layers.PointFromScreen(new Point(x, y));
+            if (msg == WM_POINTERDOWN)
+            {
+                if (_fingerDown) return true;   // a second finger: nothing, while the first slides
+                bool primary = ((wParam.ToInt64() >> 16) & POINTER_FLAG_PRIMARY) != 0;
+                if (!primary || !Press(at)) return false;
+                _finger = id;
+                _fingerDown = true;
+                return true;
+            }
+            if (!_fingerDown || id != _finger) return false;
+            if (msg == WM_POINTERUPDATE)
+            {
+                DragTo(at);
+                return true;
+            }
+            _fingerDown = false;
+            _fingerUpAt = Environment.TickCount;
+            DragAxis axis = _axis;
+            int row = _dragRow;
+            bool dragged = Release();
+            if (dragged) Log.Info("Home screen: a finger slid " + (axis == DragAxis.Row ? "row " + row + " to " + Math.Round(_scroll[row]) : axis == DragAxis.Page ? "the page to " + Math.Round(-_pageShift.Y) : "nothing"));
+            else
+            {
+                Log.Info("Home screen: a finger tapped at " + (int)at.X + "," + (int)at.Y);
+                _pointer = true;   // as the mouse: the tile under it gets the click, not the one with the focus
+                Input.MoveTo(x, y);
+                Input.Click(false);
+            }
+            return true;
+        }
+
+        [DllImport("user32.dll")] static extern bool GetPointerType(uint pointerId, out int pointerType);
 
         bool Press(Point at)
         {
@@ -101,7 +162,7 @@ namespace CouchTV
                     _axis = DragAxis.Page;
                     _dragFrom = -_pageShift.Y;
                 }
-                if (_touch == null) CaptureMouse();
+                if (!_fingerDown) CaptureMouse();
             }
             if (_axis == DragAxis.None) return;   // nothing there slides: it just isn't a tap
             double moved = _axis == DragAxis.Row ? at.X - _pressAt.X : at.Y - _pressAt.Y;

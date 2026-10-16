@@ -1056,7 +1056,7 @@ namespace CouchTV
         }
 
         /// <summary>The phone's side of FrameWriter (ScreenLink.kt does the same): the next message, or null.</summary>
-        sealed class FrameReader
+        internal sealed class FrameReader
         {
             readonly Stream _stream;
             readonly Ctr _cipher;
@@ -1455,7 +1455,7 @@ namespace CouchTV
         }
 
         /// <summary>The phone's side of the Wi-Fi remote, as the app does it (WifiLink.kt), for the self-test.</summary>
-        sealed class TestPhone : IDisposable
+        internal sealed class TestPhone : IDisposable
         {
             public readonly string Id;
             public string Answer;                      // the TV's HELLO2 line
@@ -1472,10 +1472,13 @@ namespace CouchTV
             public TestPhone(string id) { Id = id; }
 
             /// <summary>Connects and says hello: "KNOWN" or "PAIR" from a new TV, else whatever it said.</summary>
-            public string Hello(int port)
+            public string Hello(int port) { return Hello(System.Net.IPAddress.Loopback, port); }
+
+            /// <summary>The same, to a TV elsewhere on the Wi-Fi (TvLink).</summary>
+            public string Hello(System.Net.IPAddress address, int port)
             {
                 _tcp = new System.Net.Sockets.TcpClient();
-                _tcp.Connect(System.Net.IPAddress.Loopback, port);
+                _tcp.Connect(address, port);
                 _tcp.ReceiveTimeout = 5000;
                 _stream = _tcp.GetStream();
                 _lines = new LineReader(_stream, 65536);
