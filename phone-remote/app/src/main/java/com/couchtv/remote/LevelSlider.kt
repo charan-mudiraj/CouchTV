@@ -163,7 +163,7 @@ class LevelSlider @JvmOverloads constructor(context: Context, attrs: AttributeSe
                 downX = event.x
                 startLevel = target
                 dragging = false
-                onIcon = event.x < pill.left + pill.height
+                onIcon = event.x < pill.left + pill.height()
                 animateSwell(1f)
                 Haptics.press(this)
             }
