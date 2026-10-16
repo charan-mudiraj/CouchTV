@@ -53,6 +53,7 @@ class MainActivity : Activity() {
     private lateinit var voice: VoiceSearch
     private lateinit var statusPanel: StatusPanel
     private lateinit var sleepTimer: SleepTimer
+    private lateinit var tests: TestHooks
     private var pulsing: ObjectAnimator? = null
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var keyboard: KeyboardView
@@ -208,6 +209,27 @@ class MainActivity : Activity() {
         // The sleep timer: any length, picked on the phone (over Wi-Fi); the key shows how long is left.
         sleepTimer = SleepTimer(this, remote, findViewById(R.id.sleep_timer))
         findViewById<View>(R.id.sleep_timer).setOnClickListener { sleepTimer.open() }
+
+        // Testing from a PC over adb (TestHooks): pages, the mirror and the dialogs, besides fingers.
+        tests = TestHooks(this) { command ->
+            val p = command.split(" ")
+            when (p[0]) {
+                "page" -> p.getOrNull(1)?.toIntOrNull()?.let { findViewById<PagerView>(R.id.pager).go(it) } != null
+                "mirror" -> {
+                    setMirror(p.getOrNull(1) != "off")
+                    true
+                }
+                "sleep" -> {
+                    sleepTimer.open()
+                    true
+                }
+                "status" -> {
+                    openStatus()
+                    true
+                }
+                else -> false
+            }
+        }
 
         updater = AppUpdater(this)
         findViewById<Button>(R.id.update_now).setOnClickListener { startUpdate() }
@@ -379,6 +401,7 @@ class MainActivity : Activity() {
         voice.stop()
         keyboard.releaseAll()
         resumed = false
+        tests.stop()
         showTvPointer()
         super.onPause()
     }
@@ -457,6 +480,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         resumed = true
+        tests.start()
         showTvPointer()
         pendingTyping?.let {
             pendingTyping = null
