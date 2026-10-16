@@ -19,6 +19,8 @@ namespace CouchTV
     /// after anything else moves it (the trackpad by infrared, an air mouse, a real mouse); otherwise it's hidden
     /// everywhere, so it doesn't sit over a film or the home screen's tiles. Hidden means a blank pointer in place of
     /// all of Windows' pointers.
+    /// With no mouse plugged in, Windows draws no pointer at all, whatever moves it: CouchTV turns on Mouse Keys then
+    /// (Windows' setting for moving it with the number pad), which counts as a mouse, until it closes.
     /// </summary>
     internal static class Pointer
     {
@@ -36,8 +38,10 @@ namespace CouchTV
         static int _size = DefaultSize;
         static volatile bool _applied, _hidden, _trackpad;
         static string _dir;
-        static int _lastUse = Environment.TickCount, _updateQueued;
+        static int _lastUse = Environment.TickCount, _updateQueued, _lastFlags = CURSOR_SHOWING;
         static readonly object Lock = new object();
+        static bool _mouseKeysOurs;           // CouchTV turned Mouse Keys on (and turns it back off when it closes)
+        static MOUSEKEYS _mouseKeysBefore;
 
         /// <summary>The current pointer, as the phone remote is told it: "arrow 64 white".</summary>
         public static string Describe() { return _style + " " + _size + " " + _color; }
@@ -66,7 +70,11 @@ namespace CouchTV
                 lock (Lock)
                 {
                     if (_hidden) Blank();
-                    else Show();
+                    else
+                    {
+                        Show();
+                        MakeVisible();
+                    }
                     _applied = true;
                 }
                 Log.Info("Pointer: " + Describe());
@@ -79,6 +87,7 @@ namespace CouchTV
         {
             lock (Lock)
             {
+                if (_mouseKeysOurs) PutBackMouseKeys();
                 if (!_applied) return;
                 SystemParametersInfo(SPI_SETCURSORS, 0, IntPtr.Zero, 0);
                 _applied = false;
@@ -176,18 +185,82 @@ namespace CouchTV
                         return;
                     }
                     Show();
-                    // After a touch (the screen mirror's) Windows stops drawing the pointer until the mouse moves:
-                    // a pixel there and back.
-                    var info = new CURSORINFO { cbSize = Marshal.SizeOf(typeof(CURSORINFO)) };
-                    if (GetCursorInfo(ref info) && (info.flags & CURSOR_SUPPRESSED) != 0)
-                    {
-                        Input.MoveBy(1, 0);
-                        Input.MoveBy(-1, 0);
-                    }
+                    MakeVisible();
                 }
                 catch (Exception ex) { Log.Error("Pointer", ex); }
             }
         }
+
+        // ---------------------------------------------------------------- Windows drawing it at all
+
+        /// <summary>
+        /// Makes sure Windows draws the pointer. After a touch (the screen mirror's) it stops until the mouse moves: a
+        /// pixel there and back. With no mouse plugged in (a TV PC run from the phone) it draws none at all, whatever
+        /// moves it: Mouse Keys counts as a mouse, so it's turned on. Under Lock.
+        /// </summary>
+        static void MakeVisible()
+        {
+            int flags = CursorFlags();
+            if (flags >= 0 && (flags & CURSOR_SUPPRESSED) != 0)
+            {
+                Input.MoveBy(1, 0);
+                Input.MoveBy(-1, 0);
+                flags = CursorFlags();
+            }
+            if (flags == 0 && !_mouseKeysOurs && TurnOnMouseKeys())
+            {
+                Input.MoveBy(1, 0);
+                Input.MoveBy(-1, 0);
+                flags = CursorFlags();
+                Log.Info("Pointer: Windows drew none (no mouse plugged in), so Mouse Keys is on: " + (flags == CURSOR_SHOWING ? "drawn now" : "still not drawn"));
+            }
+            if (flags >= 0 && flags != _lastFlags && flags != CURSOR_SHOWING)
+                Log.Info("Pointer: Windows isn't drawing it (" + (flags == 0 ? "hidden" : "suppressed after a touch") + ")");
+            if (flags >= 0) _lastFlags = flags;
+        }
+
+        /// <summary>Windows' CURSOR_* flags for the pointer now (0: not drawn, 1: drawn, 2: held back after a touch), or -1.</summary>
+        static int CursorFlags()
+        {
+            var info = new CURSORINFO { cbSize = Marshal.SizeOf(typeof(CURSORINFO)) };
+            return GetCursorInfo(ref info) ? info.flags : -1;
+        }
+
+        /// <summary>Mouse Keys on, for this sign-in only, without its taskbar icon; false if it already was, or Windows refused.</summary>
+        static bool TurnOnMouseKeys()
+        {
+            var keys = new MOUSEKEYS { cbSize = Marshal.SizeOf(typeof(MOUSEKEYS)) };
+            if (!SystemParametersInfo(SPI_GETMOUSEKEYS, (uint)keys.cbSize, ref keys, 0) || (keys.dwFlags & MKF_MOUSEKEYSON) != 0) return false;
+            _mouseKeysBefore = keys;
+            keys.dwFlags = (keys.dwFlags | MKF_AVAILABLE | MKF_MOUSEKEYSON) & ~MKF_INDICATOR;
+            if (keys.iMaxSpeed < 10) keys.iMaxSpeed = 80;   // never set: Windows' defaults
+            if (keys.iTimeToMaxSpeed < 1000) keys.iTimeToMaxSpeed = 3000;
+            if (!SystemParametersInfo(SPI_SETMOUSEKEYS, (uint)keys.cbSize, ref keys, 0))
+            {
+                Log.Info("Pointer: turning Mouse Keys on failed (error " + Marshal.GetLastWin32Error() + ")");
+                return false;
+            }
+            _mouseKeysOurs = true;
+            return true;
+        }
+
+        static void PutBackMouseKeys()
+        {
+            MOUSEKEYS keys = _mouseKeysBefore;
+            SystemParametersInfo(SPI_SETMOUSEKEYS, (uint)keys.cbSize, ref keys, 0);
+            _mouseKeysOurs = false;
+        }
+
+        /// <summary>For the self-test: Mouse Keys is on now; and turning it on as with no mouse (Restore turns it back off).</summary>
+        internal static bool MouseKeysOn
+        {
+            get
+            {
+                var keys = new MOUSEKEYS { cbSize = Marshal.SizeOf(typeof(MOUSEKEYS)) };
+                return SystemParametersInfo(SPI_GETMOUSEKEYS, (uint)keys.cbSize, ref keys, 0) && (keys.dwFlags & MKF_MOUSEKEYSON) != 0;
+            }
+        }
+        internal static bool TestMouseKeys() { lock (Lock) return TurnOnMouseKeys(); }
 
         // ---------------------------------------------------------------- drawing
 
@@ -331,7 +404,8 @@ namespace CouchTV
 
         const uint OCR_NORMAL = 32512, OCR_IBEAM = 32513, OCR_HAND = 32649, OCR_APPSTARTING = 32650;
         const uint IMAGE_CURSOR = 2, LR_LOADFROMFILE = 0x10, SPI_SETCURSORS = 0x57;
-        const int CURSOR_SUPPRESSED = 2;
+        const int CURSOR_SHOWING = 1, CURSOR_SUPPRESSED = 2;
+        const uint SPI_GETMOUSEKEYS = 0x36, SPI_SETMOUSEKEYS = 0x37, MKF_MOUSEKEYSON = 0x1, MKF_AVAILABLE = 0x2, MKF_INDICATOR = 0x20;
         // Every pointer Windows has: the arrow, text, hourglass, cross, up arrow, the four resize arrows, move, no, hand,
         // working in the background, help, and the pen and location ones.
         static readonly uint[] AllPointers =
@@ -347,6 +421,10 @@ namespace CouchTV
         [DllImport("user32.dll", SetLastError = true)] static extern bool SetSystemCursor(IntPtr cursor, uint id);
         [DllImport("user32.dll")] static extern bool DestroyCursor(IntPtr cursor);
         [DllImport("user32.dll")] static extern bool SystemParametersInfo(uint action, uint param, IntPtr value, uint flags);
+        [DllImport("user32.dll", SetLastError = true)] static extern bool SystemParametersInfo(uint action, uint param, ref MOUSEKEYS value, uint flags);
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct MOUSEKEYS { public int cbSize; public uint dwFlags; public int iMaxSpeed, iTimeToMaxSpeed, iCtrlSpeed, dwReserved1, dwReserved2; }
 
         // For the self-test: how big Windows' arrow is right now.
         internal static int CurrentArrowSize()

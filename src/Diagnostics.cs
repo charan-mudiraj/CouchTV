@@ -486,7 +486,13 @@ namespace CouchTV
             Pointer.Used();
             for (int i = 0; i < 20 && Pointer.Hidden; i++) System.Threading.Thread.Sleep(50);
             check("a mouse moving shows it again", !Pointer.Hidden && Pointer.CurrentArrowSize() == 96);
+
+            // With no mouse plugged in Windows draws no pointer: Mouse Keys on (it counts as one) until CouchTV closes.
+            bool keysWere = Pointer.MouseKeysOn, keysTurned = Pointer.TestMouseKeys(), keysDuring = Pointer.MouseKeysOn;
             Pointer.Restore();
+            bool keysAfter = Pointer.MouseKeysOn;
+            check("no mouse: Mouse Keys turned on so Windows draws it (" + keysDuring + "), then back off (" + keysAfter + ")",
+                keysWere ? keysDuring && keysAfter : keysTurned && keysDuring && !keysAfter);
             int after = Pointer.CurrentArrowSize();
             check("Windows' arrow becomes the 96-pixel pointer (was " + before + "), then goes back (" + after + ")",
                 during == 96 && after == before);
