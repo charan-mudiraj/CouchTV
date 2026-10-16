@@ -1,34 +1,48 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Voice search, while the phone listens. Tap the mic to finish early, or to try again. -->
+<!-- Voice search, while the phone listens: rings round the mic swell with your voice. Tap the mic to finish early,
+     or to try again. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:gravity="center_horizontal"
     android:orientation="vertical"
     android:paddingStart="22dp"
-    android:paddingTop="30dp"
+    android:paddingTop="16dp"
     android:paddingEnd="22dp"
     android:paddingBottom="18dp">
 
-    <ImageView
-        android:id="@+id/voice_mic"
-        android:layout_width="112dp"
-        android:layout_height="112dp"
-        android:background="@drawable/mic_bg"
-        android:contentDescription="@string/voice_mic"
-        android:paddingStart="30dp"
-        android:paddingTop="28dp"
-        android:paddingEnd="30dp"
-        android:paddingBottom="32dp"
-        android:stateListAnimator="@animator/key_press"
-        android:scaleType="fitCenter"
-        android:src="@drawable/ic_mic" />
+    <!-- The mic stays its size; the rings round it swell with your voice inside their own square, so nothing moves -->
+    <FrameLayout
+        android:layout_width="184dp"
+        android:layout_height="184dp">
+
+        <com.couchtv.remote.VoiceRings
+            android:id="@+id/voice_rings"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:importantForAccessibility="no" />
+
+        <ImageView
+            android:id="@+id/voice_mic"
+            android:layout_width="100dp"
+            android:layout_height="100dp"
+            android:layout_gravity="center"
+            android:background="@drawable/mic_bg"
+            android:contentDescription="@string/voice_mic"
+            android:paddingStart="27dp"
+            android:paddingTop="25dp"
+            android:paddingEnd="27dp"
+            android:paddingBottom="29dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_mic"
+            android:stateListAnimator="@animator/key_press" />
+    </FrameLayout>
 
     <TextView
         android:id="@+id/voice_status"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
+        android:layout_marginTop="8dp"
         android:fontFamily="sans-serif-medium"
         android:gravity="center"
         android:text="@string/voice_starting"

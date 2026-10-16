@@ -49,6 +49,10 @@ namespace CouchTV
     ///     VOLUME &lt;0-100&gt;          the phone's volume slider: the TV's volume, exactly (and unmuted)
     ///     MUTE ON|OFF               mute or unmute
     ///     BRIGHTNESS &lt;0-100&gt;      the phone's brightness slider: the screen's own (DDC/CI), else CouchTV dims the picture
+    ///     BT OPEN|CLOSE            the phone's Bluetooth page is open (or not): meanwhile it's told how the TV's Bluetooth is
+    ///                  →  BT &lt;on|off|none&gt; &lt;adapter&gt; &lt;searching&gt;, BTDEVICES n + BTDEVICE lines, BTFOUND n + BTNEW lines,
+    ///                     BTSAYS &lt;good|warn|muted&gt; &lt;words&gt; (again whenever it changes)
+    ///     BT POWER ON|OFF, BT SEARCH ON|OFF, BT PAIR|CONNECT|DISCONNECT|FORGET &lt;address&gt;, BT AUTO|TOGETHER &lt;address&gt; ON|OFF
     ///     LOG [&lt;lines&gt;]             →  LOG &lt;count&gt;, then that many lines "| &lt;line&gt;": the end of the TV's log (CouchTV.exe --tv)
     /// Buttons go through the same remote.ini mapping as infrared ones, so both remotes behave the same.
     /// </summary>
@@ -78,6 +82,8 @@ namespace CouchTV
         public event Action<int> Volume;                     // a phone's volume slider: 0 to 100 (UI thread)
         public event Action<bool> Mute;                      // a phone muted (true) or unmuted the TV (UI thread)
         public event Action<int> Brightness;                 // a phone's brightness slider: 0 to 100 (UI thread)
+        public event Action<bool> BluetoothWatch;            // a phone has its Bluetooth page open (true), or none has now (UI thread)
+        public event Action<string[]> BluetoothAsk;          // a phone asked its Bluetooth page's question: "POWER ON" etc., split (UI thread)
 
         /// <summary>The pointer's look now ("arrow 64 white"), told to each phone as it connects.</summary>
         internal Func<string> CurrentPointer;
@@ -301,6 +307,7 @@ namespace CouchTV
                     LiftTouches(session.Id);
                     lock (_sessions) _sessions.Remove(session.Id);
                     if (session.Trackpad) TellTrackpad();
+                    if (session.Bluetooth) TellBluetooth();
                     if (session.Remote) Raise(() => { if (PhonesChanged != null) PhonesChanged(Phones()); });
                 }
                 if (channel != null) lock (session.SendLock) channel.Dispose();
@@ -660,6 +667,18 @@ namespace CouchTV
                         Raise(() => { if (SetSetting != null) SetSetting(key, value); });
                     }
                     return null;
+                case "BT":
+                    if (session == null || parts.Length < 2 || parts.Length > 4 || line.Length > 80) return null;
+                    if (parts[1] == "OPEN" || parts[1] == "CLOSE")
+                    {
+                        session.Bluetooth = parts[1] == "OPEN";
+                        TellBluetooth();
+                        return null;
+                    }
+                    string[] ask = new string[parts.Length - 1];
+                    Array.Copy(parts, 1, ask, 0, ask.Length);
+                    Raise(() => { if (BluetoothAsk != null) BluetoothAsk(ask); });
+                    return null;
                 case "VOLUME":
                     int volume;
                     if (parts.Length >= 2 && TryInt(parts[1], 100, out volume) && volume >= 0)
@@ -760,6 +779,16 @@ namespace CouchTV
                 foreach (RemoteSession s in _sessions.Values)
                     if (s.Trackpad && !s.Closed) open = true;
             Raise(() => { if (Trackpad != null) Trackpad(open); });
+        }
+
+        /// <summary>Whether any connected phone has its Bluetooth page open, to the UI thread.</summary>
+        void TellBluetooth()
+        {
+            bool open = false;
+            lock (_sessions)
+                foreach (RemoteSession s in _sessions.Values)
+                    if (s.Bluetooth && !s.Closed) open = true;
+            Raise(() => { if (BluetoothWatch != null) BluetoothWatch(open); });
         }
 
         /// <summary>Tells every connected phone remote these lines (a new list of suggestions); from any thread.</summary>
@@ -874,6 +903,7 @@ namespace CouchTV
         public volatile bool Remote;   // said HELLO: the remote itself (not the phone's sound service)
         public volatile bool Trackpad; // its trackpad is open
         public volatile bool SaidTrackpad;   // it says when its trackpad opens and closes (TRACKPAD)
+        public volatile bool Bluetooth;      // its Bluetooth page is open
         public DateTime LastUsed;      // when it last sent a button, words, a pointer move... (to tell it about text boxes)
         internal TcpClient Client;
         internal Stream Stream;

@@ -1724,6 +1724,9 @@ namespace CouchTV
             server.Volume += level => { lock (levels) levels.Add("volume " + level); };
             server.Mute += on => { lock (levels) levels.Add("mute " + on); };
             server.Brightness += level => { lock (levels) levels.Add("brightness " + level); };
+            var bluetooth = new List<string>();
+            server.BluetoothWatch += open => { lock (bluetooth) bluetooth.Add("watch " + open); };
+            server.BluetoothAsk += ask => { lock (bluetooth) bluetooth.Add(string.Join(" ", ask)); };
             Func<string> code = () => { lock (pairing) return shown; };
             Func<string> wrongCode = () => { lock (pairing) return ((int.Parse(shown) + 1) % 1000000).ToString("D6"); };
             Func<string> pairingLog = () => { lock (pairing) return string.Join(", ", pairing); };
@@ -1826,6 +1829,12 @@ namespace CouchTV
                     a.Send("MUTE maybe");                     // ignored
                     a.Send("BRIGHTNESS 0");
                     a.Send("BRIGHTNESS 250");                 // ignored
+                    a.Send("BT OPEN");                        // still open when the phone leaves
+                    a.Send("BT POWER ON");
+                    a.Send("BT PAIR 001A7DDA7113");
+                    a.Send("BT TOGETHER 001A7DDA7113 OFF");
+                    a.Send("BT");                             // ignored
+                    a.Send("BT A B C D E");                   // ignored: too long
                     a.Send("KEY A2 D");      // Ctrl, still held when the phone leaves
                     a.Send("KEY 43 D");
                     a.Send("KEY 43 U");
@@ -1865,6 +1874,8 @@ namespace CouchTV
                 lock (sleepTimers) check("Wi-Fi: SLEEPTIMER sets the sleep timer, any number of minutes, or 0 for off (" + string.Join(", ", sleepTimers) + ")",
                     string.Join(", ", sleepTimers) == "95, 0");
                 lock (opened) check("Wi-Fi: OPEN opens one of the home screen's apps (" + string.Join(", ", opened) + ")", string.Join(", ", opened) == "Netflix");
+                lock (bluetooth) check("Wi-Fi: BT opens the phone's Bluetooth page, asks its questions, and the page goes with the phone (" + string.Join(", ", bluetooth) + ")",
+                    string.Join(", ", bluetooth) == "watch True, POWER ON, PAIR 001A7DDA7113, TOGETHER 001A7DDA7113 OFF, watch False");
                 lock (levels) check("Wi-Fi: VOLUME, MUTE and BRIGHTNESS set the TV's levels from the phone's sliders (" + string.Join(", ", levels) + ")",
                     string.Join(", ", levels) == "volume 37, mute True, brightness 0");
                 lock (settingsSet) check("Wi-Fi: SET changes one of the TV's settings (" + string.Join(", ", settingsSet) + ")", string.Join(", ", settingsSet) == "powercountdown=10");

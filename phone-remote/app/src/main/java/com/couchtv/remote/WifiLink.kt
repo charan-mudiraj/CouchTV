@@ -119,6 +119,27 @@ class WifiLink(context: Context) {
     @Volatile var brightness = -1
         private set
 
+    /** Called on the main thread when the TV says how its Bluetooth is (see [bluetooth]). */
+    var onBluetooth: (() -> Unit)? = null
+
+    /** Called on the main thread with a line from the TV for the Bluetooth page: its kind (good, warn, muted) and words; null clears it. */
+    var onBluetoothSays: ((Pair<String, String>?) -> Unit)? = null
+
+    /** The TV's Bluetooth as it last said while the Bluetooth page was open; null until then, or while it isn't connected. */
+    @Volatile var bluetooth: TvBluetooth? = null
+        private set
+
+    /** The Bluetooth page is open: the TV says how its Bluetooth is meanwhile. Told again on each connection. */
+    @Volatile var bluetoothOpen = false
+        set(value) {
+            if (field == value) return
+            field = value
+            send("BT " + if (value) "OPEN" else "CLOSE")
+        }
+
+    /** Something on the Bluetooth page: "POWER ON", "SEARCH ON", "PAIR <address>", "AUTO <address> OFF"... */
+    fun bluetooth(command: String) = send("BT $command")
+
     /** Called on the main thread when the TV's sleep timer changes (see [sleepEndsAt]). */
     var onSleepTimer: (() -> Unit)? = null
 
@@ -457,6 +478,7 @@ class WifiLink(context: Context) {
         link = current
         send("HELLO CouchTV-Remote ${BuildConfig.VERSION_NAME}")
         if (trackpadOpen) send("TRACKPAD ON")
+        if (bluetoothOpen) send("BT OPEN")
         Thread {
             while (link === current) {
                 send("PING")
@@ -503,6 +525,32 @@ class WifiLink(context: Context) {
                 line.startsWith("BRIGHTNESS ") -> line.removePrefix("BRIGHTNESS ").trim().toIntOrNull()?.let {
                     setLevels(volume, muted, it.coerceIn(0, 100))
                 }
+                line.startsWith("BT ") -> setBluetooth(TvBluetooth.header(line.removePrefix("BT "), bluetooth ?: TvBluetooth()))
+                line.startsWith("BTDEVICES ") -> {
+                    btExpected = line.removePrefix("BTDEVICES ").trim().toIntOrNull() ?: 0
+                    btDevices = mutableListOf()
+                    if (btExpected <= 0) setBluetooth((bluetooth ?: TvBluetooth()).copy(devices = emptyList()))
+                }
+                line.startsWith("BTDEVICE ") -> btDevices?.let { arriving ->
+                    TvBluetooth.device(line.removePrefix("BTDEVICE "))?.let { arriving.add(it) } ?: btExpected--
+                    if (arriving.size >= btExpected) {
+                        btDevices = null
+                        setBluetooth((bluetooth ?: TvBluetooth()).copy(devices = arriving))
+                    }
+                }
+                line.startsWith("BTFOUND ") -> {
+                    btFoundExpected = line.removePrefix("BTFOUND ").trim().toIntOrNull() ?: 0
+                    btFound = mutableListOf()
+                    if (btFoundExpected <= 0) setBluetooth((bluetooth ?: TvBluetooth()).copy(found = emptyList()))
+                }
+                line.startsWith("BTNEW ") -> btFound?.let { arriving ->
+                    TvBluetooth.found(line.removePrefix("BTNEW "))?.let { arriving.add(it) } ?: btFoundExpected--
+                    if (arriving.size >= btFoundExpected) {
+                        btFound = null
+                        setBluetooth((bluetooth ?: TvBluetooth()).copy(found = arriving))
+                    }
+                }
+                line.startsWith("BTSAYS ") -> TvBluetooth.says(line.removePrefix("BTSAYS ")).let { said -> main.post { onBluetoothSays?.invoke(said) } }
                 line.startsWith("SLEEPTIMER ") -> line.removePrefix("SLEEPTIMER ").trim().toIntOrNull()?.let { seconds ->
                     setSleepTimer(if (seconds > 0) SystemClock.elapsedRealtime() + seconds * 1000L else 0L, true)
                 }
@@ -590,6 +638,17 @@ class WifiLink(context: Context) {
         main.post { onSleepTimer?.invoke() }
     }
 
+    // The TV's Bluetooth lists as their lines arrive (the connection's own thread).
+    private var btDevices: MutableList<TvBluetooth.Device>? = null
+    private var btExpected = 0
+    private var btFound: MutableList<TvBluetooth.Found>? = null
+    private var btFoundExpected = 0
+
+    private fun setBluetooth(b: TvBluetooth?) {
+        bluetooth = b
+        main.post { onBluetooth?.invoke() }
+    }
+
     private fun setSuggestions(lines: List<String>) {
         incoming = null
         val list = lines.mapNotNull { Suggestion.parse(it) }
@@ -620,6 +679,7 @@ class WifiLink(context: Context) {
             tvAddress = null
             setSleepTimer(0L, false)   // asleep, or out of reach: it says again when it's back
             setLevels(-1, false, -1)
+            if (bluetooth != null) setBluetooth(null)
             if (settings.isNotEmpty()) setSettings(emptyList())
         }
         if (tvName == name) return

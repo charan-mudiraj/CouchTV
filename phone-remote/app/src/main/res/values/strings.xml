@@ -177,6 +177,37 @@
 
     <string name="settings_title">Settings</string>
     <string name="more_shortcuts">More</string>
+
+    <!-- The TV's Bluetooth (Settings > Bluetooth) -->
+    <string name="bt_title">Bluetooth</string>
+    <string name="bt_summary">Pair, connect, switch on or off</string>
+    <string name="bt_none_short">No Bluetooth adapter</string>
+    <string name="bt_none">The TV has no Bluetooth adapter, or it\'s unplugged.</string>
+    <string name="bt_off">Off</string>
+    <string name="bt_on_nothing">On · nothing connected</string>
+    <string name="bt_offline">Connect to the TV over Wi-Fi to see its Bluetooth.</string>
+    <string name="bt_asking">Asking the TV…</string>
+    <string name="bt_off_note">Switch it on to connect headphones, speakers and controllers.</string>
+    <string name="bt_paired">Paired devices</string>
+    <string name="bt_none_paired">Nothing paired yet: add a device below.</string>
+    <string name="bt_gone">This device isn\'t paired any more.</string>
+    <string name="bt_connect">Connect</string>
+    <string name="bt_disconnect">Disconnect</string>
+    <string name="bt_auto">Connect automatically</string>
+    <string name="bt_auto_note">Whenever it\'s on and near the TV</string>
+    <string name="bt_together">Play with the TV speakers</string>
+    <string name="bt_together_note">Off: only on this device, with a little less delay</string>
+    <string name="bt_connects_itself">It connects by itself when you use it.</string>
+    <string name="bt_forget">Forget this device</string>
+    <string name="bt_forget_title">Forget %1$s?</string>
+    <string name="bt_forget_message">The TV unpairs it. To use it again, pair it again from Add a device.</string>
+    <string name="bt_add">Add a device</string>
+    <string name="bt_add_note">Put it in pairing mode, then pick it</string>
+    <string name="bt_pairing_mode">Put the device in pairing mode (usually by holding its power or Bluetooth button until a light flashes). It shows up here: tap it to pair.</string>
+    <string name="bt_searching">Looking for devices</string>
+    <string name="bt_found_heading">Found</string>
+    <string name="bt_nothing_found">Nothing found yet</string>
+    <string name="bt_tap_to_pair">Tap to pair</string>
     <string name="app_needs_wifi">%1$s opens over Wi-Fi: connect to the TV first</string>
     <string name="settings_tv">TV</string>
     <string name="settings_tv_offline">Connect to the TV over Wi-Fi to change its settings.</string>

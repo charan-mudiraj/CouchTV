@@ -16,6 +16,7 @@ import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
@@ -26,12 +27,22 @@ import android.widget.TextView
  * Back. The TV's come from the TV, as it lists them, so new ones show up without updating the app; the pointer's
  * three have a page of their own, with the pointer drawn as it will look. Changes go at once ([onTvChange],
  * [onPhoneChange]) and the TV says back what it now is ([show]).
+ *
+ * The TV's Bluetooth has pages of its own too, as on the TV: switching it on or off, the paired devices (each with a
+ * page: connect or disconnect, connect automatically, play with the TV speakers, forget), and adding one (the TV
+ * searches while that page is open; tap a device to pair). Pages open one over another and Back goes back one.
  */
 class SettingsScreen @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : FrameLayout(context, attrs) {
     var onTvChange: ((String, String) -> Unit)? = null
     var onPhoneChange: ((String, String) -> Unit)? = null
     var onVersion: (() -> Unit)? = null
     var onConnection: (() -> Unit)? = null
+
+    /** Something for the TV's Bluetooth: "POWER ON", "SEARCH ON", "PAIR <address>"... */
+    var onBluetooth: ((String) -> Unit)? = null
+
+    /** The Bluetooth pages opened (true) or left: the TV says how its Bluetooth is meanwhile. */
+    var onBluetoothPage: ((Boolean) -> Unit)? = null
 
     private companion object {
         val POINTER_KEYS = listOf("pointerstyle", "pointersize", "pointercolor")
@@ -42,17 +53,31 @@ class SettingsScreen @JvmOverloads constructor(context: Context, attrs: Attribut
     private var tv: List<TvSetting> = emptyList()
     private var phone: List<TvSetting> = emptyList()
     private var version = ""
-    private val mainList = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
-    private val pointerList = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
-    private val mainPage = page(R.string.settings_title, mainList) { close() }
-    private val pointerPage = page(R.string.pointer_title, pointerList) { showPointer(false) }
+    private var bt: TvBluetooth? = null                  // the TV's Bluetooth, as it last said
+    private var btSays: Pair<String, String>? = null     // its last line for these pages: kind and words
+    private var btAddress: String? = null                // the device whose page is open
+    private var btShownOn = false                        // the Bluetooth pages are open (as last told)
+    private val mainList = column()
+    private val pointerList = column()
+    private val btList = column()
+    private val btDeviceList = column()
+    private val btAddList = column()
+    private var btDeviceTitle: TextView? = null
+    private val mainPage = page(context.getString(R.string.settings_title), mainList) { close() }
+    private val pointerPage = page(context.getString(R.string.pointer_title), pointerList) { back() }
+    private val btPage = page(context.getString(R.string.bt_title), btList) { back() }
+    private val btDevicePage = page("", btDeviceList, { btDeviceTitle = it }) { back() }
+    private val btAddPage = page(context.getString(R.string.bt_add), btAddList) { back() }
+    private val stack = arrayListOf(mainPage)            // the pages open, one over another; the list first
 
     init {
         setBackgroundColor(context.getColor(R.color.background))
         isClickable = true   // nothing underneath gets the fingers
-        addView(mainPage, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
-        addView(pointerPage, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
-        pointerPage.visibility = GONE
+        // Each page over the ones it's opened from (the order they slide in).
+        for (page in listOf(mainPage, pointerPage, btPage, btDevicePage, btAddPage)) {
+            addView(page, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+            if (page !== mainPage) page.visibility = GONE
+        }
         visibility = GONE
         // Clear of the status bar and the gesture bar.
         setOnApplyWindowInsetsListener { v, insets ->
@@ -69,24 +94,94 @@ class SettingsScreen @JvmOverloads constructor(context: Context, attrs: Attribut
 
     val isOpen: Boolean get() = visibility == VISIBLE
 
-    /** Slides in from the right. */
+    /** Slides in from the right, on the list. */
     fun open() {
-        showPointer(false, animate = false)
+        while (stack.size > 1) {
+            val page = stack.removeAt(stack.size - 1)
+            leave(page)
+            page.animate().cancel()
+            page.visibility = GONE
+            page.translationX = 0f
+        }
+        mainPage.visibility = VISIBLE
+        mainPage.translationX = 0f
         visibility = VISIBLE
         translationX = (if (width > 0) width else resources.displayMetrics.widthPixels).toFloat()
         animate().translationX(0f).setDuration(300).setInterpolator(EASE).withEndAction(null).start()
+        tellBluetoothPage()
     }
 
     fun close() {
         if (!isOpen) return
-        animate().translationX(width.toFloat()).setDuration(240).setInterpolator(EASE).withEndAction { visibility = GONE }.start()
+        animate().translationX(width.toFloat()).setDuration(240).setInterpolator(EASE).withEndAction {
+            visibility = GONE
+            tellBluetoothPage()
+        }.start()
+        if (stack.contains(btAddPage)) onBluetooth?.invoke("SEARCH OFF")
     }
 
-    /** Back: from the pointer's page to the list, from the list away. True if it was open. */
+    /** Back: one page back, and from the list away. True if it was open. */
     fun back(): Boolean {
         if (!isOpen) return false
-        if (pointerPage.visibility == VISIBLE) showPointer(false) else close()
+        if (stack.size > 1) pop() else close()
         return true
+    }
+
+    /** Opens on the TV's Bluetooth page (its shortcut on the first page). */
+    fun openBluetooth() {
+        if (!isOpen) open()
+        if (stack.last() !== btPage) push(btPage, animate = false)
+    }
+
+    /** A page slides in over the one showing. */
+    private fun push(page: View, animate: Boolean = true) {
+        val going = stack.last()
+        stack.add(page)
+        slide(page, going, forward = true, animate = animate)
+        if (page === btAddPage) onBluetooth?.invoke("SEARCH ON")
+        tellBluetoothPage()
+    }
+
+    /** The page showing slides away, back to the one under it. */
+    private fun pop(animate: Boolean = true) {
+        if (stack.size <= 1) return
+        val going = stack.removeAt(stack.size - 1)
+        leave(going)
+        slide(stack.last(), going, forward = false, animate = animate)
+        tellBluetoothPage()
+    }
+
+    /** A page no longer open: the Add page stops the TV searching. */
+    private fun leave(page: View) {
+        if (page === btAddPage) onBluetooth?.invoke("SEARCH OFF")
+    }
+
+    private fun slide(coming: View, going: View, forward: Boolean, animate: Boolean) {
+        val w = (if (width > 0) width else resources.displayMetrics.widthPixels).toFloat()
+        coming.animate().cancel()
+        going.animate().cancel()
+        coming.visibility = VISIBLE
+        if (!animate) {
+            coming.translationX = 0f
+            going.visibility = GONE
+            going.translationX = 0f
+            return
+        }
+        coming.translationX = if (forward) w else -w * 0.3f
+        coming.animate().translationX(0f).setDuration(280).setInterpolator(EASE).withEndAction(null).start()
+        going.animate().translationX(if (forward) -w * 0.3f else w).setDuration(280).setInterpolator(EASE).withEndAction {
+            going.visibility = GONE
+            going.translationX = 0f
+        }.start()
+    }
+
+    /** Tells whether the Bluetooth pages are open, when that changes. */
+    private fun tellBluetoothPage() {
+        val on = isOpen && stack.contains(btPage)
+        if (on == btShownOn) return
+        btShownOn = on
+        if (!on) btSays = null
+        onBluetoothPage?.invoke(on)
     }
 
     /** What to show: the TV's (empty while it isn't connected), this phone's, and the app's version line. */
@@ -98,22 +193,24 @@ class SettingsScreen @JvmOverloads constructor(context: Context, attrs: Attribut
         fillPointer()
     }
 
+    /** The pointer's page (true), or back to the list. */
     fun showPointer(on: Boolean, animate: Boolean = true) {
-        val (coming, going) = if (on) pointerPage to mainPage else mainPage to pointerPage
-        if (coming.visibility == VISIBLE && going.visibility != VISIBLE) return
-        val w = (if (width > 0) width else resources.displayMetrics.widthPixels).toFloat()
-        coming.visibility = VISIBLE
-        if (!animate) {
-            coming.translationX = 0f
-            going.visibility = GONE
-            return
-        }
-        coming.translationX = if (on) w else -w * 0.3f
-        coming.animate().translationX(0f).setDuration(280).setInterpolator(EASE).start()
-        going.animate().translationX(if (on) -w * 0.3f else w).setDuration(280).setInterpolator(EASE).withEndAction {
-            going.visibility = GONE
-            going.translationX = 0f
-        }.start()
+        if (on) {
+            if (stack.last() !== pointerPage) push(pointerPage, animate)
+        } else while (stack.size > 1) pop(animate)
+    }
+
+    /** How the TV's Bluetooth is now (null: not known, or the TV isn't connected). */
+    fun showBluetooth(state: TvBluetooth?) {
+        bt = state
+        fillBluetooth()
+        fillMain()
+    }
+
+    /** A line from the TV for the Bluetooth pages (what's happening, or what went wrong); null clears it. */
+    fun bluetoothSays(said: Pair<String, String>?) {
+        btSays = said
+        fillBluetooth()
     }
 
     // ---------------------------------------------------------------- the list
@@ -127,6 +224,10 @@ class SettingsScreen @JvmOverloads constructor(context: Context, attrs: Attribut
             tvRows.forEachIndexed { i, s ->
                 if (i > 0) divider(it)
                 row(it, s, iconFor(s.key), colourFor(s.key)) { value -> onTvChange?.invoke(s.key, value) }
+            }
+            if (tv.isNotEmpty()) {
+                divider(it)
+                link(it, R.drawable.ic_bluetooth, R.color.voice_bottom, context.getString(R.string.bt_title), bluetoothSummary()) { push(btPage) }
             }
         })
         if (tv.any { it.key in POINTER_KEYS }) {
@@ -177,6 +278,206 @@ class SettingsScreen @JvmOverloads constructor(context: Context, attrs: Attribut
         "bluetooth" -> R.color.voice_bottom
         "mirror" -> R.color.hotstar
         else -> R.color.surface_pressed
+    }
+
+    // ---------------------------------------------------------------- the TV's Bluetooth
+
+    private fun bluetoothSummary(): String {
+        val b = bt ?: return context.getString(R.string.bt_summary)
+        return when {
+            b.power == "none" -> context.getString(R.string.bt_none_short)
+            !b.isOn -> context.getString(R.string.bt_off)
+            else -> b.devices.filter { it.connected }.joinToString(", ") { it.name }.ifEmpty { context.getString(R.string.bt_on_nothing) }
+        }
+    }
+
+    private fun kindIcon(kind: String) = when (kind) {
+        "headphones" -> R.drawable.ic_headphones
+        "speaker", "audio" -> R.drawable.ic_speaker
+        "phone" -> R.drawable.ic_smartphone
+        "computer" -> R.drawable.ic_computer
+        "keyboard" -> R.drawable.ic_keyboard
+        "mouse" -> R.drawable.ic_mouse
+        "gamepad" -> R.drawable.ic_gamepad
+        else -> R.drawable.ic_bluetooth
+    }
+
+    private fun fillBluetooth() {
+        fillBluetoothMain()
+        fillBluetoothDevice()
+        fillBluetoothAdd()
+    }
+
+    /** The main Bluetooth page: the switch, the paired devices, adding one. */
+    private fun fillBluetoothMain() {
+        btList.removeAllViews()
+        says(btList)
+        val b = bt
+        btList.addView(card {
+            when {
+                b == null -> note(it, R.drawable.ic_bluetooth, R.color.muted, context.getString(if (tv.isEmpty()) R.string.bt_offline else R.string.bt_asking))
+                b.power == "none" -> note(it, R.drawable.ic_bluetooth, R.color.muted, context.getString(R.string.bt_none))
+                else -> {
+                    val power = TvSetting("btpower", if (b.isOn) "on" else "off", context.getString(R.string.bt_title),
+                        if (b.isOn) b.radio else context.getString(R.string.bt_off_note), listOf("on" to "", "off" to ""))
+                    row(it, power, R.drawable.ic_bluetooth, R.color.voice_bottom) { value -> onBluetooth?.invoke("POWER " + if (value == "on") "ON" else "OFF") }
+                }
+            }
+        })
+        if (b == null || !b.isOn) return
+        heading(btList, R.string.bt_paired)
+        btList.addView(card {
+            if (b.devices.isEmpty()) note(it, R.drawable.ic_bluetooth, R.color.muted, context.getString(R.string.bt_none_paired))
+            b.devices.forEachIndexed { i, d ->
+                if (i > 0) divider(it)
+                val row = line(kindIcon(d.kind), if (d.connected) R.color.good_bottom else R.color.surface_pressed,
+                    words(d.name, d.note.ifEmpty { null }, if (d.connected) R.color.good else R.color.muted), chevron())
+                row.setOnClickListener { v ->
+                    Haptics.press(v)
+                    btAddress = d.address
+                    fillBluetoothDevice()
+                    push(btDevicePage)
+                }
+                it.addView(row)
+            }
+        })
+        btList.addView(View(context), LinearLayout.LayoutParams(1, dp(12)))
+        btList.addView(card {
+            link(it, R.drawable.ic_add, R.color.good_bottom, context.getString(R.string.bt_add), context.getString(R.string.bt_add_note)) { push(btAddPage) }
+        })
+        btList.addView(View(context), LinearLayout.LayoutParams(1, dp(32)))
+    }
+
+    /** One paired device's page. */
+    private fun fillBluetoothDevice() {
+        btDeviceList.removeAllViews()
+        val d = bt?.devices?.find { it.address == btAddress }
+        btDeviceTitle?.text = d?.name ?: ""
+        says(btDeviceList)
+        if (d == null) {
+            btDeviceList.addView(card { note(it, R.drawable.ic_bluetooth, R.color.muted, context.getString(R.string.bt_gone)) })
+            return
+        }
+        btDeviceList.addView(card {
+            it.addView(line(kindIcon(d.kind), if (d.connected) R.color.good_bottom else R.color.surface_pressed,
+                words(d.name, d.note.ifEmpty { null }, if (d.connected) R.color.good else R.color.muted), null))
+        })
+        btDeviceList.addView(View(context), LinearLayout.LayoutParams(1, dp(12)))
+        btDeviceList.addView(card {
+            if (d.audio) {
+                val connect = line(if (d.connected) R.drawable.ic_link_off else R.drawable.ic_link, if (d.connected) R.color.surface_pressed else R.color.good_bottom,
+                    words(context.getString(if (d.connected) R.string.bt_disconnect else R.string.bt_connect), null), null)
+                connect.setOnClickListener { v ->
+                    Haptics.press(v)
+                    onBluetooth?.invoke((if (d.connected) "DISCONNECT " else "CONNECT ") + d.address)
+                }
+                it.addView(connect)
+                divider(it)
+                val auto = TvSetting("btauto", if (d.auto) "on" else "off", context.getString(R.string.bt_auto),
+                    context.getString(R.string.bt_auto_note), listOf("on" to "", "off" to ""))
+                row(it, auto, R.drawable.ic_bluetooth_searching, R.color.voice) { value -> onBluetooth?.invoke("AUTO ${d.address} " + if (value == "on") "ON" else "OFF") }
+                divider(it)
+                val together = TvSetting("bttogether", if (d.together) "on" else "off", context.getString(R.string.bt_together),
+                    context.getString(R.string.bt_together_note), listOf("on" to "", "off" to ""))
+                row(it, together, R.drawable.ic_tv, R.color.hotstar) { value -> onBluetooth?.invoke("TOGETHER ${d.address} " + if (value == "on") "ON" else "OFF") }
+            } else note(it, kindIcon(d.kind), R.color.surface_pressed, context.getString(R.string.bt_connects_itself))
+        })
+        btDeviceList.addView(View(context), LinearLayout.LayoutParams(1, dp(12)))
+        btDeviceList.addView(card {
+            val forget = line(R.drawable.ic_delete, R.color.power, words(context.getString(R.string.bt_forget), null, R.color.muted), null)
+            forget.setOnClickListener { v ->
+                Haptics.press(v)
+                AlertDialog.Builder(context, android.R.style.Theme_Material_Dialog_Alert)
+                    .setTitle(context.getString(R.string.bt_forget_title, d.name))
+                    .setMessage(R.string.bt_forget_message)
+                    .setPositiveButton(R.string.bt_forget) { _, _ ->
+                        onBluetooth?.invoke("FORGET " + d.address)
+                        back()
+                    }
+                    .setNegativeButton(R.string.cancel, null)
+                    .show()
+            }
+            it.addView(forget)
+        })
+        btDeviceList.addView(View(context), LinearLayout.LayoutParams(1, dp(32)))
+    }
+
+    /** Adding a device: the TV searches while this is open; tap one to pair. */
+    private fun fillBluetoothAdd() {
+        btAddList.removeAllViews()
+        says(btAddList)
+        btAddList.addView(TextView(context).apply {
+            setText(R.string.bt_pairing_mode)
+            setTextColor(context.getColor(R.color.muted))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setPadding(dp(6), dp(8), dp(6), dp(4))
+        })
+        val b = bt
+        if (b == null || !b.isOn) {
+            btAddList.addView(card { note(it, R.drawable.ic_bluetooth, R.color.muted, context.getString(R.string.bt_off_note)) })
+            return
+        }
+        val searching = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(6), dp(14), dp(6), dp(8))
+            addView(ProgressBar(context).apply {
+                isIndeterminate = true
+                indeterminateTintList = ColorStateList.valueOf(context.getColor(R.color.good))
+                visibility = if (b.searching) VISIBLE else INVISIBLE
+            }, LinearLayout.LayoutParams(dp(20), dp(20)))
+            addView(TextView(context).apply {
+                setText(if (b.searching) R.string.bt_searching else R.string.bt_found_heading)
+                setTextColor(context.getColor(R.color.muted))
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                isAllCaps = true
+                letterSpacing = 0.06f
+                setPadding(dp(10), 0, 0, 0)
+            })
+        }
+        btAddList.addView(searching)
+        btAddList.addView(card {
+            if (b.found.isEmpty()) note(it, R.drawable.ic_bluetooth_searching, R.color.muted, context.getString(R.string.bt_nothing_found))
+            b.found.forEachIndexed { i, f ->
+                if (i > 0) divider(it)
+                val row = line(kindIcon(f.kind), R.color.voice_bottom, words(f.name, context.getString(R.string.bt_tap_to_pair)), chevron())
+                row.setOnClickListener { v ->
+                    Haptics.press(v)
+                    onBluetooth?.invoke("PAIR " + f.address)
+                }
+                it.addView(row)
+            }
+        })
+        btAddList.addView(View(context), LinearLayout.LayoutParams(1, dp(32)))
+    }
+
+    /** The TV's last line for these pages, as a card at the top: green, yellow or grey. */
+    private fun says(list: LinearLayout) {
+        val (kind, message) = btSays ?: return
+        if (message.isEmpty()) return
+        list.addView(TextView(context).apply {
+            text = message
+            setTextColor(context.getColor(when (kind) {
+                "good" -> R.color.good
+                "warn" -> R.color.warn
+                else -> R.color.ink
+            }))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(16).toFloat()
+                setColor(context.getColor(R.color.surface_raised))
+            }
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(8)
+            bottomMargin = dp(4)
+        })
+    }
+
+    private fun chevron() = ImageView(context).apply {
+        setImageResource(R.drawable.ic_chevron_right)
+        imageTintList = ColorStateList.valueOf(context.getColor(R.color.muted))
     }
 
     // ---------------------------------------------------------------- the pointer's page
@@ -315,8 +616,10 @@ class SettingsScreen @JvmOverloads constructor(context: Context, attrs: Attribut
 
     // ---------------------------------------------------------------- the pieces
 
-    /** A page: a bar with a back arrow and its name, over its list, scrolling. */
-    private fun page(title: Int, list: LinearLayout, back: () -> Unit): View {
+    private fun column() = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+
+    /** A page: a bar with a back arrow and its name ([named] gets it, to change later), over its list, scrolling. */
+    private fun page(title: String, list: LinearLayout, named: ((TextView) -> Unit)? = null, back: () -> Unit): View {
         val bar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -330,12 +633,15 @@ class SettingsScreen @JvmOverloads constructor(context: Context, attrs: Attribut
                 Haptics.attach(this)
             }, LinearLayout.LayoutParams(dp(48), dp(48)))
             addView(TextView(context).apply {
-                setText(title)
+                text = title
                 setTextColor(context.getColor(R.color.ink))
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 26f)
                 typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
                 setPadding(dp(14), 0, 0, 0)
-            })
+                named?.invoke(this)
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         }
         val scroll = ScrollView(context).apply {
             isVerticalScrollBarEnabled = false
@@ -469,10 +775,7 @@ class SettingsScreen @JvmOverloads constructor(context: Context, attrs: Attribut
 
     /** A row that opens something: the pointer's page, the connection's details, a check for updates. */
     private fun link(card: LinearLayout, icon: Int, colour: Int, title: String, summary: String?, open: () -> Unit) {
-        val row = line(icon, colour, words(title, summary), ImageView(context).apply {
-            setImageResource(R.drawable.ic_chevron_right)
-            imageTintList = ColorStateList.valueOf(context.getColor(R.color.muted))
-        })
+        val row = line(icon, colour, words(title, summary), chevron())
         row.setOnClickListener {
             Haptics.press(it)
             open()

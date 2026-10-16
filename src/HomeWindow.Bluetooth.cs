@@ -52,6 +52,7 @@ namespace CouchTV
             _bluetooth = new BluetoothManager();
             _bluetooth.Changed += () => Dispatcher.BeginInvoke(new Action(() =>
             {
+                TellPhonesBluetooth();   // a phone with its Bluetooth page open
                 if (!BluetoothOpen) return;
                 RefreshBluetoothPower();
                 RenderBluetooth();
@@ -59,11 +60,13 @@ namespace CouchTV
             _bluetooth.ConnectionChanged += (name, connected, together) => Dispatcher.BeginInvoke(new Action(() =>
             {
                 string message = connected ? name + " connected" + (together ? ": playing with the TV speakers" : "") : name + " disconnected";
+                TellPhonesBluetooth("good", message);
                 if (BluetoothOpen) ShowBluetoothMessage(message, Theme.Good);
                 else if (IsActive && !Modal) Toast(message);
                 else Osd.ShowMessage('', message, 4);
             }));
             _bluetooth.Start();
+            StartBluetoothForPhones();
         }
 
         List<BluetoothManager.Device> BtDevices { get { return _bluetooth != null ? _bluetooth.Devices : _btPreviewDevices ?? new List<BluetoothManager.Device>(); } }

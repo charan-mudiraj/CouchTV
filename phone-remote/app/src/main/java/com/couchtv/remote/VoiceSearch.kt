@@ -42,6 +42,7 @@ class VoiceSearch(private val activity: Activity, private val remote: Remote) {
     private var recognizer: SpeechRecognizer? = null
     private var panel: AlertDialog? = null
     private var mic: ImageView? = null
+    private var rings: VoiceRings? = null
     private var status: TextView? = null
     private var heard: TextView? = null
     private var languageButton: Button? = null
@@ -121,6 +122,8 @@ class VoiceSearch(private val activity: Activity, private val remote: Remote) {
         if (panel != null) return
         val view = LayoutInflater.from(activity).inflate(R.layout.voice_panel, null)
         mic = view.findViewById(R.id.voice_mic)
+        rings = view.findViewById(R.id.voice_rings)
+        rings?.micShare = 100f / 184f
         status = view.findViewById(R.id.voice_status)
         heard = view.findViewById(R.id.voice_heard)
         languageButton = view.findViewById(R.id.voice_language)
@@ -183,6 +186,8 @@ class VoiceSearch(private val activity: Activity, private val remote: Remote) {
         recognizer?.destroy()
         recognizer = null
         mic = null
+        rings?.active = false
+        rings = null
         status = null
         heard = null
         languageButton = null
@@ -201,9 +206,9 @@ class VoiceSearch(private val activity: Activity, private val remote: Remote) {
         languageButton?.setText(if (language == "hi-IN") R.string.language_hindi else R.string.language_english)
     }
 
+    /** Not listening any more: the rings settle and fade. */
     private fun resetMic() {
-        mic?.scaleX = 1f
-        mic?.scaleY = 1f
+        rings?.active = false
     }
 
     /** A miss the user can retry from the panel by tapping the mic. */
@@ -216,14 +221,14 @@ class VoiceSearch(private val activity: Activity, private val remote: Remote) {
     private val listener = object : RecognitionListener {
         override fun onReadyForSpeech(params: Bundle?) {
             status?.setText(R.string.voice_listening)
+            rings?.active = true
         }
 
         override fun onBeginningOfSpeech() {}
 
         override fun onRmsChanged(rmsdB: Float) {
-            val scale = 1f + rmsdB.coerceIn(0f, 10f) / 10f * 0.3f   // the mic grows with your voice
-            mic?.scaleX = scale
-            mic?.scaleY = scale
+            // The rings swell with your voice (about -2 dB is quiet, 10 dB loud).
+            if (listening) rings?.level = (rmsdB + 2f) / 12f
         }
 
         override fun onBufferReceived(buffer: ByteArray?) {}

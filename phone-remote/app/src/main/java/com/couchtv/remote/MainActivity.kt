@@ -139,6 +139,11 @@ class MainActivity : Activity() {
         settings.onPhoneChange = { key, value -> changePhoneSetting(key, value) }
         settings.onVersion = { checkForUpdate(manual = true) }
         settings.onConnection = { openStatus() }
+        // The TV's Bluetooth, on pages of its own in Settings: the TV says how it is while they're open.
+        settings.onBluetooth = { remote.wifi.bluetooth(it) }
+        settings.onBluetoothPage = { open -> remote.wifi.bluetoothOpen = open }
+        remote.wifi.onBluetooth = { settings.showBluetooth(remote.wifi.bluetooth) }
+        remote.wifi.onBluetoothSays = { settings.bluetoothSays(it) }
         remote.wifi.onSettings = {
             remote.wifi.settings.find { it.key == "powercountdown" }?.value?.toIntOrNull()?.let { phone.powerCountdown = it }
             showSettings()
@@ -328,6 +333,10 @@ class MainActivity : Activity() {
                 }
                 "trackpad" -> {
                     openTrackpad()
+                    true
+                }
+                "bluetooth" -> {
+                    findViewById<SettingsScreen>(R.id.settings_screen).openBluetooth()
                     true
                 }
                 "settings" -> {
@@ -1020,8 +1029,8 @@ class MainActivity : Activity() {
     private lateinit var sleepLabel: TextView
 
     /**
-     * The shortcuts panel at the top of the first page: Settings, the Web app, the sleep timer, Menu, and the TV's
-     * apps that don't fit the remote's bottom row.
+     * The shortcuts panel at the top of the first page: Settings, the Web app, the sleep timer, the TV's Bluetooth,
+     * Menu, and the TV's apps that don't fit the remote's bottom row.
      */
     private fun showShortcuts() {
         val all = listOf(
@@ -1032,6 +1041,9 @@ class MainActivity : Activity() {
                 openApp(remote.wifi.apps.find { it.name == "Web" } ?: TvApp("Web", getString(R.string.app_web), 0, 0))
             },
             Shortcut(R.drawable.ic_bedtime, R.color.voice, getString(R.string.key_sleep_timer), sleepLabel) { sleepTimer.open() },
+            Shortcut(R.drawable.ic_bluetooth, R.color.voice_bottom, getString(R.string.bt_title)) {
+                findViewById<SettingsScreen>(R.id.settings_screen).openBluetooth()
+            },
             Shortcut(R.drawable.ic_menu, R.color.good_bottom, getString(R.string.menu)) {
                 remote.press(Codes.ADDRESS, Codes.MENU, hold = false)
             },
