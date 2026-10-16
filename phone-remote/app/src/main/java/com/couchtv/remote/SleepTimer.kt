@@ -28,6 +28,7 @@ class SleepTimer(private val context: Context, private val remote: Remote, priva
     private val prefs = context.getSharedPreferences("sleep", Context.MODE_PRIVATE)
     private val main = Handler(Looper.getMainLooper())
     private val tick = Runnable { showKey() }
+    private var dialog: AlertDialog? = null
 
     init {
         remote.wifi.onSleepTimer = { showKey() }
@@ -107,6 +108,7 @@ class SleepTimer(private val context: Context, private val remote: Remote, priva
             toast(context.getString(R.string.sleep_turned_off))
         }
         val dialog = builder.show()
+        this.dialog = dialog
         val start = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
 
         fun chosen() = hours.value * 60 + minutes.value
@@ -146,6 +148,10 @@ class SleepTimer(private val context: Context, private val remote: Remote, priva
     }
 
     fun stop() = main.removeCallbacks(tick)
+
+    fun dismiss() {
+        dialog?.dismiss()
+    }
 
     private fun minutesOf(ms: Long) = ((ms + 59_999) / 60_000).toInt()
 

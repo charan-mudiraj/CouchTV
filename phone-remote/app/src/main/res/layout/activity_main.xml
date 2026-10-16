@@ -319,7 +319,7 @@
                     app:columns="2"
                     app:fillLastRow="true"
                     app:gap="12dp"
-                    app:rowHeight="96dp">
+                    app:rowHeight="136dp">
 
                     <Button
                         android:id="@+id/app_netflix"

@@ -89,7 +89,7 @@ namespace CouchTV
         DateTime? _sleepAt;
         long _sleepTicks;   // _sleepAt for other threads (0: off)
         bool _sleepWarned, _pointer = true;
-        Point _keyMouse;
+        Point _keyMouse, _mouseAt, _hoverAt = new Point(double.NaN, double.NaN);
         Action _confirmAction;
         int _confirmIndex;
 
@@ -573,7 +573,15 @@ namespace CouchTV
         void HookMouse(TileView v)
         {
             // Not for a finger (the screen mirror's), nor while dragging: the row would slide back to the tile.
-            v.Root.MouseEnter += (s, e) => { if (_pointer && !Modal && e.StylusDevice == null && !(_pressed && _dragged)) FocusTile(v); };
+            // Only when the pointer moves onto it: tiles sliding under a pointer that's still (a finger dragged the row,
+            // the wheel turned) leave the focus where it was.
+            v.Root.MouseEnter += (s, e) =>
+            {
+                Point at = e.GetPosition(this);
+                bool moved = at != _hoverAt;
+                _hoverAt = at;
+                if (moved && _pointer && !Modal && e.StylusDevice == null && !(_pressed && _dragged)) FocusTile(v);
+            };
             v.Root.MouseLeftButtonUp += (s, e) =>
             {
                 if (Modal) return;
@@ -880,6 +888,8 @@ namespace CouchTV
             if (e.StylusDevice != null) return;   // a finger on the screen mirror: no pointer to show
             // Air mice jitter, so ignore small movements after the arrow keys were used.
             Point p = e.GetPosition(this);
+            if (p == _mouseAt) return;   // WPF's own, as something moved under a pointer that's still
+            _mouseAt = p;
             if (!_pointer)
             {
                 if ((p - _keyMouse).Length < 24) return;

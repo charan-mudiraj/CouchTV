@@ -55,6 +55,10 @@ class StatusPanel(private val context: Context) {
             .show()
     }
 
+    fun dismiss() {
+        dialog?.dismiss()
+    }
+
     /** New lines while it's open (the TV came or went, say). */
     fun update(lines: List<Row>) {
         if (dialog?.isShowing == true) fill(lines)

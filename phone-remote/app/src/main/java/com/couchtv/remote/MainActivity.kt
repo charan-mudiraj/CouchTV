@@ -227,6 +227,11 @@ class MainActivity : Activity() {
                     openStatus()
                     true
                 }
+                "close" -> {
+                    statusPanel.dismiss()
+                    sleepTimer.dismiss()
+                    true
+                }
                 else -> false
             }
         }
