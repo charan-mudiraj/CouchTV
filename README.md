@@ -62,6 +62,8 @@ Everything is undone by `Uninstall-CouchTV.cmd`.
 | F5 on the home screen | Reload `couchtv.ini` after editing it |
 | F6 on the home screen | Check for a CouchTV update now |
 
+**Hands off for a moment:** whenever CouchTV works something on the TV by itself, a banner at the top of the screen says what (with a turning ring) until it's done, so you know not to press anything meanwhile: picking your Netflix profile, starting Edge afresh, putting the next song on in YouTube's page, making a song full screen, or a test tool on a laptop pressing keys. It's left out of screen captures (the phone's screen mirror), and goes by itself.
+
 ### Playing in the background
 
 Press **Home** while music, or anything on YouTube, is playing and it keeps playing behind the home screen instead of closing (a film on Netflix, Prime Video or JioHotstar closes as before, and so does anything paused). A card at the top of the home screen shows it: the picture, the title and artist, playing or paused, and the timeline moving along. Press **Up** from the apps to reach it, then:

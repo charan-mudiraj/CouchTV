@@ -112,24 +112,31 @@ namespace CouchTV
 
         static DateTime Max(DateTime a, DateTime b) { return a > b ? a : b; }
 
+        /// <summary>A browser left running that would take a new window and ignore what's asked of it.</summary>
+        internal sealed class StaleBrowser
+        {
+            public int Pid;
+            public string What;
+        }
+
         /// <summary>
         /// Before a web tile opens: a browser already running on the same profile would take the new window and keep
-        /// what it started with: no extension (started before CouchTV loaded it, or by hand), or an older one. Edge keeps
-        /// running in the background after its window closes, and a new tile's window joins it at once. So one like that
-        /// is closed first, if it has no windows of its own open (it waits a moment for the app window just closed to
-        /// go); one with windows open (Brave playing music behind) is left alone, and gets the extension once it closes.
+        /// what it started with: no extension or DevTools port (started before CouchTV asked for them, or by hand), or
+        /// an older extension. Edge keeps running in the background after its window closes, and a new tile's window
+        /// joins it at once. Quick (one look at the running programs, once a run unless the extension changes); null or
+        /// empty if there's none. Close() then closes them, which takes a moment.
         /// userDataDir: the profile's folder, or null for the browser's own (default) one.
         /// </summary>
-        public static void Freshen(string exe, string userDataDir)
+        public static List<StaleBrowser> Stale(string exe, string userDataDir)
         {
             string key = exe + "|" + (userDataDir ?? "");
+            var stale = new List<StaleBrowser>();
             try
             {
                 DateTime changed = Changed();
                 DateTime seen;
-                if (Fresh.TryGetValue(key, out seen) && seen >= changed) return;
+                if (Fresh.TryGetValue(key, out seen) && seen >= changed) return stale;
                 string name = Path.GetFileName(exe);
-                bool stale = false;
                 using (var searcher = new ManagementObjectSearcher("SELECT ProcessId, CommandLine, CreationDate FROM Win32_Process WHERE Name = '" + name.Replace("'", "") + "'"))
                 {
                     foreach (ManagementBaseObject p in searcher.Get())
@@ -140,7 +147,6 @@ namespace CouchTV
                         string its = dir.Success ? (dir.Groups[1].Success ? dir.Groups[1].Value : dir.Groups[2].Value) : null;
                         if (!SameFolder(its, userDataDir)) continue;
                         DateTime started = ManagementDateTimeConverter.ToDateTime((string)p["CreationDate"]).ToUniversalTime();
-                        int pid = Convert.ToInt32(p["ProcessId"]);
                         string what;
                         if (userDataDir != null)
                         {
@@ -154,24 +160,45 @@ namespace CouchTV
                             what = name + " (running since " + started.ToLocalTime().ToString("HH:mm") + ", " +
                                    (command.Contains("--load-extension=") ? "an older extension" : "no extension") + ")";
                         }
-                        if (!WindowsGone(pid))
-                        {
-                            Log.Info("Websites: " + what + " has windows open, so it keeps that until it's closed");
-                            stale = true;
-                            continue;
-                        }
-                        Log.Info("Websites: closing " + what + ", left running in the background, so the new window gets the extension");
-                        using (Process process = Process.GetProcessById(pid))
-                        {
-                            process.Kill();
-                            process.WaitForExit(5000);
-                        }
-                        Thread.Sleep(300);   // its helpers and its hold on the profile go with it
+                        stale.Add(new StaleBrowser { Pid = Convert.ToInt32(p["ProcessId"]), What = what });
                     }
                 }
-                if (!stale) Fresh[key] = changed;
+                if (stale.Count == 0) Fresh[key] = changed;
             }
             catch (Exception ex) { Log.Error("Websites: checking for a browser running from before", ex); }
+            return stale;
+        }
+
+        /// <summary>
+        /// Closes them, each once it has no windows of its own open (waiting a moment for the app window just closed to
+        /// go); one with windows open (Brave playing music behind) is left alone, and gets the touches once it closes.
+        /// Slow: call off the UI thread.
+        /// </summary>
+        public static void Close(List<StaleBrowser> stale, string exe, string userDataDir)
+        {
+            bool left = false;
+            foreach (StaleBrowser browser in stale)
+            {
+                try
+                {
+                    if (!WindowsGone(browser.Pid))
+                    {
+                        Log.Info("Websites: " + browser.What + " has windows open, so it keeps that until it's closed");
+                        left = true;
+                        continue;
+                    }
+                    Log.Info("Websites: closing " + browser.What + ", left running in the background, so the new window gets the touches");
+                    using (Process process = Process.GetProcessById(browser.Pid))
+                    {
+                        process.Kill();
+                        process.WaitForExit(5000);
+                    }
+                    Thread.Sleep(300);   // its helpers and its hold on the profile go with it
+                }
+                catch (ArgumentException) { /* gone already */ }
+                catch (Exception ex) { Log.Error("Websites: closing " + browser.What, ex); left = true; }
+            }
+            if (!left) lock (Fresh) Fresh[exe + "|" + (userDataDir ?? "")] = Changed();
         }
 
         static bool SameFolder(string a, string b)

@@ -1764,6 +1764,15 @@ namespace CouchTV
                 drawn.Margin = new Thickness(0, 10, 20, 0);
                 _layers.Children.Add(drawn);
             }
+            if (state.Contains("busy"))
+            {
+                // The "hands off" banner, while something's done on the TV by itself (Busy.cs).
+                FrameworkElement banner = Busy.Preview("Putting on Kesariya");
+                banner.HorizontalAlignment = HorizontalAlignment.Center;
+                banner.VerticalAlignment = VerticalAlignment.Top;
+                banner.Margin = new Thickness(0, 28, 0, 0);
+                _layers.Children.Add(banner);
+            }
             if (state.Contains("bgphoto"))
             {
                 _cfg.Wallpaper = Diagnostics.SamplePhoto();   // a bright photo, to see the words over it

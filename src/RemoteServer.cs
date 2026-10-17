@@ -562,10 +562,15 @@ namespace CouchTV
             {
                 session.LastUsed = DateTime.UtcNow;
                 ScreenMirror.Poke();   // the screen's about to change: a mirror looks at full speed
+                // The test tool pressing keys, touching the screen, reading the page...: say so on the TV, so nobody
+                // presses buttons into the middle of it. Reading the log or the screen changes nothing: no banner.
+                if (session.DevTool && parts[0] != "HELLO" && parts[0] != "LOG" && parts[0] != "MIRROR")
+                    Busy.Show("test", (session.Name ?? "A test tool") + (parts[0] == "INSPECT" ? " is reading the page" : " is at work on the TV"), 4);
             }
             switch (parts[0])
             {
                 case "HELLO":
+                    if (session != null && line.Contains("CouchTV-DevTool")) session.DevTool = true;
                     Log.Info("Wi-Fi remote connected: " + who + (session != null ? ", " + session.Name : "") + " (" + line + ")");
                     Raise(() => { if (Connected != null) Connected(who); });
                     Func<string> pointer = CurrentPointer;
@@ -1003,6 +1008,7 @@ namespace CouchTV
         public long LastListen;        // the number of its last sound request: each must be higher (no replays)
         public volatile bool Closed;
         public volatile bool Remote;   // said HELLO: the remote itself (not the phone's sound service)
+        public volatile bool DevTool;  // the laptop's test tool (CouchTV.exe --tv), not a phone: the banner shows while it works
         public volatile bool Trackpad; // its trackpad is open
         public volatile bool SaidTrackpad;   // it says when its trackpad opens and closes (TRACKPAD)
         public volatile bool Bluetooth;      // its Bluetooth page is open

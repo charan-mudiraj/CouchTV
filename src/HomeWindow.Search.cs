@@ -449,17 +449,24 @@ namespace CouchTV
                 if ((now - started).TotalSeconds > 30)
                 {
                     timer.Stop();
+                    Busy.Hide("fullscreen");
                     return;
                 }
                 if (!ProcessInFront(process))
                 {
                     inFront = DateTime.MinValue;
+                    Busy.Hide("fullscreen");
                     return;
                 }
-                if (inFront == DateTime.MinValue) inFront = now;
+                if (inFront == DateTime.MinValue)
+                {
+                    inFront = now;
+                    Busy.Show("fullscreen", "Going full screen in a moment", 7);   // F is pressed for you: a key now could go astray
+                }
                 if ((now - inFront).TotalSeconds < 5) return;
                 timer.Stop();
                 Input.Key(0x46);   // F
+                Busy.Show("fullscreen", "Going full screen", 1);
             };
             timer.Start();
         }

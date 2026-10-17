@@ -141,7 +141,8 @@
     picked = true;
     try { sessionStorage.setItem('couchtv-profile', '1'); } catch (e) { /* fine */ }
     CouchTV.status('netflix: picked the profile ' + s.netflixProfile);
-    CouchTV.click(choice);
+    CouchTV.busy('Choosing the profile \u201C' + s.netflixProfile + '\u201D', 3500);
+    setTimeout(function () { CouchTV.click(choice); }, 600);   // the banner's seen first
   }
 
   // ------------------------------------------------------------------ tidy

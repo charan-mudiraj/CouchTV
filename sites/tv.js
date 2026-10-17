@@ -328,6 +328,31 @@ var CouchTV = (function () {
     if (note.getAttribute('aria-label') !== said) note.setAttribute('aria-label', said);
   }
 
+  /**
+   * "Hands off for a moment", as CouchTV's own banner says it, over the page while something's done in it for you
+   * (picking a profile), so no key lands in the middle of it.
+   */
+  var banner = null, bannerTimer = 0;
+  function busy(text, ms) {
+    if (!banner || !banner.isConnected) {
+      banner = document.createElement('div');
+      banner.setAttribute('aria-hidden', 'true');
+      banner.style.cssText = 'position:fixed;left:50%;top:26px;transform:translateX(-50%);z-index:2147483647;pointer-events:none;' +
+        'display:flex;align-items:center;gap:18px;padding:14px 32px 16px 24px;border-radius:30px;' +
+        'background:rgba(22,27,36,.95);border:2px solid rgba(62,166,255,.8);box-shadow:0 8px 30px rgba(0,0,0,.55);' +
+        'font:600 24px "Segoe UI",sans-serif;color:#F4F6FA;transition:opacity .25s;';
+      banner.innerHTML = '<div style="width:34px;height:34px;border-radius:50%;border:4px solid #3EA6FF;border-right-color:transparent;' +
+        'box-sizing:border-box;animation:couchtv-turn 1.1s linear infinite"></div><div><div class="couchtv-busy-text"></div>' +
+        '<div style="font-weight:400;font-size:18px;color:#A3ACBC;margin-top:2px">Hands off the remote for a moment</div></div>' +
+        '<style>@keyframes couchtv-turn{to{transform:rotate(360deg)}}</style>';
+      document.documentElement.appendChild(banner);
+    }
+    banner.querySelector('.couchtv-busy-text').textContent = text;
+    banner.style.opacity = '1';
+    clearTimeout(bannerTimer);
+    bannerTimer = setTimeout(function () { banner.style.opacity = '0'; }, ms || 2500);
+  }
+
   /** Clicks it the way a person would, so the site's own handlers (which change pages without reloading) run. */
   function click(el) {
     if (!el) return false;
@@ -338,6 +363,6 @@ var CouchTV = (function () {
   return {
     site: use, settings: function () { return settings; }, onSettings: onSettings,
     all: all, shown: shown, show: show, clear: clear, current: function () { return current; },
-    candidates: candidates, first: first, click: click, nearest: best, status: status,
+    candidates: candidates, first: first, click: click, nearest: best, status: status, busy: busy,
   };
 })();

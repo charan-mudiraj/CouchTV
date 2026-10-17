@@ -169,6 +169,10 @@ namespace CouchTV
             _switchDone.Stop();
             _switchDone.Start();
             Log.Info("Up next: " + song.Title + " (" + song.Id + ")" + (atEnd ? ", as the song playing ends" : ""));
+            // It works YouTube's page (its search box, full screen): with YouTube in front, a key pressed meanwhile would
+            // land in the middle of it. Behind another app it's out of sight and out of the way.
+            bool seen = Native.GetForegroundWindow() == window;
+            if (seen) Busy.Show("song", "Putting on " + song.Title, atEnd ? 25 : 15);
             ThreadPool.QueueUserWorkItem(state =>
             {
                 bool ok = false;
@@ -195,6 +199,7 @@ namespace CouchTV
                     }
                 }
                 catch (Exception ex) { Log.Info("Up next: " + ex.Message); }
+                if (seen) Busy.Hide("song");
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
                     if (ok)
@@ -279,6 +284,8 @@ namespace CouchTV
             PageSong theirs = _pageList.Find(s => s.Id == id);
             IntPtr window = YouTubeWindow();
             if (theirs == null || window == IntPtr.Zero) return;
+            bool seen = Native.GetForegroundWindow() == window;
+            if (seen) Busy.Show("song", "Putting on " + theirs.Title, 10);
             ThreadPool.QueueUserWorkItem(state =>
             {
                 try
@@ -286,6 +293,7 @@ namespace CouchTV
                     if (!YouTubePage.Jump(window, theirs.Id, theirs.Index)) Log.Info("Up next: couldn't play " + theirs.Title + " from YouTube's list");
                 }
                 catch (Exception ex) { Log.Info("Up next: " + ex.Message); }
+                if (seen) Busy.Hide("song");
             });
         }
 

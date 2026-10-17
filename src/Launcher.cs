@@ -120,10 +120,34 @@ namespace CouchTV
             // The websites' touches (Sites.cs): the extension written out, and no browser left running from before
             // without them (it would take the new window and ignore what's asked of it below).
             string dataDir = UserDataDir(t, browser);
-            if (Sites.Prepare(cfg)) Sites.Freshen(exe, dataDir);
-            Start(exe, BrowserArgs(t, browser));
-            if (dataDir != null) PageScripts.Attach(dataDir);   // on CouchTV's own profile, they go in through DevTools
-            else CheckExtension(Path.GetFileNameWithoutExtension(exe), t.Label);
+            List<Sites.StaleBrowser> stale = Sites.Prepare(cfg) ? Sites.Stale(exe, dataDir) : null;
+            string args = BrowserArgs(t, browser);
+            Action started = () =>
+            {
+                if (dataDir != null) PageScripts.Attach(dataDir);   // on CouchTV's own profile, they go in through DevTools
+                else CheckExtension(Path.GetFileNameWithoutExtension(exe), t.Label);
+            };
+            if (stale == null || stale.Count == 0)
+            {
+                Start(exe, args);
+                started();
+                return LaunchResult.Success(note);
+            }
+            // Closing it takes a moment (it waits for the window just closed): off the UI thread, with the banner up.
+            Busy.Show("browser", "Starting " + Title(browser) + " afresh for " + t.Label, 15);
+            string named = t.Name;
+            System.Threading.ThreadPool.QueueUserWorkItem(state =>
+            {
+                try
+                {
+                    Sites.Close(stale, exe, dataDir);
+                    Start(exe, args);
+                    started();
+                    System.Threading.Thread.Sleep(3000);   // its window, on its way
+                }
+                catch (Exception ex) { Log.Error("Opening " + named, ex); }
+                Busy.Hide("browser");
+            });
             return LaunchResult.Success(note);
         }
 
