@@ -7,6 +7,10 @@
 'use strict';
 
 var CouchTV = (function () {
+  // Once a page: the extension and CouchTV's DevTools route (PageScripts.cs) could both bring these.
+  if (document.documentElement.hasAttribute('data-couchtv')) return null;
+  document.documentElement.setAttribute('data-couchtv', typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id ? 'extension' : 'devtools');
+
   var settings = { keys: true, youtubeRow: 0, netflixTidy: true };
   var settingsText = '';
   var listeners = [];
@@ -20,7 +24,12 @@ var CouchTV = (function () {
   // ------------------------------------------------------------------ settings
 
   function readSettings() {
-    if (window.__couchtvSettings) return apply(window.__couchtvSettings);   // tests, run in a page without the extension
+    // Put in through DevTools, CouchTV writes changes here (PageScripts.cs).
+    var given = document.documentElement.getAttribute('data-couchtv-settings');
+    if (given) {
+      try { return apply(JSON.parse(given)); } catch (e) { /* half-written: next time */ }
+    }
+    if (window.__couchtvSettings) return apply(window.__couchtvSettings);   // DevTools' starting settings; tests
     var url;
     try { url = chrome.runtime.getURL('settings.json'); } catch (e) { return; }   // the extension's gone: keep what we have
     fetch(url, { cache: 'no-store' })

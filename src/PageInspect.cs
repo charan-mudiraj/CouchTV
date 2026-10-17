@@ -65,6 +65,43 @@ namespace CouchTV
             }
         }
 
+        /// <summary>
+        /// The websites' touches' line in the page (tv.js's status: "CouchTV: netflix: ..."), or null if there's none: a
+        /// sign they're running in it, for the log.
+        /// </summary>
+        public static string Note(IntPtr hwnd)
+        {
+            try
+            {
+                AutomationElement window = AutomationElement.FromHandle(hwnd);
+                AutomationElement page = null;
+                for (int look = 0; look < 4 && (page == null || TreeWalker.RawViewWalker.GetFirstChild(page) == null); look++)
+                {
+                    if (look > 0) Thread.Sleep(900);
+                    page = window.FindFirst(TreeScope.Descendants, Documents);
+                }
+                if (page == null) return null;
+                // The line sits at the very end of the page (after <body>): its last children first.
+                return FindNote(page, 0);
+            }
+            catch (Exception) { return null; }
+        }
+
+        static string FindNote(AutomationElement e, int depth)
+        {
+            if (depth > 3) return null;
+            for (AutomationElement child = TreeWalker.RawViewWalker.GetLastChild(e); child != null; child = TreeWalker.RawViewWalker.GetPreviousSibling(child))
+            {
+                string name;
+                try { name = child.Current.Name ?? ""; }
+                catch (ElementNotAvailableException) { continue; }
+                if (name.StartsWith("CouchTV:", StringComparison.Ordinal)) return name;
+                string deeper = FindNote(child, depth + 1);
+                if (deeper != null) return deeper;
+            }
+            return null;
+        }
+
         /// <summary>The dump made small for one line to a phone: gzipped, then base64.</summary>
         public static string Pack(string dump)
         {

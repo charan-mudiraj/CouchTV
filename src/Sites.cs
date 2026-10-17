@@ -13,7 +13,9 @@ namespace CouchTV
     /// <summary>
     /// CouchTV's touches for websites (the sites folder in the source): a small browser extension, built into
     /// CouchTV.exe and written out to %LOCALAPPDATA%\CouchTV\sites, that the browser for a web tile loads
-    /// (--load-extension). On YouTube and Netflix the remote's arrows move a highlight from video to video and OK opens
+    /// (--load-extension) when it runs on its normal profile (YouTube in Brave). On one of CouchTV's own profiles
+    /// (Netflix in Edge, which no longer takes --load-extension), the same scripts go in through DevTools instead
+    /// (PageScripts.cs). On YouTube and Netflix the remote's arrows move a highlight from video to video and OK opens
     /// one; it also sets YouTube's videos per row and tidies Netflix's home page. Its settings.json is rewritten whenever
     /// one of those settings changes, and the open page reads it again within a couple of seconds.
     /// </summary>
@@ -22,6 +24,9 @@ namespace CouchTV
         const string Prefix = "CouchTV.sites.";
 
         public static string Folder { get { return Path.Combine(Config.DataDir, "sites"); } }
+
+        /// <summary>The settings as the pages read them (settings.json), as last written.</summary>
+        public static string CurrentSettings { get; private set; }
 
         /// <summary>The extension, written out (only files that changed) with today's settings; false if it couldn't be.</summary>
         public static bool Prepare(Config cfg)
@@ -55,8 +60,12 @@ namespace CouchTV
         {
             try
             {
+                string json = SettingsJson(cfg);
+                bool changed = CurrentSettings != null && CurrentSettings != json;
+                CurrentSettings = json;
+                if (changed) PageScripts.SettingsChanged(json);   // pages put in through DevTools
                 if (!Directory.Exists(Folder)) return;   // written with the rest when a site's next opened
-                WriteIfChanged(Path.Combine(Folder, "settings.json"), Encoding.UTF8.GetBytes(SettingsJson(cfg)));
+                WriteIfChanged(Path.Combine(Folder, "settings.json"), Encoding.UTF8.GetBytes(json));
             }
             catch (Exception ex) { Log.Error("Writing the websites' settings", ex); }
         }
@@ -70,13 +79,21 @@ namespace CouchTV
                    ", \"netflixProfile\": " + new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(cfg.NetflixProfile) + "}\n";
         }
 
-        /// <summary>The browser's command line for loading it (nothing if it isn't written out).</summary>
-        public static IEnumerable<string> BrowserArgs()
+        /// <summary>
+        /// The browser's command line for it: on one of CouchTV's own profiles (userDataDir), a DevTools port for
+        /// PageScripts.cs; on the browser's normal profile (null), the extension (nothing if it isn't written out).
+        /// </summary>
+        public static IEnumerable<string> BrowserArgs(string userDataDir)
         {
+            if (userDataDir != null)
+            {
+                yield return "--remote-debugging-port=0";   // a free port, on this PC only
+                yield break;
+            }
             if (!File.Exists(Path.Combine(Folder, "manifest.json"))) yield break;
             yield return "--load-extension=\"" + Folder + "\"";
-            // Edge, like Chrome, has begun ignoring --load-extension (seen on Edge 155 once a profile's been used); this
-            // switch still turns it back on. Brave takes it either way.
+            // Chrome and Edge have begun ignoring --load-extension; this switch turns it back on in some (Edge 155 on
+            // the laptop, not on the TV). Brave takes it either way.
             yield return "--disable-features=DisableLoadExtensionCommandLineSwitch";
         }
 
@@ -124,9 +141,19 @@ namespace CouchTV
                         if (!SameFolder(its, userDataDir)) continue;
                         DateTime started = ManagementDateTimeConverter.ToDateTime((string)p["CreationDate"]).ToUniversalTime();
                         int pid = Convert.ToInt32(p["ProcessId"]);
-                        if (command.Contains("--load-extension=") && started > changed) continue;   // already has it, as it is
-                        string what = name + " (running since " + started.ToLocalTime().ToString("HH:mm") + ", " +
-                                      (command.Contains("--load-extension=") ? "an older extension" : "no extension") + ")";
+                        string what;
+                        if (userDataDir != null)
+                        {
+                            // CouchTV's own profile: it needs its DevTools port open (the scripts come from CouchTV, never stale).
+                            if (command.Contains("--remote-debugging-port")) continue;
+                            what = name + " (running since " + started.ToLocalTime().ToString("HH:mm") + ", without its DevTools port)";
+                        }
+                        else
+                        {
+                            if (command.Contains("--load-extension=") && started > changed) continue;   // already has it, as it is
+                            what = name + " (running since " + started.ToLocalTime().ToString("HH:mm") + ", " +
+                                   (command.Contains("--load-extension=") ? "an older extension" : "no extension") + ")";
+                        }
                         if (!WindowsGone(pid))
                         {
                             Log.Info("Websites: " + what + " has windows open, so it keeps that until it's closed");
@@ -171,6 +198,51 @@ namespace CouchTV
                 if (clock.ElapsedMilliseconds > 2500) return false;
                 Thread.Sleep(150);
             }
+        }
+
+        // ------------------------------------------------------------------ the scripts, for DevTools
+
+        static readonly Dictionary<string, string> Texts = new Dictionary<string, string>();
+
+        static string Text(string file)
+        {
+            lock (Texts)
+            {
+                string text;
+                if (Texts.TryGetValue(file, out text)) return text;
+                using (Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(Prefix + file))
+                using (var reader = new StreamReader(stream, Encoding.UTF8)) text = reader.ReadToEnd();
+                return Texts[file] = text;
+            }
+        }
+
+        /// <summary>
+        /// The scripts as one, for a page's own world beside its scripts: tv.js and the site's (by the page's address, as
+        /// manifest.json matches them), once the page is parsed, with the settings to start with.
+        /// </summary>
+        public static string Bundle(string settings)
+        {
+            return "(function () {\n" +
+                   "if (window.__couchtvBundle) return;\n" +
+                   "window.__couchtvBundle = true;\n" +
+                   "var site = /(^|\\.)netflix\\.com$/.test(location.hostname) ? 'netflix'\n" +
+                   "  : location.hostname === 'www.youtube.com' && location.pathname.indexOf('/tv') !== 0 ? 'youtube' : null;\n" +
+                   "if (!site) return;\n" +
+                   "function go() {\n" +
+                   "window.__couchtvSettings = " + (settings ?? "null").Trim() + ";\n" +
+                   Text("tv.js") + "\n" +
+                   "if (site === 'netflix') {\n" + Text("netflix.js") + "\n}\n" +
+                   "if (site === 'youtube') {\n" + Text("youtube.js") + "\n}\n" +
+                   "}\n" +
+                   "if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go); else go();\n" +
+                   "})();\n";
+        }
+
+        /// <summary>youtube-page.js, for the page's own world (it reaches YouTube's grid), on YouTube only.</summary>
+        public static string PageBundle()
+        {
+            return "if (location.hostname === 'www.youtube.com' && location.pathname.indexOf('/tv') !== 0 && !window.__couchtvPage) {\n" +
+                   "window.__couchtvPage = true;\n" + Text("youtube-page.js") + "\n}\n";
         }
 
         static void WriteIfChanged(string path, byte[] bytes)

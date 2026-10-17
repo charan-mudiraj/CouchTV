@@ -3,6 +3,7 @@
 'use strict';
 
 (function () {
+  if (!CouchTV) return;   // already in this page by the other route
   var CARDS = [
     'ytd-rich-item-renderer',                 // home, subscriptions, a channel's videos
     'ytd-video-renderer',                     // search results, history
@@ -133,5 +134,7 @@
   CouchTV.onSettings(function (s) {
     var n = parseInt(s.youtubeRow, 10) || 0;
     document.documentElement.setAttribute('data-couchtv-row', String(n >= 1 && n <= 8 ? n : 0));
+    CouchTV.status('youtube: arrows ' + (s.keys ? 'on' : 'off') + ', videos per row ' + (n || 'YouTube\'s choice') + ', by ' +
+      document.documentElement.getAttribute('data-couchtv'));
   });
 })();

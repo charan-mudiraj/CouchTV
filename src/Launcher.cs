@@ -117,8 +117,13 @@ namespace CouchTV
                 }
             }
             if (exe == null) return LaunchResult.Fail(Title(t.Browser) + " isn't installed");
-            if (Sites.Prepare(cfg)) Sites.Freshen(exe, UserDataDir(t, browser));   // the websites' touches (Sites.cs), loaded below
+            // The websites' touches (Sites.cs): the extension written out, and no browser left running from before
+            // without them (it would take the new window and ignore what's asked of it below).
+            string dataDir = UserDataDir(t, browser);
+            if (Sites.Prepare(cfg)) Sites.Freshen(exe, dataDir);
             Start(exe, BrowserArgs(t, browser));
+            if (dataDir != null) PageScripts.Attach(dataDir);   // on CouchTV's own profile, they go in through DevTools
+            else CheckExtension(Path.GetFileNameWithoutExtension(exe), t.Label);
             return LaunchResult.Success(note);
         }
 
@@ -148,7 +153,7 @@ namespace CouchTV
             if (!string.IsNullOrEmpty(t.Scale)) args.Add("--force-device-scale-factor=" + t.Scale);
             // The remote's arrows on YouTube and Netflix, and their tidying (Sites.cs). A browser that's already open
             // on the same profile keeps what it started with.
-            args.AddRange(Sites.BrowserArgs());
+            args.AddRange(Sites.BrowserArgs(dataDir));
             if (!string.IsNullOrEmpty(t.Args)) args.Add(t.Args);
             if (t.Kind == TileKind.Browser && !string.IsNullOrEmpty(t.Url)) args.Add(Quote(t.Url));
             return string.Join(" ", args);
@@ -160,6 +165,23 @@ namespace CouchTV
             if (string.Equals(t.Profile, "default", StringComparison.OrdinalIgnoreCase)) return null;
             string profile = string.IsNullOrEmpty(t.Profile) || t.Profile.Equals("tv", StringComparison.OrdinalIgnoreCase) ? browser : t.Profile;
             return Path.Combine(Config.DataDir, "profiles", profile);
+        }
+
+        /// <summary>
+        /// For the log, a few seconds after a browser on its normal profile opens: whether the extension's in its page,
+        /// by the line tv.js leaves there (not a sure thing: some browsers stop taking --load-extension).
+        /// </summary>
+        static void CheckExtension(string process, string label)
+        {
+            System.Threading.ThreadPool.QueueUserWorkItem(state =>
+            {
+                System.Threading.Thread.Sleep(10000);
+                IntPtr front = Native.GetForegroundWindow();
+                if (!string.Equals(Shell.WindowProcess(front), process, StringComparison.OrdinalIgnoreCase)) return;
+                string note = PageInspect.Note(front);
+                Log.Info("Websites: " + (note != null ? "the extension's running in " + label + " (" + note + ")"
+                    : "no sign of the extension in " + label + " (a page it's not for, or " + process + " didn't load it)"));
+            });
         }
 
         public static string FindBrowser(Config cfg, string key)

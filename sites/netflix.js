@@ -10,6 +10,7 @@
 'use strict';
 
 (function () {
+  if (!CouchTV) return;   // already in this page by the other route
   // Titles and profiles, by name (the old layout's; the new one's are covered by "anything you can press" below).
   var TITLES = '.title-card-container, .titleCard--container, .titleCardList--container, .slider-item .title-card, ' +
                '.profile-link, [data-uia*="title-card"], [data-uia*="profile-link"], [data-uia*="select-profile"]';
@@ -203,7 +204,7 @@
     document.querySelectorAll('.lolomoRow[data-list-context*="game"]').forEach(function (row) { row.classList.add('couchtv-gone'); });
     var old = !!document.querySelector('.lolomo, .billboard-row');
     gone = document.querySelector('[data-couchtv-gone]');
-    CouchTV.status('netflix: ' + (old ? 'old' : 'new') + ' layout, tidy on, billboard ' +
+    CouchTV.status('netflix (by ' + document.documentElement.getAttribute('data-couchtv') + '): ' + (old ? 'old' : 'new') + ' layout, tidy on, billboard ' +
       (gone ? 'hidden (' + gone.tagName.toLowerCase() + '.' + String(gone.className).trim().split(/\s+/).join('.') + ')' : old ? 'hidden by name' : 'not found'));
   }
 

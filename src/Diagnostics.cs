@@ -161,10 +161,20 @@ namespace CouchTV
             check("inspecting a page: no window is said, not thrown; the dump packs and unpacks (" + inspected.Trim().Replace("\r\n", " | ") + ")",
                 inspected.Contains("Failed") && unpacked.Contains("\"Netflix\""));
             Sites.Prepare(Config.Load());   // as a web tile opening would, with this PC's own settings
-            string webArgs = Launcher.BrowserArgs(tube, "brave");
-            check("websites: a web tile's browser loads it (" + webArgs.Substring(Math.Max(0, webArgs.IndexOf("--load-extension"))) + ")",
+            var ownTube = new Tile { Name = "YouTube", Label = "YouTube", Kind = TileKind.Web, Url = "https://www.youtube.com", Profile = "default" };
+            string webArgs = Launcher.BrowserArgs(ownTube, "brave");
+            check("websites: a web tile on the browser's normal profile loads the extension (" + webArgs.Substring(Math.Max(0, webArgs.IndexOf("--load-extension"))) + ")",
                 webArgs.Contains("--load-extension=\"" + Sites.Folder + "\"") && webArgs.Contains("--disable-features=DisableLoadExtensionCommandLineSwitch") &&
-                File.Exists(Path.Combine(Sites.Folder, "youtube-page.js")));
+                !webArgs.Contains("--remote-debugging") && File.Exists(Path.Combine(Sites.Folder, "youtube-page.js")));
+            string edgeArgs = Launcher.BrowserArgs(new Tile { Name = "Netflix", Label = "Netflix", Kind = TileKind.Web, Url = "https://www.netflix.com/browse" }, "edge");
+            check("websites: ...one on CouchTV's own profile opens a DevTools port for them instead (" + edgeArgs.Substring(Math.Max(0, edgeArgs.IndexOf("--remote"))) + ")",
+                edgeArgs.Contains("--remote-debugging-port=0") && !edgeArgs.Contains("--load-extension") &&
+                edgeArgs.Contains(Path.Combine(Config.DataDir, "profiles", "edge")));
+            string bundle = Sites.Bundle(Sites.SettingsJson(siteCfg));
+            check("websites: the scripts as one for DevTools: tv.js, then each site's by the address, once the page is parsed (" + bundle.Length / 1024 + " KB)",
+                bundle.Contains("var CouchTV = (function") && bundle.Contains("if (site === 'netflix') {") && bundle.Contains("Who's watching?") &&
+                bundle.Contains("window.__couchtvSettings = {\"keys\": false") && bundle.Contains("DOMContentLoaded") &&
+                Sites.PageBundle().Contains("elementsPerRow"));
             int length;
             check("up next: a song's name in YouTube's list loses its length", YouTubePage.WithoutLength("Sabrina Carpenter - Espresso 3 minutes, 21 seconds", out length) == "Sabrina Carpenter - Espresso" && length == 201);
             check("up next: ...an hour long too", YouTubePage.WithoutLength("Lofi mix 1 hour, 2 minutes, 5 seconds", out length) == "Lofi mix" && length == 3725);
