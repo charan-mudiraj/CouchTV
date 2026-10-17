@@ -99,7 +99,8 @@ namespace CouchTV
             // A text box getting the focus pops up the phone's keyboard: watched only while a phone is connected, and
             // TypeOnPhone is on (a setting, changed from the phone too).
             _typing = new TypingWatch();
-            _typing.Changed += _wifi.ShowTyping;
+            // (Not while CouchTV itself types in YouTube's search box, putting on the next song: HomeWindow.Queue.cs.)
+            _typing.Changed += field => _wifi.ShowTyping(field != null && TypingQuiet ? null : field);
             _wifi.PhonesChanged += count =>
             {
                 _phoneCount = count;

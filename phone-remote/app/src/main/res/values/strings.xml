@@ -28,7 +28,6 @@
     <string name="up_next">Up next</string>
     <string name="up_next_count">%1$d songs</string>
     <string name="up_next_all">Show all %1$d</string>
-    <string name="up_next_fewer">Show fewer</string>
     <string name="up_next_added">Added by you</string>
     <string name="up_next_remove">Take out of up next</string>
     <string name="listen_notification_title">Playing the TV\'s sound</string>

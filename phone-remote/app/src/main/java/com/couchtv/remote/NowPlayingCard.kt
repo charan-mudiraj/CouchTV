@@ -55,7 +55,9 @@ class NowPlayingCard(context: Context) : LinearLayout(context) {
     private val timelineRow = LinearLayout(context)
     private val queueBox = LinearLayout(context)
     private var queue: List<TvQueueItem> = emptyList()
-    private var queueOpen = false   // every song shown, not just the first few
+    private var dialog: android.app.Dialog? = null       // every song of up next, when "Show all" opened it
+    private var dialogRows: LinearLayout? = null
+    private var dialogCount: TextView? = null
     private val back = GradientDrawable().apply { cornerRadius = 22 * density }
     private var media: TvMedia? = null
     private var artShown: Bitmap? = null
@@ -194,8 +196,10 @@ class NowPlayingCard(context: Context) : LinearLayout(context) {
     fun showQueue(list: List<TvQueueItem>) {
         if (list == queue) return
         queue = list
-        if (list.size <= SHORT) queueOpen = false
         buildQueue()
+        if (dialog?.isShowing == true) {
+            if (list.isEmpty()) dialog?.dismiss() else fillDialog()
+        }
     }
 
     private fun buildQueue() {
@@ -219,24 +223,94 @@ class NowPlayingCard(context: Context) : LinearLayout(context) {
             marginStart = dp(2f)
             marginEnd = dp(2f)
         })
-        val shown = if (queueOpen) queue else queue.take(SHORT)
-        for (item in shown) queueBox.addView(queueRow(item))
+        for (item in queue.take(SHORT)) queueBox.addView(queueRow(item, false))
         if (queue.size > SHORT) queueBox.addView(TextView(context).apply {
-            text = if (queueOpen) context.getString(R.string.up_next_fewer) else context.getString(R.string.up_next_all, queue.size)
+            text = context.getString(R.string.up_next_all, queue.size)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
             setTextColor(context.getColor(R.color.voice_rim))
             gravity = Gravity.CENTER
             setPadding(0, dp(10f), 0, dp(6f))
             isClickable = true
-            setOnClickListener {
-                queueOpen = !queueOpen
-                buildQueue()
-            }
+            setOnClickListener { openDialog() }
         }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
     }
 
+    /** Every song of up next, in a dialog over the app (kept up to date while it's open). */
+    private fun openDialog() {
+        dialog?.dismiss()
+        val column = LinearLayout(context).apply {
+            orientation = VERTICAL
+            setPadding(dp(18f), dp(18f), dp(18f), dp(8f))
+            background = GradientDrawable().apply {
+                cornerRadius = 24 * density
+                setColor(context.getColor(R.color.surface))
+            }
+        }
+        val head = LinearLayout(context).apply { gravity = Gravity.CENTER_VERTICAL }
+        head.addView(TextView(context).apply {
+            setText(R.string.up_next)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+            setTextColor(context.getColor(R.color.ink))
+            paint.isFakeBoldText = true
+        }, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
+        val count = TextView(context).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            setTextColor(context.getColor(R.color.muted))
+        }
+        head.addView(count)
+        column.addView(head, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(10f) })
+        val rows = LinearLayout(context).apply { orientation = VERTICAL }
+        val scroll = android.widget.ScrollView(context).apply {
+            isVerticalScrollBarEnabled = false
+            addView(rows)
+        }
+        column.addView(scroll, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
+        column.addView(TextView(context).apply {
+            setText(R.string.close)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            setTextColor(context.getColor(R.color.voice_rim))
+            gravity = Gravity.CENTER
+            setPadding(0, dp(14f), 0, dp(12f))
+            isClickable = true
+            setOnClickListener { dialog?.dismiss() }
+        }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        dialogRows = rows
+        dialogCount = count
+        fillDialog()
+        dialog = android.app.Dialog(context).apply {
+            requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
+            setContentView(column)
+            window?.let { w ->
+                w.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+                val metrics = context.resources.displayMetrics
+                // As tall as its songs need, up to most of the screen.
+                column.measure(View.MeasureSpec.makeMeasureSpec((metrics.widthPixels * 0.92f).toInt(), View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+                rows.measure(View.MeasureSpec.makeMeasureSpec((metrics.widthPixels * 0.92f).toInt() - dp(36f), View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+                val wanted = rows.measuredHeight + dp(140f)
+                w.setLayout((metrics.widthPixels * 0.92f).toInt(), minOf(wanted, (metrics.heightPixels * 0.8f).toInt()))
+            }
+            setOnDismissListener {
+                if (dialog === this) {
+                    dialog = null
+                    dialogRows = null
+                    dialogCount = null
+                }
+            }
+            show()
+        }
+    }
+
+    private fun fillDialog() {
+        val rows = dialogRows ?: return
+        rows.removeAllViews()
+        for (item in queue) rows.addView(queueRow(item, true))
+        dialogCount?.text = context.getString(R.string.up_next_count, queue.size)
+    }
+
     /** One song of up next: its picture, title, artist and length (or "Added by you"); ✕ on one of yours. */
-    private fun queueRow(item: TvQueueItem): View {
+    private fun queueRow(item: TvQueueItem, inDialog: Boolean): View {
         val row = LinearLayout(context).apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(2f), dp(6f), dp(2f), dp(6f))
@@ -246,6 +320,7 @@ class NowPlayingCard(context: Context) : LinearLayout(context) {
             setOnClickListener {
                 Haptics.press(it)
                 onQueuePlay?.invoke(item.id)
+                if (inDialog) dialog?.dismiss()   // it plays now: back to the player
             }
         }
         val picture = ImageView(context).apply {

@@ -24,7 +24,10 @@ namespace CouchTV
         readonly List<QueueSong> _upNext = new List<QueueSong>();
         List<PageSong> _pageList = new List<PageSong>();
         string _pageListFor;          // the song YouTube's list was read with
-        bool _switching;              // a song of yours being put on
+        bool _switching;              // a song of yours being put on, until it's what plays (or a while has gone by)
+        string _switchFrom;           // ...the song playing when it started
+        DispatcherTimer _switchDone, _queueGone;
+        long _typingQuietUntil;       // UTC ticks: CouchTV is typing in YouTube's search box, not you (TypingQuiet)
         string _queueTold;
         int _pageReads;               // reads asked for, so an old one doesn't overwrite a newer
 
@@ -68,13 +71,27 @@ namespace CouchTV
             MediaNow now = NowPlaying.Current;
             if (now == null)
             {
-                // Nothing plays any more: nothing to come.
-                _pageList = new List<PageSong>();
-                _pageListFor = null;
-                _upNext.Clear();
-                TellQueue();
+                // Nothing plays: between two songs (YouTube changing over has a moment of nothing), or the end. Up
+                // next goes only once nothing has played for a while.
+                if (_queueGone == null)
+                {
+                    _queueGone = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+                    _queueGone.Tick += (s, e) =>
+                    {
+                        _queueGone.Stop();
+                        if (NowPlaying.Current != null || _switching) return;
+                        _pageList = new List<PageSong>();
+                        _pageListFor = null;
+                        _upNext.Clear();
+                        TellQueue();
+                    };
+                }
+                _queueGone.Stop();
+                _queueGone.Start();
                 return;
             }
+            if (_queueGone != null) _queueGone.Stop();
+            if (_switching && _switchFrom != null && now.Title != _switchFrom) SwitchDone();   // yours is on
             if (now.Title == _pageListFor) return;
             _pageListFor = now.Title;
             // A song of yours due, and YouTube moved on by itself at the end (sooner than it said): yours now.
@@ -86,6 +103,19 @@ namespace CouchTV
         }
 
         string _songEnding;   // the song whose end was seen coming, with a song of yours to follow
+
+        /// <summary>The song of yours is on (or it's been a while): the next of yours waits for this one's end.</summary>
+        void SwitchDone()
+        {
+            _switching = false;
+            _switchFrom = null;
+            _songEnding = null;
+            if (_switchDone != null) _switchDone.Stop();
+            Interlocked.Exchange(ref _typingQuietUntil, DateTime.UtcNow.AddSeconds(3).Ticks);
+        }
+
+        /// <summary>CouchTV is using YouTube's search box (putting a song on): not something to type into from a phone.</summary>
+        bool TypingQuiet { get { return DateTime.UtcNow.Ticks < Interlocked.Read(ref _typingQuietUntil); } }
 
         /// <summary>Every second: a song of yours goes on as the one playing ends.</summary>
         void TickQueue()
@@ -121,8 +151,19 @@ namespace CouchTV
                 return;
             }
             _switching = true;
+            _songEnding = null;
             MediaNow playing = NowPlaying.Current;
             string from = playing != null ? playing.Title : null;
+            _switchFrom = from;
+            Interlocked.Exchange(ref _typingQuietUntil, DateTime.UtcNow.AddSeconds(30).Ticks);
+            // Should YouTube never say the new song (or say the same title), it's done after a while all the same.
+            if (_switchDone == null)
+            {
+                _switchDone = new DispatcherTimer { Interval = TimeSpan.FromSeconds(25) };
+                _switchDone.Tick += (s, e) => SwitchDone();
+            }
+            _switchDone.Stop();
+            _switchDone.Start();
             Log.Info("Up next: " + song.Title + " (" + song.Id + ")" + (atEnd ? ", as the song playing ends" : ""));
             ThreadPool.QueueUserWorkItem(state =>
             {
@@ -152,8 +193,15 @@ namespace CouchTV
                 catch (Exception ex) { Log.Info("Up next: " + ex.Message); }
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
-                    _switching = false;
-                    if (ok) return;
+                    if (ok)
+                    {
+                        // On its way: done once YouTube says it plays (QueueMediaChanged), so the old one's last
+                        // moment, still said meanwhile, doesn't put the next of yours on too.
+                        MediaNow now = NowPlaying.Current;
+                        if (now != null && from != null && now.Title != from) SwitchDone();
+                        return;
+                    }
+                    SwitchDone();
                     Log.Info("Up next: the YouTube page didn't take " + song.Id);
                     PlayOnItsOwn(song);
                 }));
