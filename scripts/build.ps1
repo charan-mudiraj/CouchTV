@@ -39,6 +39,8 @@ $references = @(
 $cscArgs = @('/nologo', '/target:winexe', '/platform:anycpu', '/optimize+', '/codepage:65001', "/out:$exe",
              "/resource:$(Join-Path $root 'couchtv.ini'),CouchTV.couchtv.ini",
              "/resource:$(Join-Path $root 'remote.ini'),CouchTV.remote.ini")
+# CouchTV's touches for websites (Sites.cs): the browser extension, written out when a web tile opens.
+$cscArgs += Get-ChildItem (Join-Path $root 'sites') -File | ForEach-Object { "/resource:$($_.FullName),CouchTV.sites.$($_.Name)" }
 $cscArgs += $references | ForEach-Object { "/r:$_" }
 $cscArgs += Get-ChildItem (Join-Path $root 'src\*.cs') | ForEach-Object { $_.FullName }
 

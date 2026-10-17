@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "CouchTV",
+  "description": "CouchTV's touches for websites on the TV: the remote's arrows move between videos on YouTube and Netflix, YouTube's videos per row, a tidier Netflix.",
+  "version": "1.0",
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "exclude_matches": ["https://www.youtube.com/tv*"],
+      "js": ["tv.js", "youtube.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "exclude_matches": ["https://www.youtube.com/tv*"],
+      "js": ["youtube-page.js"],
+      "world": "MAIN",
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.netflix.com/*"],
+      "js": ["tv.js", "netflix.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["settings.json"],
+      "matches": ["https://www.youtube.com/*", "https://www.netflix.com/*"],
+      "use_dynamic_url": true
+    }
+  ]
+}

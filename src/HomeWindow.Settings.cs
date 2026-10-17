@@ -77,6 +77,26 @@ namespace CouchTV
                 },
                 new TvSetting
                 {
+                    Key = "sitearrows", Label = "Arrows pick videos",
+                    Note = "On YouTube and Netflix, the arrows move a highlight from video to video and OK plays it",
+                    Values = OnOffValues, Names = OnOffNames, Get = () => OnOff(_cfg.SiteArrows),
+                    Set = v => { _cfg.SiteArrows = v == "on"; Sites.WriteSettings(_cfg); SaveSetting("SiteArrows", v); },
+                },
+                new TvSetting
+                {
+                    Key = "youtuberow", Label = "YouTube videos per row", Note = "On YouTube's home page, subscriptions and channels",
+                    Values = new[] { "auto", "2", "3", "4", "5", "6" }, Names = new[] { "YouTube's choice", "2", "3", "4", "5", "6" },
+                    Get = () => _cfg.YouTubeRow == 0 ? "auto" : _cfg.YouTubeRow.ToString(),
+                    Set = v => { int n; _cfg.YouTubeRow = int.TryParse(v, out n) ? n : 0; Sites.WriteSettings(_cfg); SaveSetting("YouTubeRow", v); },
+                },
+                new TvSetting
+                {
+                    Key = "netflixtidy", Label = "Tidy Netflix", Note = "Without the big trailer at the top of its pages, or the games rows",
+                    Values = OnOffValues, Names = OnOffNames, Get = () => OnOff(_cfg.NetflixTidy),
+                    Set = v => { _cfg.NetflixTidy = v == "on"; Sites.WriteSettings(_cfg); SaveSetting("NetflixTidy", v); },
+                },
+                new TvSetting
+                {
                     Key = "pointerstyle", Label = "Pointer", Note = "Shown while the phone's trackpad is open",
                     Values = Pointer.Styles, Names = new[] { "Arrow", "Dot", "Ring" },
                     Get = () => _cfg.PointerStyle, Set = v => ChangePointer(v, _cfg.PointerSize, _cfg.PointerColor),
@@ -186,16 +206,23 @@ namespace CouchTV
             hints.Children.Add(KeyHint("← →", "Change"));
             hints.Children.Add(KeyHint("Back", "Close"));
 
-            var column = new StackPanel();
+            // The list scrolls (keeping the chosen one in view) when there are more than the screen holds, as on a 768-line TV.
+            var column = new DockPanel { LastChildFill = true };
+            DockPanel.SetDock(title, Dock.Top);
+            DockPanel.SetDock(intro, Dock.Top);
+            DockPanel.SetDock(hints, Dock.Bottom);
             column.Children.Add(title);
             column.Children.Add(intro);
-            column.Children.Add(_settingsList);
             column.Children.Add(hints);
+            column.Children.Add(new ScrollViewer
+            {
+                Content = _settingsList, VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Focusable = false,
+            });
 
             var overlay = new Grid { Background = Theme.Brush(Color.FromArgb(0xE6, 8, 10, 14)), Visibility = Visibility.Collapsed };
             overlay.Children.Add(new Border
             {
-                Width = 1180, CornerRadius = new CornerRadius(28), Padding = new Thickness(56, 44, 56, 40),
+                Width = 1180, CornerRadius = new CornerRadius(28), Padding = new Thickness(56, 44, 56, 40), Margin = new Thickness(0, 20, 0, 20),
                 Background = Theme.Brush(Theme.Panel), BorderBrush = Theme.Brush(Color.FromArgb(0x22, 255, 255, 255)),
                 BorderThickness = new Thickness(1), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
                 Child = column,
@@ -244,6 +271,11 @@ namespace CouchTV
             _settingsList.Children.Clear();
             List<TvSetting> all = TvSettings();
             for (int i = 0; i < all.Count; i++) _settingsList.Children.Add(SettingRow(all[i], i));
+            if (_settingIndex < _settingsList.Children.Count)
+            {
+                var chosen = (FrameworkElement)_settingsList.Children[_settingIndex];
+                Dispatcher.BeginInvoke(new Action(() => chosen.BringIntoView()), System.Windows.Threading.DispatcherPriority.Loaded);
+            }
         }
 
         UIElement SettingRow(TvSetting s, int index)

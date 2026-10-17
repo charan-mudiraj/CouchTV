@@ -280,6 +280,9 @@ class SettingsScreen @JvmOverloads constructor(context: Context, attrs: Attribut
         "films" -> R.drawable.ic_movie
         "songs" -> R.drawable.ic_music
         "typeonphone" -> R.drawable.ic_keyboard
+        "sitearrows" -> R.drawable.ic_gamepad
+        "youtuberow" -> R.drawable.ic_apps
+        "netflixtidy" -> R.drawable.ic_movie
         "updates" -> R.drawable.ic_update
         "vibration" -> R.drawable.ic_vibration
         "bluetooth" -> R.drawable.ic_bluetooth_off
@@ -293,6 +296,9 @@ class SettingsScreen @JvmOverloads constructor(context: Context, attrs: Attribut
         "films" -> R.color.netflix
         "songs" -> R.color.pointer_pink
         "typeonphone" -> R.color.voice
+        "sitearrows" -> R.color.prime
+        "youtuberow" -> R.color.youtube
+        "netflixtidy" -> R.color.netflix
         "updates" -> R.color.good_bottom
         "vibration" -> R.color.prime
         "bluetooth" -> R.color.voice_bottom

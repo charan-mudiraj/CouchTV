@@ -117,6 +117,7 @@ namespace CouchTV
                 }
             }
             if (exe == null) return LaunchResult.Fail(Title(t.Browser) + " isn't installed");
+            Sites.Prepare(cfg);   // the websites' touches (Sites.cs), loaded below
             Start(exe, BrowserArgs(t, browser));
             return LaunchResult.Success(note);
         }
@@ -148,6 +149,9 @@ namespace CouchTV
             args.Add("--hide-crash-restore-bubble");
             if (!string.IsNullOrEmpty(t.UserAgent)) args.Add("--user-agent=" + Quote(t.UserAgent));
             if (!string.IsNullOrEmpty(t.Scale)) args.Add("--force-device-scale-factor=" + t.Scale);
+            // The remote's arrows on YouTube and Netflix, and their tidying (Sites.cs). A browser that's already open
+            // on the same profile keeps what it started with.
+            args.AddRange(Sites.BrowserArgs());
             if (!string.IsNullOrEmpty(t.Args)) args.Add(t.Args);
             if (t.Kind == TileKind.Browser && !string.IsNullOrEmpty(t.Url)) args.Add(Quote(t.Url));
             return string.Join(" ", args);

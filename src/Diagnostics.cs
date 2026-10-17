@@ -147,6 +147,16 @@ namespace CouchTV
             List<KeyValuePair<string, string>> guesses = SmartSearch.ParseSongGuesses("{\"songs\":[{\"title\":\"Kesariya\",\"artist\":\"Arijit Singh\"},{\"title\":\" \",\"artist\":\"x\"},{\"title\":\"Apna Bana Le\",\"artist\":\"Arijit Singh\"}]}");
             check("a hummed song: Gemini's guesses, blank ones left out", guesses.Count == 2 && guesses[0].Key == "Kesariya" && guesses[1].Key == "Apna Bana Le");
             check("a film: an episode (22 min) is one, a song or a trailer (3 min) isn't", NowPlaying.IsFilm(22 * 60000L) && !NowPlaying.IsFilm(3 * 60000L) && !NowPlaying.IsFilm(0));
+            check("websites: " + SitesCheck(), SitesCheck() == "the extension's built in, and every file its manifest names");
+            var siteCfg = new Config { SiteArrows = false, YouTubeRow = 5, NetflixTidy = true };
+            var siteSettings = new System.Web.Script.Serialization.JavaScriptSerializer().Deserialize<Dictionary<string, object>>(Sites.SettingsJson(siteCfg));
+            check("websites: settings.json (" + Sites.SettingsJson(siteCfg).Trim() + ")",
+                false.Equals(siteSettings["keys"]) && 5.Equals(siteSettings["youtubeRow"]) && true.Equals(siteSettings["netflixTidy"]));
+            Sites.Prepare(Config.Load());   // as a web tile opening would, with this PC's own settings
+            string webArgs = Launcher.BrowserArgs(tube, "brave");
+            check("websites: a web tile's browser loads it (" + webArgs.Substring(Math.Max(0, webArgs.IndexOf("--load-extension"))) + ")",
+                webArgs.Contains("--load-extension=\"" + Sites.Folder + "\"") && webArgs.Contains("--disable-features=DisableLoadExtensionCommandLineSwitch") &&
+                File.Exists(Path.Combine(Sites.Folder, "youtube-page.js")));
             int length;
             check("up next: a song's name in YouTube's list loses its length", YouTubePage.WithoutLength("Sabrina Carpenter - Espresso 3 minutes, 21 seconds", out length) == "Sabrina Carpenter - Espresso" && length == 201);
             check("up next: ...an hour long too", YouTubePage.WithoutLength("Lofi mix 1 hour, 2 minutes, 5 seconds", out length) == "Lofi mix" && length == 3725);
@@ -294,6 +304,29 @@ namespace CouchTV
         }
 
         /// <summary>A bright made-up photo (sky, sun, hills) for screenshots of a photo background; its path.</summary>
+        /// <summary>The websites' extension (Sites.cs) is in CouchTV.exe whole: what's wrong, else that it is.</summary>
+        static string SitesCheck()
+        {
+            var names = new HashSet<string>(System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceNames());
+            Func<string, string> read = file =>
+            {
+                using (Stream stream = System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream("CouchTV.sites." + file))
+                using (var reader = new StreamReader(stream)) return reader.ReadToEnd();
+            };
+            if (!names.Contains("CouchTV.sites.manifest.json")) return "manifest.json isn't built in";
+            var manifest = new System.Web.Script.Serialization.JavaScriptSerializer().Deserialize<Dictionary<string, object>>(read("manifest.json"));
+            int scripts = 0;
+            foreach (object entry in (System.Collections.ArrayList)manifest["content_scripts"])
+            {
+                foreach (object file in (System.Collections.ArrayList)((Dictionary<string, object>)entry)["js"])
+                {
+                    if (!names.Contains("CouchTV.sites." + file)) return file + " isn't built in";
+                    scripts++;
+                }
+            }
+            return scripts >= 5 ? "the extension's built in, and every file its manifest names" : "only " + scripts + " scripts in the manifest";
+        }
+
         internal static string SamplePhoto()
         {
             string path = Path.Combine(Path.GetTempPath(), "couchtv-sample-photo.jpg");
