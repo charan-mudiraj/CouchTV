@@ -8,17 +8,16 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
-import android.os.PowerManager
 import android.os.SystemClock
 import android.provider.Settings
 
 /**
  * Asks for what the app needs and hasn't got, each time it's opened, until it has it: notifications (the watchlist's
  * reminders, what the TV plays, the TV's sound), the microphone (voice search, humming), "Nearby devices" (switching
- * Bluetooth off), reminders on the minute (Android 12; later ones allow them), running in the background (the
- * watchlist's mailbox checks, and reminders on Xiaomi and Oppo phones), and installing its own updates. Android's
- * own questions where there are some; once Android won't ask any more (refused twice), a note with a button to the
- * app's page in Settings instead. "Opened" is a fresh start, or back after a minute or more away; coming back from one
+ * Bluetooth off), reminders on the minute (Android 12; later ones allow them), and installing its own updates. Not
+ * running in the background: the reminders are alarms, which come anyway, and the watchlist's mailbox is checked
+ * whenever Android lets the app (WatchJob). Android's own questions where there are some; once Android won't ask any
+ * more (refused twice), a note with a button to the app's page in Settings instead. "Opened" is a fresh start, or back after a minute or more away; coming back from one
  * of these questions or Settings pages goes on to the next.
  */
 class Permissions(private val activity: Activity, private val wantsNearby: () -> Boolean) {
@@ -53,7 +52,6 @@ class Permissions(private val activity: Activity, private val wantsNearby: () ->
         if (Build.VERSION.SDK_INT in 31..32 && !activity.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()) steps.addLast {
             note(R.string.perm_alarms_title, R.string.perm_alarms_message, Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:$pkg")))
         }
-        if (!activity.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(pkg)) steps.addLast { background() }
         if (!activity.packageManager.canRequestPackageInstalls()) steps.addLast {
             note(R.string.allow_updates_title, R.string.perm_installs_message, Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$pkg")))
         }
@@ -97,17 +95,6 @@ class Permissions(private val activity: Activity, private val wantsNearby: () ->
         note(activity.getString(R.string.perm_settings_title), activity.getString(R.string.perm_settings_message, what.joinToString("\n")),
             Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${activity.packageName}")))
         return true
-    }
-
-    /** Android's "let it run in the background?" question. */
-    private fun background() {
-        away = true
-        try {
-            activity.startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${activity.packageName}")))
-        } catch (e: Exception) {   // a phone without that question
-            away = false
-            note(R.string.perm_background_title, R.string.perm_background_message, Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-        }
     }
 
     private fun note(title: Int, message: Int, settings: Intent) = note(activity.getString(title), activity.getString(message), settings)

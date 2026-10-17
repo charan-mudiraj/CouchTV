@@ -359,8 +359,6 @@
     <!-- Asked each time the app opens, until allowed (Permissions). -->
     <string name="perm_alarms_title">Reminders on time</string>
     <string name="perm_alarms_message">So the watchlist\'s reminders come on the minute, allow alarms and reminders for CouchTV Remote on the next screen.</string>
-    <string name="perm_background_title">Running in the background</string>
-    <string name="perm_background_message">So the watchlist\'s reminders, and films the other phones add, arrive with the app closed, let CouchTV Remote run in the background (battery: no restrictions).</string>
     <string name="perm_installs_message">So CouchTV Remote can install its own updates, turn on “Allow from this source” on the next screen.</string>
     <string name="perm_settings_title">Allow in Settings</string>
     <string name="perm_settings_message">Android won\'t ask again, so please turn these on under Permissions on the next screen:\n\n%1$s</string>

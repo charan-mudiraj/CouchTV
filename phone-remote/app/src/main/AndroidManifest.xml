@@ -26,11 +26,10 @@
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <!-- The watchlist: each phone's own reminders, on the minute (Android 12 asks; 13 and newer give it to reminder
-         apps), set again after a restart, and the mailbox checked with the app closed (better let run in the background). -->
+         apps), set again after a restart, and the mailbox checked now and then with the app closed. -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Not required: phones without an IR blaster use Wi-Fi. -->
     <uses-feature android:name="android.hardware.consumerir" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
