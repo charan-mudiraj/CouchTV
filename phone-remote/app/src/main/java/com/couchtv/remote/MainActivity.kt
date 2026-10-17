@@ -250,6 +250,11 @@ class MainActivity : Activity() {
             onBlocked = { toast(getString(if (remote.wifi.connected) R.string.brightness_tv_too_old else R.string.brightness_needs_wifi)) }
         }
         remote.wifi.onLevels = { showLevels() }
+        // What the TV plays, as a player in the notifications; its buttons work the TV over Wi-Fi. While it's up, the
+        // link to the TV stays when the app's put away (onStop), and goes with it.
+        remote.wifi.onMedia = { TvPlayer.update(this, remote.wifi.media, remote.wifi.mediaArt) }
+        TvPlayer.send = { remote.wifi.media(it) }
+        TvPlayer.onIdle = { if (!started) remote.wifi.stop() }
         showLevels()
 
         // The trackpad, a dialog: tap outside it, its close key or Back to put it away.
@@ -565,7 +570,9 @@ class MainActivity : Activity() {
             return
         }
         val pager = findViewById<PagerView>(R.id.pager)
-        if (pager.page != REMOTE_PAGE) pager.go(REMOTE_PAGE) else super.onBackPressed()
+        if (pager.page != REMOTE_PAGE) pager.go(REMOTE_PAGE)
+        else if (TvPlayer.active) moveTaskToBack(true)   // older Androids would close the app, and the player with it
+        else super.onBackPressed()
     }
 
     /**
@@ -615,6 +622,10 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        TvPlayer.send = null
+        TvPlayer.onIdle = null
+        TvPlayer.end()
+        remote.wifi.stop()
         ListenService.onChange = null
         InstallReceiver.onFailure = null
         sleepTimer.stop()
@@ -637,6 +648,7 @@ class MainActivity : Activity() {
     override fun onStart() {
         super.onStart()
         started = true
+        TvPlayer.appVisible = true
         boardAfterPower = false
         remote.wifi.start()
         remote.board.start()
@@ -648,7 +660,9 @@ class MainActivity : Activity() {
 
     override fun onStop() {
         started = false
-        remote.wifi.stop()
+        TvPlayer.appVisible = false
+        // While the TV plays something the link stays, for the notification's player (PlayerService keeps the app going).
+        if (!TvPlayer.active) remote.wifi.stop()
         // A turn-off counting down still goes (Power, then the phone locked): the box link waits for it.
         if (offAt != 0L) boardAfterPower = true else remote.board.stop()
         screen.stop()

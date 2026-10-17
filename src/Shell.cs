@@ -34,13 +34,42 @@ namespace CouchTV
 
         // ---------------------------------------------------------------- windows
 
-        /// <summary>Asks every visible app window to close. Used by Home in TV mode, like a TV leaving an app.</summary>
-        public static int CloseAppWindows(IntPtr self)
+        /// <summary>
+        /// Asks every visible app window to close, apart from keep (music left playing). Used by Home in TV mode, like a
+        /// TV leaving an app.
+        /// </summary>
+        public static int CloseAppWindows(IntPtr self, IntPtr keep = default(IntPtr))
         {
             List<IntPtr> windows = FindAppWindows(self, null);
+            windows.Remove(keep);
             foreach (IntPtr hwnd in windows) Native.PostMessage(hwnd, Native.WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
             if (windows.Count > 0) Log.Info("Home: closed " + windows.Count + " window(s)");
             return windows.Count;
+        }
+
+        /// <summary>A window's title ("" for none).</summary>
+        public static string WindowTitle(IntPtr hwnd)
+        {
+            int length = Native.GetWindowTextLength(hwnd);
+            if (length <= 0) return "";
+            var text = new System.Text.StringBuilder(length + 1);
+            Native.GetWindowText(hwnd, text, text.Capacity);
+            return text.ToString();
+        }
+
+        /// <summary>The program a window belongs to, e.g. "brave"; null if it's gone.</summary>
+        public static string WindowProcess(IntPtr hwnd)
+        {
+            uint pid;
+            Native.GetWindowThreadProcessId(hwnd, out pid);
+            return pid == 0 ? null : ProcessName(pid);
+        }
+
+        /// <summary>Brings an app's window back in front (restored if it was minimised).</summary>
+        public static void BringBack(IntPtr hwnd)
+        {
+            if (Native.IsIconic(hwnd)) Native.ShowWindow(hwnd, Native.SW_RESTORE);
+            ForceForeground(hwnd);
         }
 
         public static List<IntPtr> FindAppWindows(IntPtr self, List<string> owners)

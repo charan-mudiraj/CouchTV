@@ -122,6 +122,8 @@ namespace CouchTV
             _wifi.SetSetting += ApplySetting;
             // The phone's volume and brightness sliders.
             StartLevels();
+            // What's playing: a card on the home screen, a notification on phones, and their buttons.
+            StartMedia();
             _wifi.Button += OnIrSignal;
             _wifi.Text += ReceiveSearchText;
             _wifi.Connected += who => { if (IsActive && !SearchOpen) Toast("Phone remote connected over Wi-Fi"); };
@@ -362,8 +364,10 @@ namespace CouchTV
                 case "pageup": Input.Key(0x21); return;
                 case "pagedown": Input.Key(0x22); return;
                 case "playpause":
-                    // Space pauses Netflix, YouTube, Prime Video and JioHotstar. On the home screen it would open a tile.
+                    // Space pauses Netflix, YouTube, Prime Video and JioHotstar. On the home screen it would open a tile:
+                    // there it plays or pauses what plays behind (Windows' media controls).
                     if (Native.GetForegroundWindow() != _hwnd) Input.Key(0x20);
+                    else if (NowPlaying.Current != null) NowPlaying.Command("toggle");
                     return;
                 case "home": GoHome(); return;
                 case "search": OpenSearch(false); return;
@@ -457,7 +461,15 @@ namespace CouchTV
                 RunAction(t);
                 return;
             }
-            int closed = Shell.ExplorerRunning ? 0 : Shell.CloseAppWindows(_hwnd);
+            if (IsBackgroundTile(t))
+            {
+                BringHome();
+                OpenBackground();   // the app playing behind the home screen: back to it, still playing
+                return;
+            }
+            // Settings & power tiles leave the music playing behind; another app closes it.
+            int closed = Shell.ExplorerRunning ? 0 : Shell.CloseAppWindows(_hwnd, t.IsSystem && BackgroundAlive ? _bgWindow : IntPtr.Zero);
+            if (!t.IsSystem) ForgetBackground();
             BringHome();
             if (closed == 0)
             {

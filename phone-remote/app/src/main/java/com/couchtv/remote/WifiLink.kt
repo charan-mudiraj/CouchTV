@@ -1,6 +1,8 @@
 package com.couchtv.remote
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -139,6 +141,20 @@ class WifiLink(context: Context) {
 
     /** Something on the Bluetooth page: "POWER ON", "SEARCH ON", "PAIR <address>", "AUTO <address> OFF"... */
     fun bluetooth(command: String) = send("BT $command")
+
+    /** Called on the main thread when what the TV plays changes (see [media], [mediaArt]). */
+    var onMedia: (() -> Unit)? = null
+
+    /** What the TV plays, as it last said; null for nothing, or while it isn't connected. */
+    @Volatile var media: TvMedia? = null
+        private set
+
+    /** Its picture, as the TV last sent it (MEDIAART); null for none. */
+    @Volatile var mediaArt: Bitmap? = null
+        private set
+
+    /** A button for what the TV plays: "PLAY", "PAUSE", "NEXT", "PREVIOUS", or "SEEK <ms from the start>". */
+    fun media(command: String) = send("MEDIA $command")
 
     /** Called on the main thread when the TV's sleep timer changes (see [sleepEndsAt]). */
     var onSleepTimer: (() -> Unit)? = null
@@ -551,6 +567,10 @@ class WifiLink(context: Context) {
                     }
                 }
                 line.startsWith("BTSAYS ") -> TvBluetooth.says(line.removePrefix("BTSAYS ")).let { said -> main.post { onBluetoothSays?.invoke(said) } }
+                line.startsWith("MEDIAART ") -> TvMedia.art(line.removePrefix("MEDIAART "))?.let { (_, bytes) ->
+                    mediaArt = bytes?.let { runCatching { BitmapFactory.decodeByteArray(it, 0, it.size) }.getOrNull() }
+                }
+                line.startsWith("MEDIA ") -> setMedia(TvMedia.parse(line.removePrefix("MEDIA "), SystemClock.elapsedRealtime()))
                 line.startsWith("SLEEPTIMER ") -> line.removePrefix("SLEEPTIMER ").trim().toIntOrNull()?.let { seconds ->
                     setSleepTimer(if (seconds > 0) SystemClock.elapsedRealtime() + seconds * 1000L else 0L, true)
                 }
@@ -638,6 +658,11 @@ class WifiLink(context: Context) {
         main.post { onSleepTimer?.invoke() }
     }
 
+    private fun setMedia(m: TvMedia?) {
+        media = m
+        main.post { onMedia?.invoke() }
+    }
+
     // The TV's Bluetooth lists as their lines arrive (the connection's own thread).
     private var btDevices: MutableList<TvBluetooth.Device>? = null
     private var btExpected = 0
@@ -681,6 +706,7 @@ class WifiLink(context: Context) {
             setLevels(-1, false, -1)
             if (bluetooth != null) setBluetooth(null)
             if (settings.isNotEmpty()) setSettings(emptyList())
+            if (media != null) setMedia(null)
         }
         if (tvName == name) return
         tvName = name

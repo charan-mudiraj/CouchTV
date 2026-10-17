@@ -10,6 +10,15 @@
     <string name="listen_stop">Playing the TV\'s sound on this phone · tap the headphones to stop</string>
     <string name="listen_no_tv">Connect to the TV over Wi-Fi first (the TV at the top turns green).</string>
     <string name="listen_channel">TV sound on this phone</string>
+    <!-- What the TV plays, as a player in the notifications (TvPlayer). -->
+    <string name="media_channel">What the TV plays</string>
+    <string name="media_on_tv">%1$s on the TV</string>
+    <string name="media_on_the_tv">On the TV</string>
+    <string name="media_something">Playing on the TV</string>
+    <string name="media_previous">Previous</string>
+    <string name="media_next">Next</string>
+    <string name="media_play">Play</string>
+    <string name="media_pause">Pause</string>
     <string name="listen_notification_title">Playing the TV\'s sound</string>
     <string name="listen_notification_text">In this phone\'s headphones. Tap Stop to end.</string>
     <string name="stop">Stop</string>

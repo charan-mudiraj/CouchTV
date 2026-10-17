@@ -27,9 +27,12 @@ $references = @(
     (Join-Path $framework 'System.Drawing.dll'),
     (Join-Path $framework 'WPF\UIAutomationClient.dll'),
     (Join-Path $framework 'WPF\UIAutomationTypes.dll'),
-    # Windows' own API descriptions, for switching Bluetooth on and off (BluetoothPower.cs). Part of Windows 10/11.
+    # Windows' own API descriptions, for switching Bluetooth on and off (BluetoothPower.cs) and what's playing
+    # (NowPlaying.cs: the media controls, and their pictures). Part of Windows 10/11.
     (Join-Path $env:WINDIR 'System32\WinMetadata\Windows.Devices.winmd'),
     (Join-Path $env:WINDIR 'System32\WinMetadata\Windows.Foundation.winmd'),
+    (Join-Path $env:WINDIR 'System32\WinMetadata\Windows.Media.winmd'),
+    (Join-Path $env:WINDIR 'System32\WinMetadata\Windows.Storage.winmd'),
     (Join-Path $framework 'System.Runtime.dll'),
     'System.dll'
 )

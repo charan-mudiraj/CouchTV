@@ -244,6 +244,8 @@ namespace CouchTV
             Canvas.SetRight(right, Side);
             Canvas.SetTop(right, 86);
             _stage.Children.Add(right);
+
+            BuildMediaCard();   // what's playing behind the home screen, between the clock and the date
         }
 
         void BuildRows()
@@ -637,6 +639,7 @@ namespace CouchTV
 
         void Move(int dRow, int dCol)
         {
+            if (dRow < 0 && _row == FirstRow() && FocusMediaCard()) return;   // up to what's playing
             if (dRow != 0)
             {
                 int next = _row + dRow;
@@ -668,12 +671,13 @@ namespace CouchTV
             for (int r = 0; r < RowCount; r++)
             {
                 List<TileView> row = Row(r);
-                for (int c = 0; c < row.Count; c++) ApplyFocusStyle(row[c], r == _row && c == _col[r], animate);
+                for (int c = 0; c < row.Count; c++) ApplyFocusStyle(row[c], !_mediaFocused && r == _row && c == _col[r], animate);
                 ScrollRow(r, animate);
             }
             ScrollPage(animate);
+            StyleMediaCard(animate);
             TileView f = Focused;
-            bool showInfo = f != null && _row == RowApps;
+            bool showInfo = f != null && _row == RowApps && !_mediaFocused;
             if (showInfo)
             {
                 _focusTitle.Text = f.Tile.Label;
@@ -811,6 +815,11 @@ namespace CouchTV
                 return;
             }
 
+            if (_mediaFocused && MediaCardKey(key))
+            {
+                e.Handled = true;
+                return;
+            }
             switch (key)
             {
                 case Key.Left: Move(0, -1); break;
@@ -825,6 +834,7 @@ namespace CouchTV
                 case Key.Home:
                     _row = FirstRow();
                     _col[_row] = 0;
+                    _mediaFocused = false;
                     RefreshFocus(true);
                     break;
                 case Key.F2: OpenRemoteSetup(); break;
@@ -876,6 +886,11 @@ namespace CouchTV
                 ChooseConfirm(_confirmIndex);
                 return;
             }
+            if (_mediaFocused)
+            {
+                OpenBackground();
+                return;
+            }
             TileView f = Focused;
             if (f != null) OpenView(f);
         }
@@ -918,6 +933,13 @@ namespace CouchTV
             if (t.Kind == TileKind.Uri && t.Url.StartsWith("ms-settings:", StringComparison.OrdinalIgnoreCase) && !Shell.ExplorerRunning)
             {
                 OpenSettingsWithDesktop(t);
+                return;
+            }
+            // An app while music plays behind: the same app comes back; another closes it first (it waits for that).
+            if (!t.IsSystem && BackgroundAlive)
+            {
+                if (IsBackgroundTile(t)) OpenBackground();
+                else OpenFromAnywhere(t);
                 return;
             }
             LaunchResult result = Launcher.Open(_cfg, t);
@@ -989,16 +1011,23 @@ namespace CouchTV
             }
         }
 
-        /// <summary>The Home key: close whatever app is open and show the home screen.</summary>
+        /// <summary>
+        /// The Home key: close whatever app is open and show the home screen. Music, or anything on YouTube, that's
+        /// playing goes on behind it instead, shown on the card at the top (HomeWindow.Media.cs).
+        /// </summary>
         void GoHome()
         {
             bool alreadyHome = IsActive && WindowState != WindowState.Minimized;
-            int closed = Shell.ExplorerRunning ? 0 : Shell.CloseAppWindows(_hwnd);
+            IntPtr keep = Shell.ExplorerRunning ? IntPtr.Zero : KeepPlaying(alreadyHome);
+            int closed = Shell.ExplorerRunning ? 0 : Shell.CloseAppWindows(_hwnd, keep);
+            if (closed > 0 && keep == IntPtr.Zero) QuietCardAfterHome();
             BringHome();
+            if (keep != IntPtr.Zero) UpdateMediaCard(true);
             if (alreadyHome && closed == 0)
             {
                 _row = FirstRow();
                 _col[_row] = 0;
+                _mediaFocused = false;
                 RefreshFocus(true);
             }
         }
@@ -1252,6 +1281,7 @@ namespace CouchTV
                 Theme.AnimateTo(_toast, OpacityProperty, 0, true);
             }
             TickSleepTimer(now);
+            TickMediaCard(true);
             if (PointerManaged) Pointer.Update();   // hidden once it's no longer in use
             else if (_pointer && IsActive && Mouse.OverrideCursor == null && (now - _lastMouse).TotalSeconds > 4) Mouse.OverrideCursor = Cursors.None;
         }
@@ -1713,6 +1743,20 @@ namespace CouchTV
                 _targetIndex = state.Contains("searchtyping") ? 0 : 2;
                 RefreshTargets(false);
                 UpdateSearch();
+            }
+            if (state.Contains("media"))
+            {
+                // As if a song played behind the home screen (mediafocus: with the remote's focus on it).
+                NowPlaying.Pretend(new MediaNow
+                {
+                    Source = "Brave", Title = "Gehra Hua | Dhurandhar | Ranveer Singh, Sara Arjun", Artist = "Saregama Music",
+                    Playing = !state.Contains("mediapaused"), CanPlayPause = true, CanNext = true, CanSeek = true,
+                    PositionMs = 83000, DurationMs = 245000, AsOf = DateTime.UtcNow, Art = Diagnostics.SampleArt(), ArtId = "sample",
+                });
+                _mediaApp = "YouTube";
+                UpdateMediaCard(false);
+                _mediaFocused = state.Contains("mediafocus");
+                RefreshFocus(false);
             }
             if (state.Contains("osd"))
             {

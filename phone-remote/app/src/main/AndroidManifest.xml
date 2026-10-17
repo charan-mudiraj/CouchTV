@@ -12,7 +12,8 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Wi-Fi mode: find the TV on the phone's Wi-Fi and connect to it. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <!-- The TV's sound in this phone's headphones: keeps playing with the screen off, with the Wi-Fi in its fastest mode. -->
+    <!-- The TV's sound in this phone's headphones: keeps playing with the screen off, with the Wi-Fi in its fastest mode.
+         And what the TV plays, as a player in the notifications, kept up to date while the app's put away. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -62,6 +63,11 @@
             android:exported="false" />
         <service
             android:name=".ListenService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+        <!-- What the TV plays, as a player in the notifications: keeps the app's link to the TV meanwhile. -->
+        <service
+            android:name=".PlayerService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
     </application>

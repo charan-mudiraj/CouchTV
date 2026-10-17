@@ -83,6 +83,136 @@ namespace CouchTV
         }
 
         /// <summary>CouchTV.exe --remotetest report.txt: checks the remote-button logic without a receiver.</summary>
+        /// <summary>What's playing: the picture made small (YouTube's black bars cut off), the timeline, the phones' lines.</summary>
+        static void MediaChecks(Action<string, bool> check)
+        {
+            byte[] art = NowPlaying.MakeArt(Picture(480, 360, 45, false));
+            int w, h;
+            PictureSize(art, out w, out h);
+            check("now playing: a YouTube picture loses its black bars and shrinks to " + NowPlaying.ArtSize + " px (" + w + "x" + h + ", " +
+                  (art != null ? art.Length / 1024 : 0) + " KB)", w == 320 && h == 180 && art.Length <= NowPlaying.MostArtBytes);
+            byte[] dark = NowPlaying.MakeArt(Picture(300, 300, 0, true));
+            PictureSize(dark, out w, out h);
+            check("now playing: a dark picture isn't cut (" + w + "x" + h + ")", w == 300 && h == 300);
+            check("now playing: something that isn't a picture has none", NowPlaying.MakeArt(Encoding.ASCII.GetBytes("not a picture")) == null);
+            byte[] oneSide;
+            using (var image = new System.Drawing.Bitmap(320, 180))
+            {
+                using (System.Drawing.Graphics g = System.Drawing.Graphics.FromImage(image))
+                {
+                    g.Clear(System.Drawing.Color.FromArgb(40, 120, 200));
+                    g.FillRectangle(System.Drawing.Brushes.Black, 0, 0, 40, 180);   // a dark left side, as on many thumbnails
+                    g.FillRectangle(System.Drawing.Brushes.Black, 0, 0, 320, 12);   // and a dark strip at the top only
+                }
+                using (var output = new MemoryStream())
+                {
+                    image.Save(output, System.Drawing.Imaging.ImageFormat.Png);
+                    oneSide = NowPlaying.MakeArt(output.ToArray());
+                }
+            }
+            PictureSize(oneSide, out w, out h);
+            check("now playing: dark on one side only isn't cut (" + w + "x" + h + ")", w == 320 && h == 180);
+
+            DateTime utc = DateTime.UtcNow;
+            var song = new MediaNow { Title = "Song", Artist = "Singer", Playing = true, PositionMs = 10000, DurationMs = 200000, AsOf = utc.AddSeconds(-2), CanPlayPause = true, CanNext = true, CanSeek = true, ArtId = "a1" };
+            check("now playing: the timeline moves on while it plays (" + song.PositionAt(utc) + ")", Math.Abs(song.PositionAt(utc) - 12000) < 5);
+            var paused = new MediaNow { Playing = false, PositionMs = 10000, DurationMs = 200000, AsOf = utc.AddSeconds(-2) };
+            check("now playing: ...not while it's paused", paused.PositionAt(utc) == 10000);
+            var ending = new MediaNow { Playing = true, PositionMs = 199000, DurationMs = 200000, AsOf = utc.AddSeconds(-5) };
+            check("now playing: ...and never past the end", ending.PositionAt(utc) == 200000);
+            List<string> lines = HomeWindow.MediaLines(song, "YouTube", true);
+            string[] p = lines.Count == 2 ? lines[1].Split(' ') : new string[0];
+            check("now playing: the phones' lines: the picture, then what plays (" + (lines.Count == 2 ? lines[1] : string.Join(" | ", lines)) + ")",
+                lines.Count == 2 && lines[0] == "MEDIAART a1" && p.Length == 9 && p[0] == "MEDIA" && p[1] == "playing" &&
+                Math.Abs(long.Parse(p[2]) - 12000) < 200 && p[3] == "200000" && p[4] == "PNBS" && p[5] == "a1" &&
+                p[6] == Convert.ToBase64String(Encoding.UTF8.GetBytes("YouTube")) && p[7] == Convert.ToBase64String(Encoding.UTF8.GetBytes("Song")) &&
+                p[8] == Convert.ToBase64String(Encoding.UTF8.GetBytes("Singer")));
+            var bare = new MediaNow { Title = "Radio", Playing = false };
+            check("now playing: ...a bare one (" + HomeWindow.MediaLines(bare, "", false)[0] + ")", HomeWindow.MediaLines(bare, "", false)[0] == "MEDIA paused 0 0 - - - " +
+                Convert.ToBase64String(Encoding.UTF8.GetBytes("Radio")) + " -");
+            check("now playing: ...and nothing", string.Join("|", HomeWindow.MediaLines(null, "", true)) == "MEDIA none");
+        }
+
+        /// <summary>A test picture: colours in the middle, black bars (bars px) above and below; or all but black.</summary>
+        static byte[] Picture(int width, int height, int bars, bool dark)
+        {
+            using (var image = new System.Drawing.Bitmap(width, height))
+            {
+                using (System.Drawing.Graphics g = System.Drawing.Graphics.FromImage(image))
+                {
+                    g.Clear(System.Drawing.Color.Black);
+                    var middle = new System.Drawing.Rectangle(0, bars, width, height - 2 * bars);
+                    using (var brush = new System.Drawing.Drawing2D.LinearGradientBrush(middle,
+                        dark ? System.Drawing.Color.FromArgb(8, 8, 8) : System.Drawing.Color.FromArgb(255, 94, 58),
+                        dark ? System.Drawing.Color.FromArgb(30, 30, 40) : System.Drawing.Color.FromArgb(108, 43, 217), 35f))
+                        g.FillRectangle(brush, middle);
+                    if (!dark)
+                        using (var light = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(150, 255, 214, 102)))
+                            g.FillEllipse(light, width * 0.55f, bars + (height - 2 * bars) * 0.18f, width * 0.32f, (height - 2 * bars) * 0.6f);
+                }
+                using (var output = new MemoryStream())
+                {
+                    image.Save(output, System.Drawing.Imaging.ImageFormat.Png);
+                    return output.ToArray();
+                }
+            }
+        }
+
+        static void PictureSize(byte[] jpeg, out int width, out int height)
+        {
+            width = height = 0;
+            if (jpeg == null) return;
+            using (var input = new MemoryStream(jpeg))
+            using (var image = System.Drawing.Image.FromStream(input))
+            {
+                width = image.Width;
+                height = image.Height;
+            }
+        }
+
+        /// <summary>
+        /// What this PC plays now, read from Windows' media controls for a few seconds (no buttons pressed): the snapshot,
+        /// the phones' line, and the picture saved next to the report.
+        /// </summary>
+        public static int NowPlayingTest(string path)
+        {
+            var report = new StringBuilder();
+            var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+            int changes = 0;
+            NowPlaying.Changed += () => changes++;
+            var done = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
+            done.Tick += (s, e) =>
+            {
+                done.Stop();
+                MediaNow now = NowPlaying.Current;
+                if (now == null) report.AppendLine("Nothing playing (" + changes + " changes seen)");
+                else
+                {
+                    report.AppendLine("From:     " + now.Source);
+                    report.AppendLine("Title:    " + now.Title);
+                    report.AppendLine("Artist:   " + now.Artist + (now.Album.Length > 0 ? " / " + now.Album : ""));
+                    report.AppendLine("State:    " + (now.Playing ? "playing" : "paused") + " at " + now.PositionAt(DateTime.UtcNow) / 1000 + " s of " + now.DurationMs / 1000 + " s");
+                    report.AppendLine("Buttons:  " + (now.CanPlayPause ? "play/pause " : "") + (now.CanNext ? "next " : "") + (now.CanPrevious ? "previous " : "") + (now.CanSeek ? "seek" : ""));
+                    report.AppendLine("Picture:  " + (now.Art != null ? now.Art.Length + " bytes, id " + now.ArtId : "none"));
+                    List<string> lines = HomeWindow.MediaLines(now, "?", false);
+                    report.AppendLine("Line:     " + lines[lines.Count - 1]);
+                    if (now.Art != null) File.WriteAllBytes(Path.ChangeExtension(path, ".jpg"), now.Art);
+                }
+                File.WriteAllText(path, report.ToString());
+                app.Shutdown();
+            };
+            app.Startup += (s, e) =>
+            {
+                NowPlaying.Start(app.Dispatcher);
+                done.Start();
+            };
+            app.Run();
+            return 0;
+        }
+
+        /// <summary>A song's picture for screenshots of the home screen's card.</summary>
+        internal static byte[] SampleArt() { return NowPlaying.MakeArt(Picture(480, 360, 45, false)); }
+
         public static int RemoteTest(string path)
         {
             var report = new StringBuilder();
@@ -92,6 +222,8 @@ namespace CouchTV
                 report.AppendLine((ok ? "PASS  " : "FAIL  ") + name);
                 if (!ok) failures++;
             };
+
+            MediaChecks(check);
 
             IrSignal press = IrLink.ParseLine("IR,NEC 00CE 0001,N");
             IrSignal held = IrLink.ParseLine("IR,Samsung 0707 0002,R");
@@ -1727,6 +1859,8 @@ namespace CouchTV
             var bluetooth = new List<string>();
             server.BluetoothWatch += open => { lock (bluetooth) bluetooth.Add("watch " + open); };
             server.BluetoothAsk += ask => { lock (bluetooth) bluetooth.Add(string.Join(" ", ask)); };
+            var media = new List<string>();
+            server.Media += (what, ms) => { lock (media) media.Add(what == "seek" ? what + " " + ms : what); };
             Func<string> code = () => { lock (pairing) return shown; };
             Func<string> wrongCode = () => { lock (pairing) return ((int.Parse(shown) + 1) % 1000000).ToString("D6"); };
             Func<string> pairingLog = () => { lock (pairing) return string.Join(", ", pairing); };
@@ -1775,6 +1909,7 @@ namespace CouchTV
                 server.CurrentSettings = () => new List<string> { "SETTINGS 1", "SETTING powercountdown 5 UG93ZXI= - 0:T2Zm,5:NSBz" };
                 server.CurrentApps = () => new List<string> { "APPS 1", "APP TmV0ZmxpeA== TmV0ZmxpeA== E50914 FFFFFF" };
                 server.CurrentLevels = () => new List<string> { "VOLUME 46 0", "BRIGHTNESS 80" };
+                server.CurrentMedia = () => new List<string> { "MEDIAART -", "MEDIA paused 1000 60000 P - - VGl0bGU= -" };
                 using (var a = new TestPhone(idA))
                 {
                     a.Hello(47791);
@@ -1796,6 +1931,8 @@ namespace CouchTV
                     check("Wi-Fi: ...and the home screen's apps", appsHead == "APPS 1" && appLine == "APP TmV0ZmxpeA== TmV0ZmxpeA== E50914 FFFFFF");
                     string volumeLine = a.Receive(), brightnessLine = a.Receive();
                     check("Wi-Fi: ...and the volume and brightness, for the phone's sliders", volumeLine == "VOLUME 46 0" && brightnessLine == "BRIGHTNESS 80");
+                    string artLine = a.Receive(), mediaLine = a.Receive();
+                    check("Wi-Fi: ...and what's playing, for the phone's notification", artLine == "MEDIAART -" && mediaLine == "MEDIA paused 1000 60000 P - - VGl0bGU= -");
                     a.Send("PING");
                     check("Wi-Fi: PING gets PONG", a.Receive() == "PONG");
                     a.Send("SOUND");
@@ -1835,6 +1972,13 @@ namespace CouchTV
                     a.Send("BT TOGETHER 001A7DDA7113 OFF");
                     a.Send("BT");                             // ignored
                     a.Send("BT A B C D E");                   // ignored: too long
+                    a.Send("MEDIA PAUSE");
+                    a.Send("MEDIA NEXT");
+                    a.Send("MEDIA SEEK 83000");
+                    a.Send("MEDIA SEEK -5");                  // ignored
+                    a.Send("MEDIA SEEK soon");                // ignored
+                    a.Send("MEDIA EJECT");                    // ignored
+                    a.Send("MEDIA TOGGLE");
                     a.Send("KEY A2 D");      // Ctrl, still held when the phone leaves
                     a.Send("KEY 43 D");
                     a.Send("KEY 43 U");
@@ -1869,7 +2013,10 @@ namespace CouchTV
                 server.CurrentSettings = null;
                 server.CurrentApps = null;
                 server.CurrentLevels = null;
+                server.CurrentMedia = null;
                 check("Wi-Fi: its sound session ends with the connection", server.FindSession(session) == null);
+                lock (media) check("Wi-Fi: MEDIA works what's playing from the phone's notification (" + string.Join(", ", media) + ")",
+                    string.Join(", ", media) == "pause, next, seek 83000, toggle");
                 lock (played) check("Wi-Fi: PLAY plays a suggestion (" + string.Join(", ", played) + ")", string.Join(", ", played) == "s1");
                 lock (sleepTimers) check("Wi-Fi: SLEEPTIMER sets the sleep timer, any number of minutes, or 0 for off (" + string.Join(", ", sleepTimers) + ")",
                     string.Join(", ", sleepTimers) == "95, 0");

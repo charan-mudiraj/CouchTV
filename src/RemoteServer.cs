@@ -25,7 +25,8 @@ namespace CouchTV
     ///                               SLEEPTIMER &lt;seconds left, 0 when off&gt; (again whenever it changes),
     ///                               SETTINGS &lt;count&gt; and that many SETTING lines: the TV's settings (again when one changes),
     ///                               APPS &lt;count&gt; and that many APP lines: the home screen's apps, for the phone's grid,
-    ///                               VOLUME &lt;0-100&gt; &lt;1 when muted, else 0&gt;, BRIGHTNESS &lt;0-100&gt; (both again when they change)
+    ///                               VOLUME &lt;0-100&gt; &lt;1 when muted, else 0&gt;, BRIGHTNESS &lt;0-100&gt; (both again when they change),
+    ///                               MEDIAART and MEDIA lines: what's playing (again when it changes; see HomeWindow.MediaLines)
     ///     PING                     →  PONG          (every second, so both sides notice a dead link quickly)
     ///     SOUND                    →  AUDIO &lt;session id&gt;   (the phone's sound service has a connection of its own)
     ///     BTN &lt;address&gt; &lt;command&gt; N|R   a button, exactly like the IR receiver's "NEC 00CE 00xx" codes
@@ -53,6 +54,7 @@ namespace CouchTV
     ///                  →  BT &lt;on|off|none&gt; &lt;adapter&gt; &lt;searching&gt;, BTDEVICES n + BTDEVICE lines, BTFOUND n + BTNEW lines,
     ///                     BTSAYS &lt;good|warn|muted&gt; &lt;words&gt; (again whenever it changes)
     ///     BT POWER ON|OFF, BT SEARCH ON|OFF, BT PAIR|CONNECT|DISCONNECT|FORGET &lt;address&gt;, BT AUTO|TOGETHER &lt;address&gt; ON|OFF
+    ///     MEDIA PLAY|PAUSE|TOGGLE|NEXT|PREVIOUS|STOP, MEDIA SEEK &lt;ms&gt;   the buttons of the phone's notification for what's playing
     ///     LOG [&lt;lines&gt;]             →  LOG &lt;count&gt;, then that many lines "| &lt;line&gt;": the end of the TV's log (CouchTV.exe --tv)
     /// Buttons go through the same remote.ini mapping as infrared ones, so both remotes behave the same.
     /// </summary>
@@ -84,6 +86,7 @@ namespace CouchTV
         public event Action<int> Brightness;                 // a phone's brightness slider: 0 to 100 (UI thread)
         public event Action<bool> BluetoothWatch;            // a phone has its Bluetooth page open (true), or none has now (UI thread)
         public event Action<string[]> BluetoothAsk;          // a phone asked its Bluetooth page's question: "POWER ON" etc., split (UI thread)
+        public event Action<string, long> Media;             // a phone's button for what's playing: play, pause, toggle, next, previous, stop, or seek and where to, in ms (UI thread)
 
         /// <summary>The pointer's look now ("arrow 64 white"), told to each phone as it connects.</summary>
         internal Func<string> CurrentPointer;
@@ -102,6 +105,9 @@ namespace CouchTV
 
         /// <summary>The volume and brightness lines (VOLUME, BRIGHTNESS), told to each phone as it connects; from the network thread.</summary>
         internal Func<List<string>> CurrentLevels;
+
+        /// <summary>What's playing (MEDIAART and MEDIA lines), told to each phone as it connects; from the network thread.</summary>
+        internal Func<List<string>> CurrentMedia;
 
         // What the trackpad lines do, straight from the network thread for the least delay. The self-test swaps
         // these to watch rather than move the real pointer.
@@ -572,6 +578,8 @@ namespace CouchTV
                         if (apps != null) welcome += "\n" + string.Join("\n", apps());
                         Func<List<string>> levels = CurrentLevels;
                         if (levels != null) welcome += "\n" + string.Join("\n", levels());
+                        Func<List<string>> media = CurrentMedia;
+                        if (media != null) welcome += "\n" + string.Join("\n", media());
                     }
                     return welcome;
                 case "PING":
@@ -695,6 +703,15 @@ namespace CouchTV
                     int brightness;
                     if (parts.Length >= 2 && TryInt(parts[1], 100, out brightness) && brightness >= 0)
                         Raise(() => { if (Brightness != null) Brightness(brightness); });
+                    return null;
+                case "MEDIA":
+                    // The phone's notification for what's playing: its buttons, and its timeline (SEEK, in ms from the start).
+                    if (parts.Length < 2) return null;
+                    string what = parts[1].ToLowerInvariant();
+                    long to = 0;
+                    if (what == "seek" && (parts.Length < 3 || !long.TryParse(parts[2], out to) || to < 0 || to > 48L * 3600 * 1000)) return null;
+                    if (what == "play" || what == "pause" || what == "toggle" || what == "next" || what == "previous" || what == "stop" || what == "seek")
+                        Raise(() => { if (Media != null) Media(what, to); });
                     return null;
                 case "POWERSOON":
                     int seconds;
