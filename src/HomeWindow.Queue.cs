@@ -124,6 +124,10 @@ namespace CouchTV
             if (_upNext.Count == 0 || _switching || now == null || !now.Playing || now.DurationMs <= 0) return;
             long left = now.DurationMs - now.PositionAt(DateTime.UtcNow);
             if (left > 10000) return;
+            // An ad before (or in) the song has a timeline of its own under the song's name: not its end, then. The
+            // song's own length is in YouTube's list.
+            PageSong listed = _pageList.Find(s => s.Title == now.Title);
+            if (listed != null && listed.Seconds > 0 && Math.Abs(listed.Seconds * 1000L - now.DurationMs) > 4000) return;
             _songEnding = now.Title;   // should it move on before then, yours goes on at once (QueueMediaChanged)
             if (left > 3000) return;
             SwitchTo(_upNext[0], true);
