@@ -186,6 +186,15 @@ class WifiLink(context: Context) {
         pieces.forEachIndexed { i, piece -> send("WALLPAPER $number $i ${pieces.size} $piece") }
     }
 
+    /** Called on the connection's own thread with a film of the watchlist from the TV (a WATCH line, without "WATCH "). */
+    var onWatch: ((String) -> Unit)? = null
+
+    /** This phone's watchlist (its lines), sent to the TV each time it connects so the TV's copy catches up. */
+    var watchLines: (() -> List<String>)? = null
+
+    /** A film of the watchlist added, moved or taken off on this phone: the TV keeps it, and tells the other phones. */
+    fun watch(line: String) = send("WATCH $line")
+
     /** A song of up next: played now, or taken out. */
     fun queuePlay(id: String) = send("QUEUE PLAY $id")
     fun queueRemove(id: String) = send("QUEUE REMOVE $id")
@@ -529,6 +538,7 @@ class WifiLink(context: Context) {
         send("HELLO CouchTV-Remote ${BuildConfig.VERSION_NAME}")
         if (trackpadOpen) send("TRACKPAD ON")
         if (bluetoothOpen) send("BT OPEN")
+        watchLines?.invoke()?.forEach { send("WATCH $it") }
         Thread {
             while (link === current) {
                 send("PING")
@@ -631,6 +641,7 @@ class WifiLink(context: Context) {
                 line.startsWith("SLEEPTIMER ") -> line.removePrefix("SLEEPTIMER ").trim().toIntOrNull()?.let { seconds ->
                     setSleepTimer(if (seconds > 0) SystemClock.elapsedRealtime() + seconds * 1000L else 0L, true)
                 }
+                line.startsWith("WATCH ") -> onWatch?.invoke(line.removePrefix("WATCH "))
                 line.startsWith("SUGGESTSETUP ") -> line.removePrefix("SUGGESTSETUP ").let { setup -> main.post { onSuggestSetup?.invoke(setup) } }
                 line.startsWith("SUGGESTIONS ") -> {
                     // A new list: that many SUGGEST lines follow.

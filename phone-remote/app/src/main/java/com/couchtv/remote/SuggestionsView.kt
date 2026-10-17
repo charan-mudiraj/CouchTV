@@ -27,10 +27,11 @@ import java.security.MessageDigest
 import java.util.concurrent.Executors
 
 /**
- * The first page: what the TV suggests, popular films (each on the app it streams on) and top songs (on YouTube), as
- * posters and covers three to a row, scrolling up and down. A tap plays it on the TV ([onPlay]). The pictures come
- * straight from the internet, and are kept for next time. A new list rises into place card by card the first time
- * the page comes into view ([reveal]); a card sinks a little under the finger, and pictures fade in as they arrive.
+ * The first page: the watchlist (films picked to watch at a time, with when), then what the TV suggests, popular
+ * films (each on the app it streams on) and top songs (on YouTube), as posters and covers three to a row, scrolling up
+ * and down. A tap plays it on the TV ([onPlay]); a film's bookmark puts it on the watchlist ([onWatch]). The pictures
+ * come straight from the internet, and are kept for next time. A new list rises into place card by card the first
+ * time the page comes into view ([reveal]); a card sinks a little under the finger, and pictures fade in as they arrive.
  */
 class SuggestionsView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : ScrollView(context, attrs) {
     /** Called when a film or song is tapped. */
@@ -38,6 +39,15 @@ class SuggestionsView @JvmOverloads constructor(context: Context, attrs: Attribu
 
     /** Called for Play next on a song (its button, or held down and chosen). */
     var onPlayNext: ((Suggestion) -> Unit)? = null
+
+    /** Called for a film's bookmark, or Add to watchlist / Change time when held: pick when to watch it. */
+    var onWatch: ((Suggestion) -> Unit)? = null
+
+    /** Called for Remove from watchlist, when a film is held. */
+    var onUnwatch: ((Suggestion) -> Unit)? = null
+
+    private var watching: List<WatchItem> = emptyList()
+    private var watchingDay = Int.MIN_VALUE   // the day it was shown on: "Today" and "Tomorrow" change at midnight
 
     private val column = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
     private var list: List<Suggestion> = emptyList()
@@ -68,6 +78,15 @@ class SuggestionsView @JvmOverloads constructor(context: Context, attrs: Attribu
         build()
     }
 
+    /** The watchlist changed (or the day did, which changes how its times read). */
+    fun showWatchlist(items: List<WatchItem>) {
+        val day = WatchTime.daysBetween(0, System.currentTimeMillis())
+        if (day == watchingDay && items.map { it.line() } == watching.map { it.line() }) return   // (keeps a list rising in)
+        watchingDay = day
+        watching = items
+        build()
+    }
+
     /** The page is coming into view: a new list's cards rise into place, one after another. */
     fun reveal() {
         waiting.forEachIndexed { i, card ->
@@ -89,8 +108,10 @@ class SuggestionsView @JvmOverloads constructor(context: Context, attrs: Attribu
                 bottomMargin = dp(18)
             })
         }
+        if (watching.isNotEmpty()) grid(R.string.watchlist_title, watching.map { card(it.film, 1.5f, it) }, false, top = true)
         // A style's layout_ settings only apply in a layout file: the margins are set here.
-        column.addView(TextView(context, null, 0, R.style.PageTitle).apply { setText(R.string.suggestions_title) }, wrap(0, 12))
+        column.addView(TextView(context, null, 0, R.style.PageTitle).apply { setText(R.string.suggestions_title) },
+            wrap(if (watching.isEmpty()) 0 else 18, 12))
         if (list.isEmpty()) {
             column.addView(TextView(context).apply {
                 setText(if (connected) R.string.suggestions_waiting else R.string.suggestions_offline)
@@ -115,14 +136,19 @@ class SuggestionsView @JvmOverloads constructor(context: Context, attrs: Attribu
 
     /** A heading, then the cards three to a row; [ratio] is a picture's height to its width; [rise]: they wait for [reveal]. */
     private fun section(heading: Int, items: List<Suggestion>, ratio: Float, rise: Boolean) {
-        if (items.isEmpty()) return
+        if (items.isNotEmpty()) grid(heading, items.map { card(it, ratio) }, rise)
+    }
+
+    /** A heading ([top]: the page's own, as big as its title), then [cards] three to a row. */
+    private fun grid(heading: Int, cards: List<View>, rise: Boolean, top: Boolean = false) {
         val first = column.getChildAt(column.childCount - 1) !is LinearLayout   // nothing but text above
-        column.addView(TextView(context, null, 0, R.style.Section).apply { setText(heading) }, wrap(if (first) 0 else 14, 10))
-        for (start in items.indices step 3) {
+        column.addView(TextView(context, null, 0, if (top) R.style.PageTitle else R.style.Section).apply { setText(heading) },
+            wrap(if (first || top) 0 else 14, if (top) 12 else 10))
+        for (start in cards.indices step 3) {
             val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
             for (i in start until start + 3) {
-                val cell = if (i < items.size) card(items[i], ratio) else View(context)
-                if (rise && i < items.size) {
+                val cell = if (i < cards.size) cards[i] else View(context)
+                if (rise && i < cards.size) {
                     cell.alpha = 0f
                     cell.translationY = dp(36).toFloat()
                     waiting += cell
@@ -138,7 +164,8 @@ class SuggestionsView @JvmOverloads constructor(context: Context, attrs: Attribu
         }
     }
 
-    private fun card(s: Suggestion, ratio: Float): View {
+    /** A film or song; [watch]: a film on the watchlist, with when instead of its details. */
+    private fun card(s: Suggestion, ratio: Float, watch: WatchItem? = null): View {
         val picture = Picture(context, ratio).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
             background = GradientDrawable().apply {
@@ -186,6 +213,25 @@ class SuggestionsView @JvmOverloads constructor(context: Context, attrs: Attribu
                     }
                 }, FrameLayout.LayoutParams(dp(30), dp(30), Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(5), dp(5)) })
             }
+            if (s.movie && watch == null) {
+                // A film: its bookmark in the corner puts it on the watchlist (filled in green once it's there).
+                val listed = watching.any { it.id == WatchItem.idOf(s) }
+                addView(ImageView(context).apply {
+                    setImageResource(if (listed) R.drawable.ic_bookmark_added else R.drawable.ic_bookmark_add)
+                    imageTintList = android.content.res.ColorStateList.valueOf(context.getColor(if (listed) R.color.good else R.color.ink))
+                    setPadding(dp(5), dp(5), dp(5), dp(5))
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.OVAL
+                        setColor(0xB3000000.toInt())
+                    }
+                    contentDescription = context.getString(if (listed) R.string.watch_change else R.string.watch_add_to)
+                    isClickable = true
+                    setOnClickListener {
+                        Haptics.press(it)
+                        onWatch?.invoke(s)
+                    }
+                }, FrameLayout.LayoutParams(dp(30), dp(30), Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(5), dp(5)) })
+            }
         }
         val title = TextView(context).apply {
             text = s.title
@@ -195,9 +241,12 @@ class SuggestionsView @JvmOverloads constructor(context: Context, attrs: Attribu
             ellipsize = TextUtils.TruncateAt.END
             setPadding(dp(2), dp(6), dp(2), 0)
         }
+        val now = System.currentTimeMillis()
         val details = TextView(context).apply {
-            text = s.subtitle
-            setTextColor(context.getColor(R.color.muted))
+            text = if (watch != null) WatchTime.describe(context, watch.watchAt, now) else s.subtitle
+            // When it's coming today: in green.
+            val soon = watch != null && watch.watchAt > now && WatchTime.daysBetween(now, watch.watchAt) == 0
+            setTextColor(context.getColor(if (soon) R.color.good else R.color.muted))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
@@ -216,14 +265,22 @@ class SuggestionsView @JvmOverloads constructor(context: Context, attrs: Attribu
                 Haptics.press(it)
                 onPlay?.invoke(s)
             }
-            if (!s.movie) setOnLongClickListener { v ->
-                // Held down: play it now, or next.
+            setOnLongClickListener { v ->
+                // Held down: a song plays now or next; a film plays now, or goes on the watchlist (or changes there).
                 Haptics.press(v)
+                val listed = s.movie && watching.any { it.id == WatchItem.idOf(s) }
                 android.widget.PopupMenu(context, v).apply {
                     menu.add(0, 1, 0, R.string.play_now)
-                    menu.add(0, 2, 1, R.string.play_next)
+                    if (!s.movie) menu.add(0, 2, 1, R.string.play_next)
+                    else menu.add(0, 3, 1, if (listed) R.string.watch_change else R.string.watch_add_to)
+                    if (listed) menu.add(0, 4, 2, R.string.watch_remove_from)
                     setOnMenuItemClickListener { item ->
-                        if (item.itemId == 1) onPlay?.invoke(s) else onPlayNext?.invoke(s)
+                        when (item.itemId) {
+                            1 -> onPlay?.invoke(s)
+                            2 -> onPlayNext?.invoke(s)
+                            3 -> onWatch?.invoke(s)
+                            4 -> onUnwatch?.invoke(s)
+                        }
                         true
                     }
                 }.show()
@@ -259,6 +316,10 @@ class SuggestionsView @JvmOverloads constructor(context: Context, attrs: Attribu
         }
         private val pool = Executors.newFixedThreadPool(3)
         private val main = Handler(Looper.getMainLooper())
+
+        /** The picture now (from memory, the disk, or the internet): for a notification, off the main thread. */
+        fun get(context: Context, url: String, width: Int): Bitmap? =
+            memory.get(url) ?: fetch(File(context.cacheDir, "suggestions"), url, width)?.also { memory.put(url, it) }
 
         fun load(context: Context, url: String, view: ImageView, width: Int) {
             view.tag = url

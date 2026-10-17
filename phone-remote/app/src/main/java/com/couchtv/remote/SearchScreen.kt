@@ -50,6 +50,7 @@ class SearchScreen(private val activity: Activity, private val remote: Remote) {
     var onSend: ((String) -> Unit)? = null
     var onPlay: ((Suggestion) -> Unit)? = null
     var onPlayNext: ((Suggestion) -> Unit)? = null
+    var onWatch: ((Suggestion) -> Unit)? = null   // a film held down: Add to watchlist
     /** The mic: voice search instead. */
     var onVoice: (() -> Unit)? = null
 
@@ -424,6 +425,23 @@ class SearchScreen(private val activity: Activity, private val remote: Remote) {
                 Haptics.press(it)
                 close()
                 onPlay?.invoke(s)
+            }
+            // Held down: play it now, or pick when to watch it (the watchlist).
+            setOnLongClickListener { v ->
+                Haptics.press(v)
+                val listed = Watchlist.get(activity).find(s) != null
+                android.widget.PopupMenu(activity, v).apply {
+                    menu.add(0, 1, 0, R.string.play_now)
+                    menu.add(0, 2, 1, if (listed) R.string.watch_change else R.string.watch_add_to)
+                    setOnMenuItemClickListener { item ->
+                        if (item.itemId == 1) {
+                            close()
+                            onPlay?.invoke(s)
+                        } else onWatch?.invoke(s)
+                        true
+                    }
+                }.show()
+                true
             }
         }
     }

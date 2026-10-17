@@ -83,6 +83,10 @@ class MainActivity : Activity() {
     private var pendingTyping: WifiLink.TypingField? = null   // a text box got the focus while this was in the background
     private var pendingPlay: Suggestion? = null               // tapped while the TV was off: plays once it's on...
     private var pendingUntil = 0L                             // ...if it comes on by then
+    private lateinit var watchlist: Watchlist
+    private lateinit var picker: WatchPicker
+    private lateinit var asker: Permissions
+    private var watchPlay: Suggestion? = null                 // Play on TV from a reminder, while the TV's looked for
 
     // Power: when it was pressed, what it was doing, and the TV as the receiver box said then.
     private var powerPressedAt = 0L
@@ -118,10 +122,12 @@ class MainActivity : Activity() {
             findViewById<SuggestionsView>(R.id.suggestions).show(feed.current, tvThere)
             if (tvWasThere && !tvThere) fetchSuggestionsSoon()   // the TV went off: the phone's own list from now on
             tvWasThere = tvThere
+            watchPlayReady()
         }
         remote.board.onChange = {
             showStatus()
             boardChanged()
+            watchPlayReady()
         }
         remote.onPowerNeedsIr = {
             powerFailed()
@@ -191,6 +197,27 @@ class MainActivity : Activity() {
                 toast(getString(R.string.suggestion_playing, wanted.title, wanted.app))
             }
         }
+
+        // The watchlist, at the top of the first page: films picked to watch at a time, kept on every phone paired with
+        // the TV, which each remind their own person (Watchlist, WatchReminders). The TV keeps a copy and passes changes on.
+        watchlist = Watchlist.get(this)
+        picker = WatchPicker(this)
+        suggestions.onWatch = { picker.show(it) }
+        suggestions.onUnwatch = { film ->
+            watchlist.find(film)?.let {
+                watchlist.remove(it.id)
+                toast(getString(R.string.watch_removed, film.title))
+            }
+        }
+        search.onWatch = { picker.show(it) }
+        suggestions.showWatchlist(watchlist.live())
+        watchlist.onChange = { suggestions.showWatchlist(watchlist.live()) }
+        watchlist.toTv = { remote.wifi.watch(it) }
+        remote.wifi.onWatch = { watchlist.received(it) }
+        remote.wifi.watchLines = { watchlist.all().map { it.line() } }
+        runCatching { WatchReminders.scheduleAll(this) }
+        // Whatever the app needs and hasn't got, asked for each time it opens (as Settings > Apps would).
+        asker = Permissions(this) { phone.bluetoothOff && !BluetoothGuard.isOn(this) }
 
         // The screen mirror: the TV's screen here, full screen, touched like a touchscreen.
         mirrorView = findViewById(R.id.mirror_view)
@@ -420,12 +447,49 @@ class MainActivity : Activity() {
             findViewById<TextView>(R.id.update_text).text = message
             findViewById<Button>(R.id.update_now).isEnabled = true
         }
+        handleIntent(intent)
     }
 
-    /**
-     * A film or song from the first page: played on the TV. With the TV off (asleep, or shut down), Power turns it on
-     * (through the receiver box, as the Power key does) and it plays as soon as the TV is back, within 3 minutes.
-     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
+
+    /** From a watchlist notification: the first page, where the watchlist is, and for Play on TV, its film on the TV. */
+    private fun handleIntent(intent: Intent?) {
+        val action = intent?.action
+        if (action != WatchReminders.ACTION_OPEN && action != WatchReminders.ACTION_PLAY) return
+        setIntent(Intent(this, MainActivity::class.java))   // done: not again if Android brings the app back later
+        findViewById<PagerView>(R.id.pager).go(0)
+        if (action != WatchReminders.ACTION_PLAY) return
+        val id = intent.getStringExtra(WatchReminders.EXTRA_ID) ?: return
+        WatchReminders.cancel(this, id)
+        val film = watchlist.find(id)?.film ?: return
+        if (remote.wifi.connected) return playSuggestion(film)
+        // The app has only just opened: a few seconds to find the TV (or hear from the receiver box that it's off)
+        // before doing what a tap on the film does, as Power to a TV that's on but not found yet would turn it off.
+        watchPlay = film
+        toast(getString(R.string.watch_finding_tv, film.title))
+        handler.removeCallbacks(watchPlayLate)
+        handler.postDelayed(watchPlayLate, 6000)
+    }
+
+    private val watchPlayLate = Runnable {
+        watchPlay?.let {
+            watchPlay = null
+            playSuggestion(it)
+        }
+    }
+
+    /** Play on TV from a reminder, once the TV's found, or the receiver box says it's off (Power turns it on, then it plays). */
+    private fun watchPlayReady() {
+        val film = watchPlay ?: return
+        if (remote.wifi.tvName == null && remote.board.pcOn != false) return
+        watchPlay = null
+        handler.removeCallbacks(watchPlayLate)
+        playSuggestion(film)
+    }
+
     /** Play next on a song (its button, a hold, the search page). */
     private fun playNext(s: Suggestion) {
         if (!remote.wifi.connected) {
@@ -437,6 +501,10 @@ class MainActivity : Activity() {
         toast(if (TvPlayer.media?.app == "YouTube") getString(R.string.plays_next, s.title) else getString(R.string.suggestion_playing, s.title, s.app))
     }
 
+    /**
+     * A film or song from the first page: played on the TV. With the TV off (asleep, or shut down), Power turns it on
+     * (through the receiver box, as the Power key does) and it plays as soon as the TV is back, within 3 minutes.
+     */
     private fun playSuggestion(s: Suggestion) {
         if (remote.wifi.connected) {
             remote.wifi.play(s)
@@ -670,6 +738,8 @@ class MainActivity : Activity() {
         TvPlayer.onChange = null
         TvPlayer.end()
         remote.wifi.stop()
+        watchlist.onChange = null
+        watchlist.toTv = null
         ListenService.onChange = null
         InstallReceiver.onFailure = null
         sleepTimer.stop()
@@ -701,6 +771,12 @@ class MainActivity : Activity() {
         if (mirroring) startMirror()
         BluetoothGuard.askUser = { askToTurnOffBluetooth() }
         BluetoothGuard.hold(this, "screen")
+        // The watchlist: what the other phones changed meanwhile (from the mailbox), its times as of today, and the
+        // checks that go on with the app closed.
+        watchlist.sync()
+        findViewById<SuggestionsView>(R.id.suggestions).showWatchlist(watchlist.live())
+        runCatching { WatchJob.schedule(this) }
+        asker.onStart()
     }
 
     override fun onStop() {
@@ -713,11 +789,13 @@ class MainActivity : Activity() {
         screen.stop()
         BluetoothGuard.askUser = null
         BluetoothGuard.release("screen")
+        asker.onStop()
         super.onStop()
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (asker.onResult(requestCode, permissions, grantResults)) return
         val granted = grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED
         when (requestCode) {
             VoiceSearch.REQUEST_MIC -> voice.onPermissionResult(granted)
@@ -775,6 +853,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         resumed = true
+        asker.onResume()
         tests.start()
         showTvPointer()
         pendingTyping?.let {

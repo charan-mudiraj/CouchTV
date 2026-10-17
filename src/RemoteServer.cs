@@ -26,7 +26,8 @@ namespace CouchTV
     ///                               SETTINGS &lt;count&gt; and that many SETTING lines: the TV's settings (again when one changes),
     ///                               APPS &lt;count&gt; and that many APP lines: the home screen's apps, for the phone's grid,
     ///                               VOLUME &lt;0-100&gt; &lt;1 when muted, else 0&gt;, BRIGHTNESS &lt;0-100&gt; (both again when they change),
-    ///                               MEDIAART and MEDIA lines: what's playing (again when it changes; see HomeWindow.MediaLines)
+    ///                               MEDIAART and MEDIA lines: what's playing (again when it changes; see HomeWindow.MediaLines),
+    ///                               WATCH lines: the watchlist, a film a line (Watchlist.cs)
     ///     PING                     →  PONG          (every second, so both sides notice a dead link quickly)
     ///     SOUND                    →  AUDIO &lt;session id&gt;   (the phone's sound service has a connection of its own)
     ///     BTN &lt;address&gt; &lt;command&gt; N|R   a button, exactly like the IR receiver's "NEC 00CE 00xx" codes
@@ -62,6 +63,9 @@ namespace CouchTV
     ///     INSPECT [max] [skip]   the web page in front as accessibility sees it  →  INSPECT &lt;gzip, base64&gt;
     ///     QUEUE PLAY|REMOVE &lt;video&gt;   a song of up next played now, or taken out
     ///                  →  QUEUE &lt;count&gt; and that many QITEM lines (on connecting, and whenever up next changes)
+    ///     WATCH &lt;film&gt;             the watchlist: a film added on the phone, its time changed, or taken off (Watchlist.cs);
+    ///                               the phone sends all of its own as it connects. Kept if newer, and then passed on
+    ///                               as it is to the other phones connected
     ///     LOG [&lt;lines&gt;]             →  LOG &lt;count&gt;, then that many lines "| &lt;line&gt;": the end of the TV's log (CouchTV.exe --tv)
     /// Buttons go through the same remote.ini mapping as infrared ones, so both remotes behave the same.
     /// </summary>
@@ -124,6 +128,9 @@ namespace CouchTV
 
         /// <summary>Up next (QUEUE, then QITEM lines), told to each phone as it connects; from the network thread.</summary>
         internal Func<List<string>> CurrentQueue;
+
+        /// <summary>The watchlist the phones share: told to each phone as it connects, and kept up to date by them (WATCH).</summary>
+        internal Watchlist Watchlist;
 
         // What the trackpad lines do, straight from the network thread for the least delay. The self-test swaps
         // these to watch rather than move the real pointer.
@@ -603,6 +610,8 @@ namespace CouchTV
                         if (media != null) welcome += "\n" + string.Join("\n", media());
                         Func<List<string>> queue = CurrentQueue;
                         if (queue != null) welcome += "\n" + string.Join("\n", queue());
+                        Watchlist films = Watchlist;
+                        if (films != null) foreach (string film in films.Lines(Watchlist.Now)) welcome += "\n" + film;
                     }
                     return welcome;
                 case "PING":
@@ -819,6 +828,20 @@ namespace CouchTV
                         Raise(() => { if (Queue != null) Queue(act, video); });
                     }
                     return null;
+                case "WATCH":
+                    // The watchlist: a film added on a phone, its time changed, or taken off. Kept if it's newer than
+                    // what's here, and passed on to the other phones connected, which remind their people too.
+                    Watchlist watchlist = Watchlist;
+                    if (session != null && watchlist != null && line.Length > 6 && line.Length <= 6 + Watchlist.LongestLine)
+                    {
+                        string film = line.Substring(6);
+                        if (watchlist.Merge(film, Watchlist.Now))
+                        {
+                            Log.Info("Watchlist: " + Watchlist.Describe(film) + " (from " + session.Name + ")");
+                            SendToPhones(new List<string> { line }, session);
+                        }
+                    }
+                    return null;
                 case "EDIT":
                     int backspaces;
                     if (parts.Length >= 2 && TryInt(parts[1], 1000, out backspaces) && backspaces >= 0)
@@ -899,7 +922,10 @@ namespace CouchTV
         }
 
         /// <summary>Tells every connected phone remote these lines (a new list of suggestions); from any thread.</summary>
-        public void SendToPhones(List<string> lines)
+        public void SendToPhones(List<string> lines) { SendToPhones(lines, null); }
+
+        /// <summary>The same, but not to [except] (the phone the lines came from).</summary>
+        void SendToPhones(List<string> lines, RemoteSession except)
         {
             ThreadPool.QueueUserWorkItem(state =>
             {
@@ -907,7 +933,7 @@ namespace CouchTV
                 lock (_sessions) open = new List<RemoteSession>(_sessions.Values);
                 foreach (RemoteSession s in open)
                 {
-                    if (!s.Remote || s.Closed) continue;
+                    if (!s.Remote || s.Closed || s == except) continue;
                     try { foreach (string line in lines) s.Send(line); }
                     catch (Exception) { }   // it's going away; its own thread tidies up
                 }

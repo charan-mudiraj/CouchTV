@@ -321,4 +321,51 @@
     <string name="allow_updates_message">To install its own updates, CouchTV Remote needs your permission once. On the next screen, turn on “Allow from this source”, then come back and tap Update again.</string>
     <string name="open_settings">Open settings</string>
 
+    <!-- The watchlist: films picked to watch at a time, with reminders on every phone paired with the TV. -->
+    <string name="watchlist_title">Watchlist</string>
+    <string name="watch_add_to">Add to watchlist</string>
+    <string name="watch_change">Change watch time</string>
+    <string name="watch_remove_from">Remove from watchlist</string>
+    <string name="watch_title">Watch %1$s</string>
+    <string name="watch_postpone_title">Postpone %1$s</string>
+    <string name="watch_add">Add</string>
+    <string name="watch_remove">Remove</string>
+    <string name="watch_postpone">Postpone</string>
+    <string name="watch_gone">That time has gone</string>
+    <string name="watch_in">In %1$s</string>
+    <string name="watch_today">Today</string>
+    <string name="watch_tomorrow">Tomorrow</string>
+    <string name="watch_yesterday">Yesterday</string>
+    <plurals name="watch_days">
+        <item quantity="one">%1$d day</item>
+        <item quantity="other">%1$d days</item>
+    </plurals>
+    <string name="watch_added_toast">%1$s added for %2$s</string>
+    <string name="watch_moved_toast">%1$s moved to %2$s</string>
+    <string name="watch_removed">%1$s taken off the watchlist</string>
+    <string name="watch_not_listed">That film isn\'t on the watchlist any more</string>
+    <string name="watch_finding_tv">Finding the TV to play %1$s…</string>
+    <string name="watch_channel_remind">Watchlist reminders</string>
+    <string name="watch_channel_added">Added to the watchlist</string>
+    <string name="watch_added_title">%1$s is on the watchlist</string>
+    <string name="watch_when_on">%1$s · %2$s</string>
+    <string name="watch_hour_title">%1$s in an hour</string>
+    <string name="watch_soon_title">%1$s in %2$d min</string>
+    <string name="watch_now_title">Time for %1$s</string>
+    <string name="watch_now_text">On %1$s</string>
+    <string name="watch_moved_title">%1$s moved</string>
+    <string name="watch_play_on_tv">Play on TV</string>
+
+    <!-- Asked each time the app opens, until allowed (Permissions). -->
+    <string name="perm_alarms_title">Reminders on time</string>
+    <string name="perm_alarms_message">So the watchlist\'s reminders come on the minute, allow alarms and reminders for CouchTV Remote on the next screen.</string>
+    <string name="perm_background_title">Running in the background</string>
+    <string name="perm_background_message">So the watchlist\'s reminders, and films the other phones add, arrive with the app closed, let CouchTV Remote run in the background (battery: no restrictions).</string>
+    <string name="perm_installs_message">So CouchTV Remote can install its own updates, turn on “Allow from this source” on the next screen.</string>
+    <string name="perm_settings_title">Allow in Settings</string>
+    <string name="perm_settings_message">Android won\'t ask again, so please turn these on under Permissions on the next screen:\n\n%1$s</string>
+    <string name="perm_notifications">• Notifications: the watchlist\'s reminders, and what the TV plays</string>
+    <string name="perm_microphone">• Microphone: voice search</string>
+    <string name="perm_nearby">• Nearby devices: switching Bluetooth off while the remote\'s in use</string>
+
 </resources>

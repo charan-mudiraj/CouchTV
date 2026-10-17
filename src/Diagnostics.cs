@@ -571,6 +571,7 @@ namespace CouchTV
 
             SecurityTest(check);
             WifiRemoteTest(check);
+            WatchlistTest(check);
             PointerTest(check);
 
             // Made-up keys, built here so GitHub's secret scanning doesn't mistake the source for a real one.
@@ -2298,6 +2299,79 @@ namespace CouchTV
                     check("Wi-Fi: ...and a forgotten phone has to pair again", a.Hello(47791) == "PAIR");
             }
             catch (Exception ex) { check("Wi-Fi: " + ex.Message, false); }
+            finally { server.Stop(); }
+        }
+
+        /// <summary>A watchlist line: the film "Kantara" (or another title) at a time, changed then, by phone A.</summary>
+        static string WatchLine(string id, long watchAt, long changed, bool on, string title = "Kantara")
+        {
+            return id + " " + watchAt + " " + changed + " 0123456789abcdef0123456789abcdef " + (on ? "on" : "off") + " M " + id + " " +
+                   Convert.ToBase64String(Encoding.UTF8.GetBytes(title)) + " MjAyNQ== TmV0ZmxpeA== - E50914 FFFFFF netflix - -";
+        }
+
+        /// <summary>The watchlist the phones share: which change wins, how long films are kept, and WATCH lines between phones.</summary>
+        static void WatchlistTest(Action<string, bool> check)
+        {
+            long now = Watchlist.Now, hour = 3600 * 1000L;
+            Watchlist list = Watchlist.InMemory();
+            string first = WatchLine("mtm1", now + 5 * hour, now - 10, true);
+            check("watchlist: a new film is kept", list.Merge(first, now) && list.Lines(now).Count == 1 && list.Lines(now)[0] == "WATCH " + first);
+            check("watchlist: the same again changes nothing", !list.Merge(first, now));
+            check("watchlist: an older change doesn't win", !list.Merge(WatchLine("mtm1", now + 9 * hour, now - 20, true), now) && list.Lines(now)[0] == "WATCH " + first);
+            string moved = WatchLine("mtm1", now + 7 * hour, now - 5, true);
+            check("watchlist: a newer one does (its time moved)", list.Merge(moved, now) && list.Lines(now)[0] == "WATCH " + moved);
+            string off = WatchLine("mtm1", now + 7 * hour, now, false);
+            check("watchlist: taken off, it's remembered as off", list.Merge(off, now) && list.Lines(now)[0] == "WATCH " + off);
+            check("watchlist: ...so an older copy can't bring it back", !list.Merge(moved, now));
+            check("watchlist: a film more than a day past its time isn't taken", !list.Merge(WatchLine("mtm2", now - 25 * hour, now, true), now));
+            check("watchlist: nor a song, or a line that isn't one",
+                !list.Merge("mtm3 " + (now + hour) + " " + now + " - on S a1 eA== - - - FF0000 FFFFFF", now) && !list.Merge("mtm4 soon " + now + " - on M x", now) &&
+                !list.Merge(WatchLine("../x", now + hour, now, true), now));
+            check("watchlist: a film is let go a day after its time; one taken off, two weeks after that",
+                list.Lines(now + 8 * hour).Count == 1 && list.Lines(now + 32 * hour).Count == 1 && list.Lines(now + 15 * 24 * hour).Count == 0);
+            check("watchlist: the log says the film and its time", Watchlist.Describe(first).StartsWith("Kantara, "));
+
+            PhoneStore phones = PhoneStore.InMemory();
+            const string idA = "0123456789abcdef0123456789abcdef", idB = "fedcba9876543210fedcba9876543210";
+            byte[] keyA = Secure.Random(32), keyB = Secure.Random(32);
+            phones.Add(new PhoneStore.Phone { Id = idA, Name = "Phone A", Key = keyA, Paired = DateTime.UtcNow });
+            phones.Add(new PhoneStore.Phone { Id = idB, Name = "Phone B", Key = keyB, Paired = DateTime.UtcNow });
+            var server = new RemoteServer(null, phones, 47797, 47798, System.Net.IPAddress.Loopback);
+            server.Watchlist = Watchlist.InMemory();
+            string kept = WatchLine("mtm5", now + 3 * hour, now - 1000, true, "Pushpa 2");
+            server.Watchlist.Merge(kept, now);
+            server.Start();
+            try
+            {
+                System.Threading.Thread.Sleep(200);
+                using (var a = new TestPhone(idA))
+                using (var b = new TestPhone(idB))
+                {
+                    Func<TestPhone, byte[], string> connect = (phone, key) =>
+                    {
+                        if (phone.Hello(47798) != "KNOWN" || !phone.Auth(key)) return null;
+                        phone.Send("HELLO CouchTV-Remote test");
+                        phone.Receive();   // WELCOME
+                        phone.Receive();   // BOARD
+                        phone.Receive();   // AUDIO
+                        return phone.Receive();
+                    };
+                    check("watchlist: a phone connecting is told the watchlist", connect(a, keyA) == "WATCH " + kept);
+                    check("watchlist: ...each phone", connect(b, keyB) == "WATCH " + kept);
+                    string added = WatchLine("mtm6", now + 2 * hour, now, true, "Stree 2");
+                    a.Send("WATCH " + added);
+                    check("watchlist: a film added on one phone goes to the others", b.Receive() == "WATCH " + added);
+                    a.Send("PING");
+                    check("watchlist: ...not back to the phone it came from", a.Receive() == "PONG");
+                    a.Send("WATCH " + WatchLine("mtm6", now + 4 * hour, now - 60000, true, "Stree 2"));   // older: kept quiet
+                    a.Send("WATCH nonsense");
+                    string later = WatchLine("mtm6", now + 4 * hour, now + 1, true, "Stree 2");
+                    b.Send("WATCH " + later);
+                    check("watchlist: an older copy or nonsense isn't passed on; a newer change is", a.Receive() == "WATCH " + later);
+                    check("watchlist: the TV keeps it all", server.Watchlist.Count == 2 && server.Watchlist.Lines(now).Contains("WATCH " + later));
+                }
+            }
+            catch (Exception ex) { check("watchlist: " + ex.Message, false); }
             finally { server.Stop(); }
         }
 

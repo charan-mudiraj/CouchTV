@@ -86,6 +86,8 @@ namespace CouchTV
             // Only phones paired with this TV (a code shown here, typed on the phone) can use it.
             _phones = PhoneStore.Load();
             _wifi = new RemoteServer(Dispatcher, _phones);
+            // The watchlist the phones share (they remind their people themselves): kept here for good.
+            _wifi.Watchlist = Watchlist.Load();
             _wifi.PairingCode += ShowPairingCode;
             _wifi.PairingEnded += PairingEnded;
             TouchInjector.AsMouse = _cfg.MirrorTouchAsMouse;

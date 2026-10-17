@@ -25,6 +25,12 @@
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- The watchlist: each phone's own reminders, on the minute (Android 12 asks; 13 and newer give it to reminder
+         apps), set again after a restart, and the mailbox checked with the app closed (better let run in the background). -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Not required: phones without an IR blaster use Wi-Fi. -->
     <uses-feature android:name="android.hardware.consumerir" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
@@ -61,6 +67,30 @@
         <receiver
             android:name=".InstallReceiver"
             android:exported="false" />
+        <!-- The watchlist: Postpone from a reminder (just its picker, over whatever's on the screen), the reminders'
+             alarms, setting them again after a restart or an update, and the mailbox checks. -->
+        <activity
+            android:name=".WatchActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@style/Invisible" />
+        <receiver
+            android:name=".WatchReceiver"
+            android:exported="false" />
+        <receiver
+            android:name=".WatchStartup"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+        <service
+            android:name=".WatchJob"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
         <service
             android:name=".ListenService"
             android:exported="false"

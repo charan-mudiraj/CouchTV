@@ -100,6 +100,8 @@ How: CouchTV builds in a small browser extension (the `sites` folder). Brave, on
 
 Under the apps, **Popular films** and **Top songs** show what's popular now: films streaming in India this year (from JustWatch), each with the app it plays on (one you subscribe to, or one that has it free), and India's most-played songs (Apple Music's chart), on YouTube. Press OK on one and it plays: a film opens in its app (on Netflix it starts playing straight away), a song plays on YouTube full screen, as a mix of similar songs. Going down to these rows slides the screen up. The lists are fetched every 6 hours and kept for offline; `Suggestions = movies, music` in `couchtv.ini` chooses the rows, or `off`. The phone remote shows the same on its first page, even with the TV off (it fetches the lists itself then): tap one and the TV turns on and plays it.
 
+**Watchlist:** on the phone remote, a film's bookmark (or holding it down) asks when you'll watch it, and puts it on the watchlist at the top of the phone's first page. Every phone paired with the TV gets it, with a notification, then reminds its person an hour before (with *Postpone*) and at the time (with *Play on TV*, which turns the TV on and starts the film, and *Postpone*). The phones keep the list and set their own reminders, so they come with the TV off; changes reach the other phones through the TV when it's on, and otherwise through an encrypted mailbox on the internet within about a quarter of an hour. Details in [PROTOCOL.md](ir-receiver/PROTOCOL.md#watchlist).
+
 The **Settings & power** row has:
 
 - **Bluetooth**: Windows' *Add a device* wizard, for pairing headphones and speakers.
