@@ -348,6 +348,7 @@ namespace CouchTV
         void RunRemoteAction(string action)
         {
             string name = action.ToLowerInvariant();
+            if (_mini != null && _mini.Opened && _mini.Key(name)) return;   // the mini player, opened over an app
             switch (name)
             {
                 case "up": Input.Key(0x26); return;
@@ -365,9 +366,14 @@ namespace CouchTV
                 case "pagedown": Input.Key(0x22); return;
                 case "playpause":
                     // Space pauses Netflix, YouTube, Prime Video and JioHotstar. On the home screen it would open a tile:
-                    // there it plays or pauses what plays behind (Windows' media controls).
-                    if (Native.GetForegroundWindow() != _hwnd) Input.Key(0x20);
-                    else if (NowPlaying.Current != null) NowPlaying.Command("toggle");
+                    // there it plays or pauses what plays behind (Windows' media controls). With the mini player up over an
+                    // app, holding it opens the mini player.
+                    if (Native.GetForegroundWindow() == _hwnd)
+                    {
+                        if (NowPlaying.Current != null) NowPlaying.Command("toggle");
+                    }
+                    else if (MiniShown) HoldPlayPause();
+                    else Input.Key(0x20);
                     return;
                 case "home": GoHome(); return;
                 case "search": OpenSearch(false); return;
@@ -467,9 +473,15 @@ namespace CouchTV
                 OpenBackground();   // the app playing behind the home screen: back to it, still playing
                 return;
             }
-            // Settings & power tiles leave the music playing behind; another app closes it.
-            int closed = Shell.ExplorerRunning ? 0 : Shell.CloseAppWindows(_hwnd, t.IsSystem && BackgroundAlive ? _bgWindow : IntPtr.Zero);
-            if (!t.IsSystem) ForgetBackground();
+            // Music playing (in front, or left behind) goes on behind the new app; the same app with something else in it
+            // (a song from the suggestions on YouTube) takes its place.
+            IntPtr keep = Shell.ExplorerRunning ? IntPtr.Zero : KeepPlaying();
+            if (keep != IntPtr.Zero && !t.IsSystem && _bgTile != null && t.Name == _bgTile.Name)
+            {
+                keep = IntPtr.Zero;
+                ForgetBackground();
+            }
+            int closed = Shell.ExplorerRunning ? 0 : Shell.CloseAppWindows(_hwnd, keep);
             BringHome();
             if (closed == 0)
             {
@@ -478,11 +490,14 @@ namespace CouchTV
             }
             ShowLaunch(t);
             string process = Launcher.ProcessNameFor(_cfg, t);
+            string keptProcess = keep != IntPtr.Zero ? Shell.WindowProcess(keep) : null;   // stays running: no quitting to wait for
             DateTime started = DateTime.Now;
             var wait = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
             wait.Tick += (s, e) =>
             {
-                bool gone = Shell.FindAppWindows(_hwnd, null).Count == 0 && (process == null || !Shell.IsRunning(process));
+                List<IntPtr> left = Shell.FindAppWindows(_hwnd, null);
+                left.Remove(keep);
+                bool gone = left.Count == 0 && (process == null || string.Equals(process, keptProcess, StringComparison.OrdinalIgnoreCase) || !Shell.IsRunning(process));
                 if (!gone && (DateTime.Now - started).TotalSeconds < 6) return;
                 wait.Stop();
                 Open(t);

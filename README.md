@@ -53,7 +53,7 @@ Everything is undone by `Uninstall-CouchTV.cmd`.
 |---|---|
 | Arrow keys / remote D-pad | Move between tiles |
 | OK / Enter | Open the tile |
-| **Home** (house button), **hold Back**, or tap the Windows key | Close the app you're in and return to the home screen. Music, or anything on YouTube, that's playing goes on behind it (see *Playing in the background*) |
+| **Home** (house button), **hold Back**, or tap the Windows key | Close the app you're in and return to the home screen. Music, or anything on YouTube, that's playing goes on behind it, and behind other apps opened after (see *Playing in the background*) |
 | Back | Go back inside the app (browser back) |
 | Volume / Mute | Change volume, with an on-screen bar |
 | Power button (PC, or remotes whose power key sends Sleep) | Sleep / wake |
@@ -74,7 +74,11 @@ Press **Home** while music, or anything on YouTube, is playing and it keeps play
 | Back | Stop it (closes the app it plays in) |
 | Down | Back to the apps |
 
-Opening the same app (the YouTube tile) brings it back too; opening any other app stops it first. Settings & power (Bluetooth, Sound, the sleep timer…) leave it playing. The phone remote shows the same thing as a player in the phone's notifications, with its buttons and timeline.
+Opening the same app (the YouTube tile) brings it back too. **Any other app opens over it with the music still playing** (Netflix, Web, Settings & power…); only the same app with something else in it (a song from the suggestions on YouTube) takes its place. Opening an app while the music is still in front works the same way: it goes on behind.
+
+Over other apps, a **round button at the top right** shows it: the song's picture with its timeline as a ring round it (darkened with a pause sign while paused). It opens into a small player for a few seconds when it first shows and when the song changes, then fades a little to sit quietly over a film. To use it, click it (the phone's trackpad or screen mirror, or an air mouse) or **hold Play/Pause** on the remote; then Left and Right choose between previous, play/pause, next, back to its app and stop, OK presses, and Back closes it (it also closes by itself after 10 seconds). A short press of Play/Pause still pauses the app in front, as always. It never takes the keyboard from the app in front.
+
+The phone remote shows the same thing as a player in the phone's notifications, and on its first page, with its buttons and timeline.
 
 Under the apps, **Popular films** and **Top songs** show what's popular now: films streaming in India this year (from JustWatch), each with the app it plays on (one you subscribe to, or one that has it free), and India's most-played songs (Apple Music's chart), on YouTube. Press OK on one and it plays: a film opens in its app (on Netflix it starts playing straight away), a song plays on YouTube full screen, as a mix of similar songs. Going down to these rows slides the screen up. The lists are fetched every 6 hours and kept for offline; `Suggestions = movies, music` in `couchtv.ini` chooses the rows, or `off`. The phone remote shows the same on its first page, even with the TV off (it fetches the lists itself then): tap one and the TV turns on and plays it.
 
@@ -238,6 +242,6 @@ CouchTV keeps itself up to date from the `main` branch of [github.com/charan-mud
 - `src/` holds a small WPF app (C#), compiled on the PC by the C# compiler that ships inside Windows. Nothing gets downloaded and there is no runtime to install. It uses about 110 MB of RAM, less than Explorer and the start-up apps it replaces.
 - The installer registers it as the shell for your user only (`HKCU\...\Winlogon\Shell`), plus a sign-in fallback. If CouchTV ever crashes, it starts the normal desktop so you're never stuck.
 - Web tiles open as full-screen browser "app" windows (no tabs or address bar). The paid services share a separate CouchTV profile in Edge, while YouTube and Web use your normal Brave profile. CouchTV deliberately avoids Edge's *kiosk* mode, which browses privately and would log you out of Netflix every time.
-- In TV mode, the Home key closes the open app window, the way a TV leaves an app, then shows the home screen. Music, or anything on YouTube, that's playing is left open behind it instead (`src/HomeWindow.Media.cs`); a film closes as before.
+- In TV mode, the Home key closes the open app window, the way a TV leaves an app, then shows the home screen. Music, or anything on YouTube, that's playing is left open behind it instead, and behind other apps opened after (`src/HomeWindow.Media.cs`, with the mini player over them in `src/MiniPlayer.cs`); a film closes as before.
 - What's playing comes from Windows' media controls (`src/NowPlaying.cs`, the same ones the media keys use), where browsers report YouTube, Spotify, Netflix and the rest with the title, artist, picture and timeline. The home screen's card and the phone's notification both show it, and their buttons go back through it.
 - `scripts/build.ps1` builds it, `scripts/install.ps1 -DryRun` previews every change without making it, and `CouchTV.exe --screenshot out.png` renders the home screen to an image.

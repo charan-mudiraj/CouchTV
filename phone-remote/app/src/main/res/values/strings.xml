@@ -15,6 +15,9 @@
     <string name="media_on_tv">%1$s on the TV</string>
     <string name="media_on_the_tv">On the TV</string>
     <string name="media_something">Playing on the TV</string>
+    <string name="media_paused">Paused on the TV</string>
+    <string name="media_playing_on_tv">%1$s · playing on the TV</string>
+    <string name="media_paused_on_tv">%1$s · paused on the TV</string>
     <string name="media_previous">Previous</string>
     <string name="media_next">Next</string>
     <string name="media_play">Play</string>

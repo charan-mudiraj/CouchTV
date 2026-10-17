@@ -19,7 +19,8 @@ import android.os.SystemClock
  * What the TV plays, on this phone: Android's own media player in the notifications (and on the lock screen), with
  * the picture, previous, play/pause, next and the timeline, all working the TV over Wi-Fi. A MediaSession tells
  * Android what it is; PlayerService keeps the app (and its link to the TV) going for it while the app is put away.
- * It goes when the TV stops playing, a while after it's paused, or when it's swiped away. Main thread only.
+ * It goes when the TV stops playing, a while after it's paused, or when it's swiped away. The remote's first page
+ * shows the same player (NowPlayingCard), following [media]. Main thread only.
  */
 object TvPlayer {
     private const val CHANNEL = "tv_media"
@@ -27,30 +28,46 @@ object TvPlayer {
     const val ACTION_BUTTON = "com.couchtv.remote.MEDIA_BUTTON"     // extra "do": play, pause, next, previous
     const val ACTION_DISMISSED = "com.couchtv.remote.MEDIA_DISMISSED"
     const val EXTRA_DO = "do"
-    private const val PAUSED_MS = 15 * 60_000L   // paused this long: it goes, and the app lets go of the TV
+    private const val PAUSED_MS = 15 * 60_000L   // paused this long: the notification goes, and the app lets go of the TV
     private const val GAP_MS = 5_000L            // nothing playing for a moment (between two videos) before it goes...
     private const val AWAY_GAP_MS = 25_000L      // ...or the link to the TV coming back, while the app's put away
 
     /** Sends "MEDIA <what>" to the TV ("PLAY", "SEEK 83000"...); set by the app while it has a link to send it on. */
     var send: ((String) -> Unit)? = null
 
-    /** Called when the player goes: the app lets go of the TV then, if it's been put away. */
+    /** Called when the notification goes: the app lets go of the TV then, if it's been put away. */
     var onIdle: (() -> Unit)? = null
+
+    /** Called when what plays changes, or a button changed it: for the player on the remote's first page. */
+    var onChange: (() -> Unit)? = null
 
     /** The app is on the screen (its link to the TV is up for its own sake then). */
     var appVisible = true
 
-    /** There's a player to show: the app keeps its link to the TV while it's put away. */
-    val active: Boolean get() = media != null
+    /** The notification is up: the app keeps its link to the TV while it's put away. */
+    val active: Boolean get() = session != null
+
+    /** What the TV plays, as it last said (and as the buttons since changed it); null for nothing. */
+    var media: TvMedia? = null
+        private set
+
+    /** Its picture; null for none. */
+    var art: Bitmap? = null
+        private set
 
     private lateinit var app: Context
     private val main = Handler(Looper.getMainLooper())
     private var session: MediaSession? = null
-    private var media: TvMedia? = null
-    private var art: Bitmap? = null
     private var dismissed: String? = null   // swiped away while paused: not again until it plays, or something else does
     private var fading = false              // nothing plays now: it goes in a moment, unless something does again
-    private val gone = Runnable { end() }
+    private val nothing = Runnable {
+        fading = false
+        media = null
+        art = null
+        hide()
+        onChange?.invoke()
+    }
+    private val pausedLong = Runnable { hide() }
 
     /** What the TV says it plays now (null: nothing), with its picture. */
     fun update(context: Context, now: TvMedia?, picture: Bitmap?) {
@@ -58,26 +75,27 @@ object TvPlayer {
         if (now == null) {
             if (media != null && !fading) {
                 fading = true
-                main.removeCallbacks(gone)
-                main.postDelayed(gone, if (appVisible) GAP_MS else AWAY_GAP_MS)
+                main.removeCallbacks(nothing)
+                main.postDelayed(nothing, if (appVisible) GAP_MS else AWAY_GAP_MS)
             }
             return
         }
         fading = false
+        main.removeCallbacks(nothing)
+        media = now
+        art = picture
+        onChange?.invoke()
         val key = now.app + "\n" + now.title
         if (dismissed != null) {
             if (dismissed == key && !now.playing) return
             dismissed = null
         }
-        main.removeCallbacks(gone)
-        if (!now.playing) main.postDelayed(gone, PAUSED_MS)
-        val first = media == null
-        media = now
-        art = picture
-        show(first)
+        main.removeCallbacks(pausedLong)
+        if (!now.playing) main.postDelayed(pausedLong, PAUSED_MS)
+        show(session == null)
     }
 
-    /** A button in the notification, the lock screen, or a headset's. */
+    /** A button: in the notification, on the lock screen, a headset's, or the remote's own player. */
     fun button(what: String?, ms: Long = 0) {
         val m = media ?: return
         val now = SystemClock.elapsedRealtime()
@@ -89,29 +107,36 @@ object TvPlayer {
             "next", "previous" -> {}
             else -> return
         }
-        main.removeCallbacks(gone)
-        if (media?.playing == false) main.postDelayed(gone, PAUSED_MS)
-        show(false)
+        onChange?.invoke()
+        if (session != null) {
+            main.removeCallbacks(pausedLong)
+            if (media?.playing == false) main.postDelayed(pausedLong, PAUSED_MS)
+            show(false)
+        }
         send?.invoke(if (what == "seek") "SEEK $ms" else what.uppercase())
     }
 
-    /** Swiped away (Android allows it once it's paused): gone until it plays again. */
+    /** The notification swiped away (Android allows it once it's paused): gone until it plays again. */
     fun dismissed() {
         media?.let { dismissed = it.app + "\n" + it.title }
-        end()
+        hide()
     }
 
-    /** No player any more: the notification and the session go, and the service stops. */
+    /** The app's closing: nothing to show any more. */
     fun end() {
-        main.removeCallbacks(gone)
+        main.removeCallbacks(nothing)
         fading = false
-        if (media == null && session == null) return
         media = null
         art = null
-        session?.let {
-            it.isActive = false
-            it.release()
-        }
+        hide()
+    }
+
+    /** The notification and the session go, and the service stops. */
+    private fun hide() {
+        main.removeCallbacks(pausedLong)
+        val s = session ?: return
+        s.isActive = false
+        s.release()
         session = null
         if (::app.isInitialized) {
             app.getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)

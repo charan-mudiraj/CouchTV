@@ -60,6 +60,12 @@ namespace CouchTV
         /// <summary>What's playing now, or null for nothing; changed on the UI thread, just before Changed.</summary>
         public static MediaNow Current { get; private set; }
 
+        /// <summary>
+        /// The app whose session comes first while it has one (Windows' name for it, e.g. "Brave"): the music left playing
+        /// behind other apps, so it's what's shown and what the buttons work, even with a film playing in front.
+        /// </summary>
+        public static volatile string Prefer;
+
         sealed class Ask
         {
             public string What;
@@ -131,7 +137,12 @@ namespace CouchTV
         static GlobalSystemMediaTransportControlsSession Pick(GlobalSystemMediaTransportControlsSessionManager manager)
         {
             GlobalSystemMediaTransportControlsSession paused = null;
-            foreach (GlobalSystemMediaTransportControlsSession s in manager.GetSessions())
+            IReadOnlyList<GlobalSystemMediaTransportControlsSession> sessions = manager.GetSessions();
+            string prefer = Prefer;
+            if (prefer != null)
+                foreach (GlobalSystemMediaTransportControlsSession s in sessions)
+                    if (s.SourceAppUserModelId == prefer && Active(s.GetPlaybackInfo().PlaybackStatus)) return s;
+            foreach (GlobalSystemMediaTransportControlsSession s in sessions)
             {
                 GlobalSystemMediaTransportControlsSessionPlaybackStatus status = s.GetPlaybackInfo().PlaybackStatus;
                 if (status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing) return s;

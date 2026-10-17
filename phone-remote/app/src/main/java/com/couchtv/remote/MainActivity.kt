@@ -70,6 +70,7 @@ class MainActivity : Activity() {
     private var irVolume = 0                                  // by infrared: where the slider was, for the presses it takes
     private var tvApps: List<TvApp> = emptyList()             // the TV's streaming apps, as it last listed them
     private lateinit var shortcutsHolder: FrameLayout
+    private lateinit var nowPlaying: NowPlayingCard
     private lateinit var typingBox: TypingBox
     private lateinit var mirrorView: MirrorView
     private lateinit var screen: ScreenLink
@@ -309,7 +310,16 @@ class MainActivity : Activity() {
         sleepLabel = TextView(this)
         sleepTimer = SleepTimer(this, remote, sleepLabel)
         shortcutsHolder = FrameLayout(this)
-        suggestions.header = shortcutsHolder
+        // Under them, what the TV plays (while it plays something), with its buttons and timeline, as in the notification.
+        nowPlaying = NowPlayingCard(this).apply { onButton = { what, ms -> TvPlayer.button(what, ms) } }
+        TvPlayer.onChange = { nowPlaying.show(TvPlayer.media, TvPlayer.art) }
+        suggestions.header = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(shortcutsHolder)
+            addView(nowPlaying, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = (12 * resources.displayMetrics.density).toInt()
+            })
+        }
         showShortcuts()
         sleepTimer.showKey()
 
@@ -624,6 +634,7 @@ class MainActivity : Activity() {
     override fun onDestroy() {
         TvPlayer.send = null
         TvPlayer.onIdle = null
+        TvPlayer.onChange = null
         TvPlayer.end()
         remote.wifi.stop()
         ListenService.onChange = null

@@ -15,8 +15,9 @@ using System.Windows.Threading;
 namespace CouchTV
 {
     // What's playing (NowPlaying, from Windows' media controls). Music, or anything on YouTube, goes on behind the home
-    // screen after Home instead of closing, with a card at the top of the home screen to see and work it (Up from the
-    // apps); phones show it as a notification with its buttons (MEDIA lines). A film closes on Home as before.
+    // screen after Home instead of closing, and behind other apps opened meanwhile, with a card at the top of the home
+    // screen to see and work it (Up from the apps), and over other apps the mini player at the top right (MiniPlayer);
+    // phones show it as a notification with its buttons (MEDIA lines). A film closes on Home as before.
     internal sealed partial class HomeWindow
     {
         const double CardW = 760, CardH = 184, CardTop = 92, ArtBox = 140;
@@ -38,6 +39,8 @@ namespace CouchTV
         volatile string _mediaApp = "";   // where it plays ("YouTube"), for the phones' lines (read on the network thread)
         string _artTold = "", _artShown = "", _titleShown;
         bool _cardShown;
+        MiniPlayer _mini;              // over other apps while the music plays behind them
+        DispatcherTimer _playPauseHold;
 
         FrameworkElement _card, _cardRing, _cardText, _cardBarHost;
         Grid _cardHints;
@@ -51,6 +54,8 @@ namespace CouchTV
         {
             NowPlaying.Changed += MediaChanged;
             NowPlaying.Start(Dispatcher);
+            Activated += (s, e) => UpdateMini();
+            Deactivated += (s, e) => UpdateMini();
             if (_wifi == null) return;
             _wifi.CurrentMedia = () => MediaLines(NowPlaying.Current, _mediaApp, true);
             _wifi.Media += (what, ms) =>
@@ -68,6 +73,7 @@ namespace CouchTV
             IntPtr window = now == null ? IntPtr.Zero : MediaWindow(now, out title);
             _mediaApp = now == null ? "" : AppName(now, window);
             UpdateMediaCard(!_opt.Preview);
+            UpdateMini();
             if (_wifi == null) return;
             bool art = now != null && now.ArtId != _artTold;
             if (now != null) _artTold = now.ArtId;
@@ -105,17 +111,19 @@ namespace CouchTV
         {
             _bgWindow = IntPtr.Zero;
             _bgTile = null;
+            NowPlaying.Prefer = null;
+            if (_mini != null) _mini.HideNow();
         }
 
         /// <summary>
-        /// Home: the window to leave open behind the home screen, or zero to close everything as before. Music, or
-        /// anything on YouTube, that's playing goes on (and one already left behind stays); a film, or anything
-        /// paused, closes.
+        /// Home, or another app opening: the window to leave open behind, or zero to close everything as before. Music,
+        /// or anything on YouTube, that's playing goes on, and so does one already left behind (unless it's the app in
+        /// front, paused); a film, or anything paused, closes.
         /// </summary>
-        IntPtr KeepPlaying(bool alreadyHome)
+        IntPtr KeepPlaying()
         {
             if (_bgWindow != IntPtr.Zero && !Native.IsWindow(_bgWindow)) ForgetBackground();
-            if (alreadyHome && BackgroundAlive) return _bgWindow;   // Home again on the home screen: it stays
+            if (BackgroundAlive && Native.GetForegroundWindow() != _bgWindow) return _bgWindow;
             MediaNow now = NowPlaying.Current;
             if (now == null || !now.Playing) return IntPtr.Zero;
             string title;
@@ -123,6 +131,7 @@ namespace CouchTV
             if (window == IntPtr.Zero || IsFilm(title)) return IntPtr.Zero;
             _bgWindow = window;
             _bgTile = TileFor(title);
+            NowPlaying.Prefer = now.Source;
             Log.Info("Home: \"" + now.Title + "\" plays on behind the home screen (" + Shell.WindowProcess(window) + ")");
             return window;
         }
@@ -216,6 +225,67 @@ namespace CouchTV
             _mediaFocused = false;
             RefreshFocus(false);
             Shell.BringBack(window);
+        }
+
+        // ================================================================ the mini player, over other apps
+
+        bool MiniShown { get { return _mini != null && _mini.IsVisible; } }
+
+        /// <summary>Up while music plays behind an app other than the home screen (or the app it plays in).</summary>
+        void UpdateMini()
+        {
+            if (_opt.Preview || _opt.Windowed) return;
+            IntPtr front = Native.GetForegroundWindow();
+            if (front == IntPtr.Zero) return;   // between two windows
+            MediaNow now = NowPlaying.Current;
+            if (now == null || !BackgroundAlive || front == _hwnd || front == _bgWindow || Shell.ExplorerRunning)
+            {
+                if (_mini != null) _mini.HideNow();
+                return;
+            }
+            if (_mini == null)
+            {
+                _mini = new MiniPlayer();
+                _mini.Pressed += what =>
+                {
+                    if (what == "open")
+                    {
+                        _mini.Fold(true);
+                        OpenBackground();
+                    }
+                    else if (what == "stop") StopBackground();
+                    else NowPlaying.Command(what);
+                };
+            }
+            _mini.Show(now, _mediaApp);
+        }
+
+        /// <summary>
+        /// Play/Pause with the mini player up over an app: a press is still Space for the app in front (a film pauses);
+        /// held, it opens the mini player, whose arrows, OK and Back then work it.
+        /// </summary>
+        void HoldPlayPause()
+        {
+            if (_playPauseHold == null)
+            {
+                _playPauseHold = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
+                _playPauseHold.Tick += (s, e) =>
+                {
+                    DateTime now = DateTime.Now;
+                    bool held = _irAction != null && _irAction.Equals("playpause", StringComparison.OrdinalIgnoreCase) && (now - _irLast).TotalMilliseconds < 240;
+                    if (!held)
+                    {
+                        _playPauseHold.Stop();
+                        Input.Key(0x20);
+                        return;
+                    }
+                    if ((now - _irFirst).TotalMilliseconds < 600) return;
+                    _playPauseHold.Stop();
+                    _irHoldDone = true;
+                    if (MiniShown) _mini.Open();
+                };
+            }
+            _playPauseHold.Start();
         }
 
         /// <summary>The card's Back (or a phone's stop): closes the app left playing behind; else just pauses.</summary>
@@ -465,6 +535,7 @@ namespace CouchTV
                 ForgetBackground();
                 UpdateMediaCard(true);
             }
+            if (tick) UpdateMini();
             MediaNow now = NowPlaying.Current;
             if (!_cardShown || now == null || now.DurationMs <= 0) return;
             DateTime utc = DateTime.UtcNow;

@@ -935,11 +935,11 @@ namespace CouchTV
                 OpenSettingsWithDesktop(t);
                 return;
             }
-            // An app while music plays behind: the same app comes back; another closes it first (it waits for that).
-            if (!t.IsSystem && BackgroundAlive)
+            // The app playing behind the home screen comes back. Any other opens over it, the music going on (the mini
+            // player at the top right works it meanwhile).
+            if (!t.IsSystem && IsBackgroundTile(t))
             {
-                if (IsBackgroundTile(t)) OpenBackground();
-                else OpenFromAnywhere(t);
+                OpenBackground();
                 return;
             }
             LaunchResult result = Launcher.Open(_cfg, t);
@@ -1018,7 +1018,7 @@ namespace CouchTV
         void GoHome()
         {
             bool alreadyHome = IsActive && WindowState != WindowState.Minimized;
-            IntPtr keep = Shell.ExplorerRunning ? IntPtr.Zero : KeepPlaying(alreadyHome);
+            IntPtr keep = Shell.ExplorerRunning ? IntPtr.Zero : KeepPlaying();
             int closed = Shell.ExplorerRunning ? 0 : Shell.CloseAppWindows(_hwnd, keep);
             if (closed > 0 && keep == IntPtr.Zero) QuietCardAfterHome();
             BringHome();
@@ -1757,6 +1757,20 @@ namespace CouchTV
                 UpdateMediaCard(false);
                 _mediaFocused = state.Contains("mediafocus");
                 RefreshFocus(false);
+            }
+            if (state.Contains("mini"))
+            {
+                // The mini player over an app (miniopen: opened with the remote, the focus on play/pause).
+                var mini = new MiniPlayer();
+                FrameworkElement drawn = mini.Preview(new MediaNow
+                {
+                    Source = "Brave", Title = "Gehra Hua", Artist = "Arijit Singh", Playing = true, CanPlayPause = true, CanNext = true,
+                    CanSeek = true, PositionMs = 83000, DurationMs = 245000, AsOf = DateTime.UtcNow, Art = Diagnostics.SampleArt(), ArtId = "sample",
+                }, "YouTube", state.Contains("miniopen"));
+                drawn.HorizontalAlignment = HorizontalAlignment.Right;
+                drawn.VerticalAlignment = VerticalAlignment.Top;
+                drawn.Margin = new Thickness(0, 10, 20, 0);
+                _layers.Children.Add(drawn);
             }
             if (state.Contains("osd"))
             {
