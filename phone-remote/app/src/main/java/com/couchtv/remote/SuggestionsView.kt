@@ -36,6 +36,9 @@ class SuggestionsView @JvmOverloads constructor(context: Context, attrs: Attribu
     /** Called when a film or song is tapped. */
     var onPlay: ((Suggestion) -> Unit)? = null
 
+    /** Called for Play next on a song (its button, or held down and chosen). */
+    var onPlayNext: ((Suggestion) -> Unit)? = null
+
     private val column = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
     private var list: List<Suggestion> = emptyList()
     private var connected = false
@@ -162,6 +165,27 @@ class SuggestionsView @JvmOverloads constructor(context: Context, attrs: Attribu
             addView(badge, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.START).apply {
                 setMargins(dp(5), dp(5), dp(5), 0)
             })
+            if (!s.movie) {
+                // A song: a round button in its corner plays it next (after the one playing on the TV).
+                addView(ImageView(context).apply {
+                    setImageResource(R.drawable.ic_queue_add)
+                    imageTintList = android.content.res.ColorStateList.valueOf(context.getColor(R.color.ink))
+                    setPadding(dp(5), dp(5), dp(5), dp(5))
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.OVAL
+                        setColor(0xB3000000.toInt())
+                    }
+                    contentDescription = context.getString(R.string.play_next)
+                    isClickable = true
+                    setOnClickListener {
+                        Haptics.press(it)
+                        it.animate().scaleX(1.25f).scaleY(1.25f).setDuration(110).withEndAction {
+                            it.animate().scaleX(1f).scaleY(1f).setDuration(200).start()
+                        }.start()
+                        onPlayNext?.invoke(s)
+                    }
+                }, FrameLayout.LayoutParams(dp(30), dp(30), Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(5), dp(5)) })
+            }
         }
         val title = TextView(context).apply {
             text = s.title
@@ -192,6 +216,19 @@ class SuggestionsView @JvmOverloads constructor(context: Context, attrs: Attribu
                 Haptics.press(it)
                 onPlay?.invoke(s)
             }
+            if (!s.movie) setOnLongClickListener { v ->
+                // Held down: play it now, or next.
+                Haptics.press(v)
+                android.widget.PopupMenu(context, v).apply {
+                    menu.add(0, 1, 0, R.string.play_now)
+                    menu.add(0, 2, 1, R.string.play_next)
+                    setOnMenuItemClickListener { item ->
+                        if (item.itemId == 1) onPlay?.invoke(s) else onPlayNext?.invoke(s)
+                        true
+                    }
+                }.show()
+                true
+            }
         }
     }
 
@@ -215,8 +252,8 @@ class SuggestionsView @JvmOverloads constructor(context: Context, attrs: Attribu
         }
     }
 
-    /** Pictures from the internet: kept in memory while the app runs, and on disk for next time. */
-    private object Pictures {
+    /** Pictures from the internet: kept in memory while the app runs, and on disk for next time. Up next's too. */
+    object Pictures {
         private val memory = object : LruCache<String, Bitmap>(16 * 1024 * 1024) {
             override fun sizeOf(key: String, value: Bitmap) = value.byteCount
         }

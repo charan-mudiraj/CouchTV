@@ -55,6 +55,22 @@ class TvMediaTest {
     }
 
     @Test
+    fun readsUpNext() {
+        val mine = TvQueueItem.parse("kJQP7kiw5Fk A 0 ${b64("Despacito")} ${b64("Luis Fonsi")}")!!
+        assertTrue(mine.added)
+        assertEquals("Despacito", mine.title)
+        assertEquals("Luis Fonsi", mine.artist)
+        assertEquals("https://i.ytimg.com/vi/kJQP7kiw5Fk/mqdefault.jpg", mine.picture)
+        val theirs = TvQueueItem.parse("TUVcZfQe-Kw Y 231 ${b64("Levitating")} -")!!
+        assertFalse(theirs.added)
+        assertEquals(231, theirs.seconds)
+        assertEquals("", theirs.artist)
+        assertNull(TvQueueItem.parse("../etc/x A 0 - -"))       // not a video
+        assertNull(TvQueueItem.parse("kJQP7kiw5Fk X 0 - -"))
+        assertNull(TvQueueItem.parse("kJQP7kiw5Fk A"))
+    }
+
+    @Test
     fun readsThePicture() {
         val jpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 1, 2, 3)
         val (id, bytes) = TvMedia.art("a1b2 " + Base64.getEncoder().encodeToString(jpeg))!!

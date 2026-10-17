@@ -160,6 +160,14 @@ class MainActivity : Activity() {
         // The first page: popular films and songs, the TV's list, or with the TV off the phone's own; a tap plays it there.
         val suggestions = findViewById<SuggestionsView>(R.id.suggestions)
         suggestions.onPlay = { playSuggestion(it) }
+        suggestions.onPlayNext = { s ->
+            if (!remote.wifi.connected) toast(getString(R.string.keyboard_offline))
+            else {
+                remote.wifi.playNext(s)
+                // Next after YouTube's song; with nothing on YouTube, it plays now.
+                toast(if (TvPlayer.media?.app == "YouTube") getString(R.string.plays_next, s.title) else getString(R.string.suggestion_playing, s.title, s.app))
+            }
+        }
         suggestions.show(feed.current, false)
         feed.onChange = { list -> if (remote.wifi.tvName == null) suggestions.show(list, false) }
         remote.wifi.onSuggestSetup = { feed.setSetup(it) }
@@ -311,7 +319,12 @@ class MainActivity : Activity() {
         sleepTimer = SleepTimer(this, remote, sleepLabel)
         shortcutsHolder = FrameLayout(this)
         // Under them, what the TV plays (while it plays something), with its buttons and timeline, as in the notification.
-        nowPlaying = NowPlayingCard(this).apply { onButton = { what, ms -> TvPlayer.button(what, ms) } }
+        nowPlaying = NowPlayingCard(this).apply {
+            onButton = { what, ms -> TvPlayer.button(what, ms) }
+            onQueuePlay = { remote.wifi.queuePlay(it) }
+            onQueueRemove = { remote.wifi.queueRemove(it) }
+        }
+        remote.wifi.onQueue = { nowPlaying.showQueue(remote.wifi.queue) }
         TvPlayer.onChange = { nowPlaying.show(TvPlayer.media, TvPlayer.art) }
         suggestions.header = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL

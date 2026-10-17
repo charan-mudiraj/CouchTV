@@ -80,6 +80,8 @@ Over other apps, a **round button at the top right** shows it: the song's pictur
 
 The phone remote shows the same thing as a player in the phone's notifications, and on its first page, with its buttons and timeline.
 
+**Up next** (YouTube): the phone's player lists what plays next: songs you added with **Play next** on a song in the phone's *Top songs* (its round button, or hold it down), then YouTube's own list beside the video (the mix or playlist). Tap one to play it now; ✕ takes one of yours out. When the song playing ends, or you press Next, the next of yours goes on in the same YouTube page (CouchTV uses YouTube's search for it, through Windows' accessibility, so no window opens and nothing in front of it changes, even over Netflix); after yours, YouTube carries on with its own list. A video playing full screen in YouTube leaves full screen for this.
+
 Under the apps, **Popular films** and **Top songs** show what's popular now: films streaming in India this year (from JustWatch), each with the app it plays on (one you subscribe to, or one that has it free), and India's most-played songs (Apple Music's chart), on YouTube. Press OK on one and it plays: a film opens in its app (on Netflix it starts playing straight away), a song plays on YouTube full screen, as a mix of similar songs. Going down to these rows slides the screen up. The lists are fetched every 6 hours and kept for offline; `Suggestions = movies, music` in `couchtv.ini` chooses the rows, or `off`. The phone remote shows the same on its first page, even with the TV off (it fetches the lists itself then): tap one and the TV turns on and plays it.
 
 The **Settings & power** row has:

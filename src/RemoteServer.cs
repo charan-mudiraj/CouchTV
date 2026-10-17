@@ -55,6 +55,9 @@ namespace CouchTV
     ///                     BTSAYS &lt;good|warn|muted&gt; &lt;words&gt; (again whenever it changes)
     ///     BT POWER ON|OFF, BT SEARCH ON|OFF, BT PAIR|CONNECT|DISCONNECT|FORGET &lt;address&gt;, BT AUTO|TOGETHER &lt;address&gt; ON|OFF
     ///     MEDIA PLAY|PAUSE|TOGGLE|NEXT|PREVIOUS|STOP, MEDIA SEEK &lt;ms&gt;   the buttons of the phone's notification for what's playing
+    ///     PLAYNEXT &lt;as PLAY&gt;       a song to play next on YouTube (up next)
+    ///     QUEUE PLAY|REMOVE &lt;video&gt;   a song of up next played now, or taken out
+    ///                  →  QUEUE &lt;count&gt; and that many QITEM lines (on connecting, and whenever up next changes)
     ///     LOG [&lt;lines&gt;]             →  LOG &lt;count&gt;, then that many lines "| &lt;line&gt;": the end of the TV's log (CouchTV.exe --tv)
     /// Buttons go through the same remote.ini mapping as infrared ones, so both remotes behave the same.
     /// </summary>
@@ -86,7 +89,9 @@ namespace CouchTV
         public event Action<int> Brightness;                 // a phone's brightness slider: 0 to 100 (UI thread)
         public event Action<bool> BluetoothWatch;            // a phone has its Bluetooth page open (true), or none has now (UI thread)
         public event Action<string[]> BluetoothAsk;          // a phone asked its Bluetooth page's question: "POWER ON" etc., split (UI thread)
-        public event Action<string, long> Media;             // a phone's button for what's playing: play, pause, toggle, next, previous, stop, or seek and where to, in ms (UI thread)
+        public event Action<string, long> Media;
+        public event Action<string> PlayNext;                // a phone's Play next on a song: as PLAY says it (UI thread)
+        public event Action<string, string> Queue;           // a phone played ("play") or took out ("remove") a song of up next: its video (UI thread)             // a phone's button for what's playing: play, pause, toggle, next, previous, stop, or seek and where to, in ms (UI thread)
 
         /// <summary>The pointer's look now ("arrow 64 white"), told to each phone as it connects.</summary>
         internal Func<string> CurrentPointer;
@@ -108,6 +113,9 @@ namespace CouchTV
 
         /// <summary>What's playing (MEDIAART and MEDIA lines), told to each phone as it connects; from the network thread.</summary>
         internal Func<List<string>> CurrentMedia;
+
+        /// <summary>Up next (QUEUE, then QITEM lines), told to each phone as it connects; from the network thread.</summary>
+        internal Func<List<string>> CurrentQueue;
 
         // What the trackpad lines do, straight from the network thread for the least delay. The self-test swaps
         // these to watch rather than move the real pointer.
@@ -580,6 +588,8 @@ namespace CouchTV
                         if (levels != null) welcome += "\n" + string.Join("\n", levels());
                         Func<List<string>> media = CurrentMedia;
                         if (media != null) welcome += "\n" + string.Join("\n", media());
+                        Func<List<string>> queue = CurrentQueue;
+                        if (queue != null) welcome += "\n" + string.Join("\n", queue());
                     }
                     return welcome;
                 case "PING":
@@ -738,6 +748,21 @@ namespace CouchTV
                     {
                         string request = line.Substring(5);
                         Raise(() => { if (Play != null) Play(request); });
+                    }
+                    return null;
+                case "PLAYNEXT":
+                    if (parts.Length >= 2 && parts[1].Length > 0 && parts[1].Length <= 60 && line.Length <= 4000)
+                    {
+                        string request = line.Substring(9);
+                        Raise(() => { if (PlayNext != null) PlayNext(request); });
+                    }
+                    return null;
+                case "QUEUE":
+                    // Up next under the phone's player: a song played from it, or taken out (by its YouTube video).
+                    if (parts.Length >= 3 && (parts[1] == "PLAY" || parts[1] == "REMOVE") && System.Text.RegularExpressions.Regex.IsMatch(parts[2], @"^[\w-]{11}$"))
+                    {
+                        string act = parts[1].ToLowerInvariant(), video = parts[2];
+                        Raise(() => { if (Queue != null) Queue(act, video); });
                     }
                     return null;
                 case "EDIT":

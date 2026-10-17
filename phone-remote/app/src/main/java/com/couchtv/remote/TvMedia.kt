@@ -60,7 +60,25 @@ data class TvMedia(
             return id to bytes
         }
 
-        private fun text(b64: String): String =
+        internal fun text(b64: String): String =
             if (b64 == "-") "" else runCatching { String(Base64.getDecoder().decode(b64), Charsets.UTF_8) }.getOrDefault("")
+    }
+}
+
+/**
+ * A song in the TV's up next ("QITEM" in ir-receiver/PROTOCOL.md): its YouTube video, whether a phone added it (Play
+ * next) or it's from YouTube's own list beside the video, its length (0: not known), title and artist.
+ */
+data class TvQueueItem(val id: String, val added: Boolean, val seconds: Int, val title: String, val artist: String) {
+    /** Its picture on YouTube (the phone loads it from there). */
+    val picture: String get() = "https://i.ytimg.com/vi/$id/mqdefault.jpg"
+
+    companion object {
+        /** The line after "QITEM ": "<video> <A|Y> <seconds> <title> <artist>" (texts in base64, "-" for none). */
+        fun parse(line: String): TvQueueItem? {
+            val p = line.trim().split(" ")
+            if (p.size < 5 || !Regex("[\\w-]{11}").matches(p[0]) || (p[1] != "A" && p[1] != "Y")) return null
+            return TvQueueItem(p[0], p[1] == "A", p[2].toIntOrNull()?.coerceAtLeast(0) ?: 0, TvMedia.text(p[3]), TvMedia.text(p[4]))
+        }
     }
 }

@@ -156,6 +156,20 @@ class WifiLink(context: Context) {
     /** A button for what the TV plays: "PLAY", "PAUSE", "NEXT", "PREVIOUS", or "SEEK <ms from the start>". */
     fun media(command: String) = send("MEDIA $command")
 
+    /** Called on the main thread when the TV's up next changes (see [queue]). */
+    var onQueue: (() -> Unit)? = null
+
+    /** What plays next on the TV (YouTube): songs added with Play next, then YouTube's own list; empty when nothing. */
+    @Volatile var queue: List<TvQueueItem> = emptyList()
+        private set
+
+    /** Plays a song next on the TV (after the one playing), or now when nothing plays there. */
+    fun playNext(s: Suggestion) = send("PLAYNEXT " + s.playLine().removePrefix("PLAY "))
+
+    /** A song of up next: played now, or taken out. */
+    fun queuePlay(id: String) = send("QUEUE PLAY $id")
+    fun queueRemove(id: String) = send("QUEUE REMOVE $id")
+
     /** Called on the main thread when the TV's sleep timer changes (see [sleepEndsAt]). */
     var onSleepTimer: (() -> Unit)? = null
 
@@ -571,6 +585,16 @@ class WifiLink(context: Context) {
                     mediaArt = bytes?.let { runCatching { BitmapFactory.decodeByteArray(it, 0, it.size) }.getOrNull() }
                 }
                 line.startsWith("MEDIA ") -> setMedia(TvMedia.parse(line.removePrefix("MEDIA "), SystemClock.elapsedRealtime()))
+                line.startsWith("QUEUE ") -> {
+                    // Up next: that many QITEM lines follow.
+                    queueExpected = line.removePrefix("QUEUE ").trim().toIntOrNull() ?: 0
+                    queueArriving = mutableListOf()
+                    if (queueExpected <= 0) setQueue(emptyList())
+                }
+                line.startsWith("QITEM ") -> queueArriving?.let { arriving ->
+                    TvQueueItem.parse(line.removePrefix("QITEM "))?.let { arriving.add(it) } ?: queueExpected--
+                    if (arriving.size >= queueExpected) setQueue(arriving)
+                }
                 line.startsWith("SLEEPTIMER ") -> line.removePrefix("SLEEPTIMER ").trim().toIntOrNull()?.let { seconds ->
                     setSleepTimer(if (seconds > 0) SystemClock.elapsedRealtime() + seconds * 1000L else 0L, true)
                 }
@@ -663,6 +687,15 @@ class WifiLink(context: Context) {
         main.post { onMedia?.invoke() }
     }
 
+    private var queueArriving: MutableList<TvQueueItem>? = null   // on the connection's own thread
+    private var queueExpected = 0
+
+    private fun setQueue(list: List<TvQueueItem>) {
+        queueArriving = null
+        queue = list
+        main.post { onQueue?.invoke() }
+    }
+
     // The TV's Bluetooth lists as their lines arrive (the connection's own thread).
     private var btDevices: MutableList<TvBluetooth.Device>? = null
     private var btExpected = 0
@@ -707,6 +740,7 @@ class WifiLink(context: Context) {
             if (bluetooth != null) setBluetooth(null)
             if (settings.isNotEmpty()) setSettings(emptyList())
             if (media != null) setMedia(null)
+            if (queue.isNotEmpty()) setQueue(emptyList())
         }
         if (tvName == name) return
         tvName = name

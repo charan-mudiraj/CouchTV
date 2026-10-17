@@ -25,12 +25,19 @@ import kotlin.math.max
 
 /**
  * What the TV plays, on the remote's first page under the shortcuts: the picture, the title and artist, the timeline
- * (drag it to move along) and previous, play/pause, next. The card takes on the picture's colour. Hidden while
- * nothing plays. Follows TvPlayer, and its buttons go through it (shown at once, then the TV says so).
+ * (drag it to move along), previous, play/pause, next, and up next under them (YouTube: songs added with Play next,
+ * then YouTube's own list; tap one to play it, ✕ takes one of yours out). The card takes on the picture's colour.
+ * Hidden while nothing plays. Follows TvPlayer, and its buttons go through it (shown at once, then the TV says so).
  */
 class NowPlayingCard(context: Context) : LinearLayout(context) {
     /** A button: "previous", "play", "pause", "next", or "seek" with where to (ms from the start). */
     var onButton: ((String, Long) -> Unit)? = null
+
+    /** A song of up next tapped (its video): play it now. */
+    var onQueuePlay: ((String) -> Unit)? = null
+
+    /** A song added with Play next taken out (its video). */
+    var onQueueRemove: ((String) -> Unit)? = null
 
     private val density = resources.displayMetrics.density
     private fun dp(v: Float) = (v * density + 0.5f).toInt()
@@ -46,6 +53,9 @@ class NowPlayingCard(context: Context) : LinearLayout(context) {
     private val playPause = RoundButton(context, R.drawable.ic_pause, true)
     private val next = RoundButton(context, R.drawable.ic_skip_next, false)
     private val timelineRow = LinearLayout(context)
+    private val queueBox = LinearLayout(context)
+    private var queue: List<TvQueueItem> = emptyList()
+    private var queueOpen = false   // every song shown, not just the first few
     private val back = GradientDrawable().apply { cornerRadius = 22 * density }
     private var media: TvMedia? = null
     private var artShown: Bitmap? = null
@@ -128,6 +138,9 @@ class NowPlayingCard(context: Context) : LinearLayout(context) {
         })
         buttons.addView(next, LayoutParams(dp(48f), dp(48f)))
         addView(buttons, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(2f) })
+        queueBox.orientation = VERTICAL
+        queueBox.visibility = GONE
+        addView(queueBox, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(10f) })
         previous.setOnClickListener { onButton?.invoke("previous", 0) }
         next.setOnClickListener { onButton?.invoke("next", 0) }
         playPause.setOnClickListener { media?.let { onButton?.invoke(if (it.playing) "pause" else "play", 0) } }
@@ -177,6 +190,114 @@ class NowPlayingCard(context: Context) : LinearLayout(context) {
         if (m.playing) postDelayed(tick, 500)
     }
 
+    /** Up next on the TV (empty: none to show). */
+    fun showQueue(list: List<TvQueueItem>) {
+        if (list == queue) return
+        queue = list
+        if (list.size <= SHORT) queueOpen = false
+        buildQueue()
+    }
+
+    private fun buildQueue() {
+        queueBox.removeAllViews()
+        queueBox.visibility = if (queue.isEmpty()) GONE else VISIBLE
+        if (queue.isEmpty()) return
+        val head = LinearLayout(context).apply { gravity = Gravity.CENTER_VERTICAL }
+        head.addView(TextView(context).apply {
+            setText(R.string.up_next)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            setTextColor(context.getColor(R.color.ink))
+            paint.isFakeBoldText = true
+        }, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
+        head.addView(TextView(context).apply {
+            text = context.getString(R.string.up_next_count, queue.size)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTextColor(context.getColor(R.color.muted))
+        })
+        queueBox.addView(head, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
+            bottomMargin = dp(4f)
+            marginStart = dp(2f)
+            marginEnd = dp(2f)
+        })
+        val shown = if (queueOpen) queue else queue.take(SHORT)
+        for (item in shown) queueBox.addView(queueRow(item))
+        if (queue.size > SHORT) queueBox.addView(TextView(context).apply {
+            text = if (queueOpen) context.getString(R.string.up_next_fewer) else context.getString(R.string.up_next_all, queue.size)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            setTextColor(context.getColor(R.color.voice_rim))
+            gravity = Gravity.CENTER
+            setPadding(0, dp(10f), 0, dp(6f))
+            isClickable = true
+            setOnClickListener {
+                queueOpen = !queueOpen
+                buildQueue()
+            }
+        }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+    }
+
+    /** One song of up next: its picture, title, artist and length (or "Added by you"); ✕ on one of yours. */
+    private fun queueRow(item: TvQueueItem): View {
+        val row = LinearLayout(context).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(2f), dp(6f), dp(2f), dp(6f))
+            isClickable = true
+            isFocusable = true
+            background = context.getDrawable(R.drawable.row_bg)
+            setOnClickListener {
+                Haptics.press(it)
+                onQueuePlay?.invoke(item.id)
+            }
+        }
+        val picture = ImageView(context).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            background = GradientDrawable().apply {
+                cornerRadius = 8 * density
+                setColor(context.getColor(R.color.surface_raised))
+            }
+            outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: Outline) = outline.setRoundRect(0, 0, view.width, view.height, 8 * density)
+            }
+            clipToOutline = true
+        }
+        SuggestionsView.Pictures.load(context, item.picture, picture, dp(96f))
+        row.addView(picture, LayoutParams(dp(64f), dp(36f)))
+        val words = LinearLayout(context).apply { orientation = VERTICAL }
+        words.addView(TextView(context).apply {
+            text = item.title
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setTextColor(context.getColor(R.color.ink))
+            setSingleLine()
+            ellipsize = TextUtils.TruncateAt.END
+        })
+        val about = listOfNotNull(
+            if (item.added) context.getString(R.string.up_next_added) else null,
+            item.artist.ifEmpty { null },
+            if (item.seconds > 0) clock(item.seconds * 1000L) else null,
+        ).joinToString(" · ")
+        if (about.isNotEmpty()) words.addView(TextView(context).apply {
+            text = about
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTextColor(context.getColor(if (item.added) R.color.voice_rim else R.color.muted))
+            setSingleLine()
+            ellipsize = TextUtils.TruncateAt.END
+        })
+        row.addView(words, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(12f) })
+        if (item.added) row.addView(ImageView(context).apply {
+            setImageResource(R.drawable.ic_close)
+            imageTintList = android.content.res.ColorStateList.valueOf(context.getColor(R.color.muted))
+            setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
+            contentDescription = context.getString(R.string.up_next_remove)
+            isClickable = true
+            background = context.getDrawable(R.drawable.row_bg)
+            setOnClickListener {
+                Haptics.press(it)
+                row.animate().alpha(0f).translationX(row.width * 0.3f).setDuration(180).withEndAction { row.visibility = GONE }.start()
+                onQueueRemove?.invoke(item.id)
+            }
+        }, LayoutParams(dp(40f), dp(40f)))
+        return row
+    }
+
     private fun showTime() {
         val m = media ?: return
         if (m.durationMs <= 0) return
@@ -205,6 +326,10 @@ class NowPlayingCard(context: Context) : LinearLayout(context) {
     override fun onDetachedFromWindow() {
         removeCallbacks(tick)
         super.onDetachedFromWindow()
+    }
+
+    private companion object {
+        const val SHORT = 4   // songs of up next shown before "Show all"
     }
 
     private fun clock(ms: Long): String {

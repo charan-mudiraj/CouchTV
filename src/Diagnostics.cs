@@ -131,6 +131,25 @@ namespace CouchTV
             check("now playing: ...a bare one (" + HomeWindow.MediaLines(bare, "", false)[0] + ")", HomeWindow.MediaLines(bare, "", false)[0] == "MEDIA paused 0 0 - - - " +
                 Convert.ToBase64String(Encoding.UTF8.GetBytes("Radio")) + " -");
             check("now playing: ...and nothing", string.Join("|", HomeWindow.MediaLines(null, "", true)) == "MEDIA none");
+
+            int length;
+            check("up next: a song's name in YouTube's list loses its length", YouTubePage.WithoutLength("Sabrina Carpenter - Espresso 3 minutes, 21 seconds", out length) == "Sabrina Carpenter - Espresso" && length == 201);
+            check("up next: ...an hour long too", YouTubePage.WithoutLength("Lofi mix 1 hour, 2 minutes, 5 seconds", out length) == "Lofi mix" && length == 3725);
+            check("up next: ...and a name without one stays", YouTubePage.WithoutLength("Live now", out length) == "Live now" && length == 0);
+            check("up next: a video and its place from a YouTube address", YouTubePage.Param("https://www.youtube.com/watch?v=TUVcZfQe-Kw&list=RDeVli-tstM5E&index=2&pp=8AUB", "v") == "TUVcZfQe-Kw" &&
+                YouTubePage.Param("https://www.youtube.com/watch?v=TUVcZfQe-Kw&list=RDeVli-tstM5E&index=2", "index") == "2" &&
+                YouTubePage.Param("https://www.youtube.com/watch?v=TUVcZfQe-Kw&start_radio=1", "index") == null && YouTubePage.Param("https://example.com/?v=x", "v") == null);
+            var mine = new List<QueueSong> { new QueueSong { Id = "kJQP7kiw5Fk", Title = "Despacito", Artist = "Luis Fonsi" } };
+            var theirs = new List<PageSong>
+            {
+                new PageSong { Id = "eVli-tstM5E", Index = 1, Title = "Espresso", Artist = "Sabrina Carpenter", Seconds = 201 },
+                new PageSong { Id = "TUVcZfQe-Kw", Index = 2, Title = "Levitating", Artist = "Dua Lipa", Seconds = 231 },
+            };
+            List<string> queue = HomeWindow.QueueLines(mine, theirs, "Espresso");
+            check("up next: yours, then YouTube's list after the song playing (" + string.Join(" | ", queue) + ")", queue.Count == 3 && queue[0] == "QUEUE 2" &&
+                queue[1] == "QITEM kJQP7kiw5Fk A 0 " + Convert.ToBase64String(Encoding.UTF8.GetBytes("Despacito")) + " " + Convert.ToBase64String(Encoding.UTF8.GetBytes("Luis Fonsi")) &&
+                queue[2] == "QITEM TUVcZfQe-Kw Y 231 " + Convert.ToBase64String(Encoding.UTF8.GetBytes("Levitating")) + " " + Convert.ToBase64String(Encoding.UTF8.GetBytes("Dua Lipa")));
+            check("up next: ...and none of YouTube's when the song playing isn't in its list", HomeWindow.QueueLines(mine, theirs, "Something else").Count == 2);
         }
 
         /// <summary>A test picture: colours in the middle, black bars (bars px) above and below; or all but black.</summary>
@@ -207,6 +226,32 @@ namespace CouchTV
                 done.Start();
             };
             app.Run();
+            return 0;
+        }
+
+        /// <summary>
+        /// Reads the list beside the video in a YouTube page (a browser window whose title has that in it), as up next
+        /// does: read only, nothing clicked.
+        /// </summary>
+        public static int YouTubePageTest(string path, string title)
+        {
+            var report = new StringBuilder();
+            IntPtr found = IntPtr.Zero;
+            Native.EnumWindows((hwnd, l) =>
+            {
+                if (found == IntPtr.Zero && Native.IsWindowVisible(hwnd) && Shell.WindowTitle(hwnd).IndexOf(title, StringComparison.OrdinalIgnoreCase) >= 0 &&
+                    Shell.WindowTitle(hwnd).IndexOf("YouTube", StringComparison.OrdinalIgnoreCase) >= 0) found = hwnd;
+                return true;
+            }, IntPtr.Zero);
+            if (found == IntPtr.Zero) report.AppendLine("No window with \"" + title + "\" and YouTube in its title");
+            else
+            {
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                List<PageSong> songs = YouTubePage.Playlist(found);
+                report.AppendLine(Shell.WindowTitle(found) + ": " + songs.Count + " songs in its list (" + clock.ElapsedMilliseconds + " ms)");
+                foreach (PageSong s in songs) report.AppendLine(s.Index + ". " + s.Title + " | " + s.Artist + " | " + s.Seconds + " s | " + s.Id);
+            }
+            File.WriteAllText(path, report.ToString());
             return 0;
         }
 
@@ -1861,6 +1906,8 @@ namespace CouchTV
             server.BluetoothAsk += ask => { lock (bluetooth) bluetooth.Add(string.Join(" ", ask)); };
             var media = new List<string>();
             server.Media += (what, ms) => { lock (media) media.Add(what == "seek" ? what + " " + ms : what); };
+            server.PlayNext += request => { lock (media) media.Add("next: " + request.Split(' ')[0]); };
+            server.Queue += (what, video) => { lock (media) media.Add(what + " " + video); };
             Func<string> code = () => { lock (pairing) return shown; };
             Func<string> wrongCode = () => { lock (pairing) return ((int.Parse(shown) + 1) % 1000000).ToString("D6"); };
             Func<string> pairingLog = () => { lock (pairing) return string.Join(", ", pairing); };
@@ -1910,6 +1957,7 @@ namespace CouchTV
                 server.CurrentApps = () => new List<string> { "APPS 1", "APP TmV0ZmxpeA== TmV0ZmxpeA== E50914 FFFFFF" };
                 server.CurrentLevels = () => new List<string> { "VOLUME 46 0", "BRIGHTNESS 80" };
                 server.CurrentMedia = () => new List<string> { "MEDIAART -", "MEDIA paused 1000 60000 P - - VGl0bGU= -" };
+                server.CurrentQueue = () => new List<string> { "QUEUE 0" };
                 using (var a = new TestPhone(idA))
                 {
                     a.Hello(47791);
@@ -1933,6 +1981,7 @@ namespace CouchTV
                     check("Wi-Fi: ...and the volume and brightness, for the phone's sliders", volumeLine == "VOLUME 46 0" && brightnessLine == "BRIGHTNESS 80");
                     string artLine = a.Receive(), mediaLine = a.Receive();
                     check("Wi-Fi: ...and what's playing, for the phone's notification", artLine == "MEDIAART -" && mediaLine == "MEDIA paused 1000 60000 P - - VGl0bGU= -");
+                    check("Wi-Fi: ...and up next", a.Receive() == "QUEUE 0");
                     a.Send("PING");
                     check("Wi-Fi: PING gets PONG", a.Receive() == "PONG");
                     a.Send("SOUND");
@@ -1979,6 +2028,10 @@ namespace CouchTV
                     a.Send("MEDIA SEEK soon");                // ignored
                     a.Send("MEDIA EJECT");                    // ignored
                     a.Send("MEDIA TOGGLE");
+                    a.Send("PLAYNEXT s1 S youtube - - -");
+                    a.Send("QUEUE PLAY kJQP7kiw5Fk");
+                    a.Send("QUEUE REMOVE TUVcZfQe-Kw");
+                    a.Send("QUEUE REMOVE ../../etc");         // ignored: not a video
                     a.Send("KEY A2 D");      // Ctrl, still held when the phone leaves
                     a.Send("KEY 43 D");
                     a.Send("KEY 43 U");
@@ -2014,9 +2067,10 @@ namespace CouchTV
                 server.CurrentApps = null;
                 server.CurrentLevels = null;
                 server.CurrentMedia = null;
+                server.CurrentQueue = null;
                 check("Wi-Fi: its sound session ends with the connection", server.FindSession(session) == null);
-                lock (media) check("Wi-Fi: MEDIA works what's playing from the phone's notification (" + string.Join(", ", media) + ")",
-                    string.Join(", ", media) == "pause, next, seek 83000, toggle");
+                lock (media) check("Wi-Fi: MEDIA works what's playing from the phone's notification; PLAYNEXT and QUEUE, up next (" + string.Join(", ", media) + ")",
+                    string.Join(", ", media) == "pause, next, seek 83000, toggle, next: s1, play kJQP7kiw5Fk, remove TUVcZfQe-Kw");
                 lock (played) check("Wi-Fi: PLAY plays a suggestion (" + string.Join(", ", played) + ")", string.Join(", ", played) == "s1");
                 lock (sleepTimers) check("Wi-Fi: SLEEPTIMER sets the sleep timer, any number of minutes, or 0 for off (" + string.Join(", ", sleepTimers) + ")",
                     string.Join(", ", sleepTimers) == "95, 0");

@@ -22,6 +22,15 @@
     <string name="media_next">Next</string>
     <string name="media_play">Play</string>
     <string name="media_pause">Pause</string>
+    <string name="play_now">Play now</string>
+    <string name="play_next">Play next</string>
+    <string name="plays_next">"%1$s" plays next on the TV</string>
+    <string name="up_next">Up next</string>
+    <string name="up_next_count">%1$d songs</string>
+    <string name="up_next_all">Show all %1$d</string>
+    <string name="up_next_fewer">Show fewer</string>
+    <string name="up_next_added">Added by you</string>
+    <string name="up_next_remove">Take out of up next</string>
     <string name="listen_notification_title">Playing the TV\'s sound</string>
     <string name="listen_notification_text">In this phone\'s headphones. Tap Stop to end.</string>
     <string name="stop">Stop</string>

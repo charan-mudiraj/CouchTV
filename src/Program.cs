@@ -43,6 +43,8 @@ namespace CouchTV
                 }
                 if (browserTouch != null) return Diagnostics.BrowserTouchTest(browserTouch, int.Parse(Arg(args, "--hold") ?? "60"), Arg(args, "--browser"), Has(args, "--drag"));
                 if (Has(args, "--countdowntest")) return Diagnostics.CountdownTest();
+                string youtubeTest = Arg(args, "--youtubetest");
+                if (youtubeTest != null) return Diagnostics.YouTubePageTest(youtubeTest, args.Length > Array.IndexOf(args, "--youtubetest") + 2 ? args[Array.IndexOf(args, "--youtubetest") + 2] : "YouTube");
                 string nowPlaying = Arg(args, "--nowplaying");
                 if (nowPlaying != null) return Diagnostics.NowPlayingTest(nowPlaying);
                 string brightnessTest = Arg(args, "--brightnesstest");

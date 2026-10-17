@@ -61,8 +61,10 @@ namespace CouchTV
             _wifi.Media += (what, ms) =>
             {
                 if (what == "stop") StopBackground();
+                else if (what == "next") MediaNext();
                 else NowPlaying.Command(what, ms);
             };
+            StartQueue();
         }
 
         void MediaChanged()
@@ -74,6 +76,7 @@ namespace CouchTV
             _mediaApp = now == null ? "" : AppName(now, window);
             UpdateMediaCard(!_opt.Preview);
             UpdateMini();
+            QueueMediaChanged();
             if (_wifi == null) return;
             bool art = now != null && now.ArtId != _artTold;
             if (now != null) _artTold = now.ArtId;
@@ -254,6 +257,7 @@ namespace CouchTV
                         OpenBackground();
                     }
                     else if (what == "stop") StopBackground();
+                    else if (what == "next") MediaNext();
                     else NowPlaying.Command(what);
                 };
             }
@@ -535,7 +539,11 @@ namespace CouchTV
                 ForgetBackground();
                 UpdateMediaCard(true);
             }
-            if (tick) UpdateMini();
+            if (tick)
+            {
+                UpdateMini();
+                TickQueue();
+            }
             MediaNow now = NowPlaying.Current;
             if (!_cardShown || now == null || now.DurationMs <= 0) return;
             DateTime utc = DateTime.UtcNow;
@@ -624,7 +632,7 @@ namespace CouchTV
                     if (now != null && (now.CanPrevious || now.CanSeek)) NowPlaying.Command("previous");
                     return true;
                 case Key.Right:
-                    if (now != null && now.CanNext) NowPlaying.Command("next");
+                    if (now != null && (now.CanNext || _upNext.Count > 0)) MediaNext();
                     return true;
                 case Key.Enter:
                 case Key.Space:
