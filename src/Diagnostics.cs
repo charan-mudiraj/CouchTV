@@ -293,6 +293,29 @@ namespace CouchTV
             return 0;
         }
 
+        /// <summary>A bright made-up photo (sky, sun, hills) for screenshots of a photo background; its path.</summary>
+        internal static string SamplePhoto()
+        {
+            string path = Path.Combine(Path.GetTempPath(), "couchtv-sample-photo.jpg");
+            using (var image = new System.Drawing.Bitmap(1920, 1080))
+            {
+                using (System.Drawing.Graphics g = System.Drawing.Graphics.FromImage(image))
+                {
+                    var all = new System.Drawing.Rectangle(0, 0, 1920, 1080);
+                    using (var sky = new System.Drawing.Drawing2D.LinearGradientBrush(all, System.Drawing.Color.FromArgb(120, 190, 255), System.Drawing.Color.FromArgb(255, 214, 160), 90f))
+                        g.FillRectangle(sky, all);
+                    using (var sun = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(255, 245, 200)))
+                        g.FillEllipse(sun, 1300, 180, 260, 260);
+                    using (var hill = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(70, 140, 80)))
+                        g.FillEllipse(hill, -300, 700, 1600, 800);
+                    using (var hill2 = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(40, 110, 70)))
+                        g.FillEllipse(hill2, 800, 760, 1700, 700);
+                }
+                image.Save(path, System.Drawing.Imaging.ImageFormat.Jpeg);
+            }
+            return path;
+        }
+
         /// <summary>A song's picture for screenshots of the home screen's card.</summary>
         internal static byte[] SampleArt() { return NowPlaying.MakeArt(Picture(480, 360, 45, false)); }
 
@@ -1948,6 +1971,7 @@ namespace CouchTV
             server.Queue += (what, video) => { lock (media) media.Add(what + " " + video); };
             server.Find += (phone, seq, query) => { lock (media) media.Add("find " + seq + " " + query); };
             server.Hum += (phone, seq, audio) => { lock (media) media.Add("hum " + seq + " " + audio.Length); };
+            server.Wallpaper += photo => { lock (media) media.Add("wallpaper " + photo.Length); };
             Func<string> code = () => { lock (pairing) return shown; };
             Func<string> wrongCode = () => { lock (pairing) return ((int.Parse(shown) + 1) % 1000000).ToString("D6"); };
             Func<string> pairingLog = () => { lock (pairing) return string.Join(", ", pairing); };
@@ -2077,6 +2101,8 @@ namespace CouchTV
                     a.Send("HUM 4 1 2 " + Convert.ToBase64String(new byte[] { 4, 5, 6 }));
                     a.Send("HUM 4 0 2 " + Convert.ToBase64String(new byte[] { 1, 2, 3 }));   // in any order
                     a.Send("HUM 5 0 99 AAAA");                // ignored: too many pieces
+                    a.Send("WALLPAPER 9 0 2 " + Convert.ToBase64String(new byte[] { 0xFF, 0xD8, 0xFF }));
+                    a.Send("WALLPAPER 9 1 2 " + Convert.ToBase64String(new byte[] { 0xE0, 0, 16 }));
                     a.Send("KEY A2 D");      // Ctrl, still held when the phone leaves
                     a.Send("KEY 43 D");
                     a.Send("KEY 43 U");
@@ -2115,7 +2141,7 @@ namespace CouchTV
                 server.CurrentQueue = null;
                 check("Wi-Fi: its sound session ends with the connection", server.FindSession(session) == null);
                 lock (media) check("Wi-Fi: MEDIA works what's playing from the phone's notification; PLAYNEXT and QUEUE, up next (" + string.Join(", ", media) + ")",
-                    string.Join(", ", media) == "pause, next, seek 83000, toggle, next: s1, play kJQP7kiw5Fk, remove TUVcZfQe-Kw, find 3 tum hi ho, hum 4 6");
+                    string.Join(", ", media) == "pause, next, seek 83000, toggle, next: s1, play kJQP7kiw5Fk, remove TUVcZfQe-Kw, find 3 tum hi ho, hum 4 6, wallpaper 6");
                 lock (played) check("Wi-Fi: PLAY plays a suggestion (" + string.Join(", ", played) + ")", string.Join(", ", played) == "s1");
                 lock (sleepTimers) check("Wi-Fi: SLEEPTIMER sets the sleep timer, any number of minutes, or 0 for off (" + string.Join(", ", sleepTimers) + ")",
                     string.Join(", ", sleepTimers) == "95, 0");

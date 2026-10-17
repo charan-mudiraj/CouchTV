@@ -179,6 +179,13 @@ class WifiLink(context: Context) {
         pieces.forEachIndexed { i, piece -> send("HUM $number $i ${pieces.size} $piece") }
     }
 
+    /** A photo for the TV's home screen (a JPEG), in pieces like [hum]: it becomes the TV's background. */
+    fun wallpaper(number: Int, jpeg: ByteArray) {
+        val all = Base64.encodeToString(jpeg, Base64.NO_WRAP)
+        val pieces = all.chunked(6000)
+        pieces.forEachIndexed { i, piece -> send("WALLPAPER $number $i ${pieces.size} $piece") }
+    }
+
     /** A song of up next: played now, or taken out. */
     fun queuePlay(id: String) = send("QUEUE PLAY $id")
     fun queueRemove(id: String) = send("QUEUE REMOVE $id")

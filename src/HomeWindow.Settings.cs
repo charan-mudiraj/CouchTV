@@ -48,6 +48,7 @@ namespace CouchTV
                     Get = () => _cfg.PowerCountdown.ToString(),
                     Set = v => { _cfg.PowerCountdown = int.Parse(v); SaveSetting("PowerCountdown", v); },
                 },
+                BackgroundSetting(),
                 new TvSetting
                 {
                     Key = "clock", Label = "Clock", Note = "On the home screen",

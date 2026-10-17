@@ -44,8 +44,12 @@ class SettingsScreen @JvmOverloads constructor(context: Context, attrs: Attribut
     /** The Bluetooth pages opened (true) or left: the TV says how its Bluetooth is meanwhile. */
     var onBluetoothPage: ((Boolean) -> Unit)? = null
 
+    /** "Choose a photo" on the Backgrounds page: for the TV's home screen (true), or this remote. */
+    var onPickPhoto: ((Boolean) -> Unit)? = null
+
     private companion object {
         val POINTER_KEYS = listOf("pointerstyle", "pointersize", "pointercolor")
+        const val BACKGROUND = "background"   // on the Backgrounds page, not a row of its own
         val EASE = PathInterpolator(0.2f, 0f, 0f, 1f)
     }
 
@@ -62,19 +66,21 @@ class SettingsScreen @JvmOverloads constructor(context: Context, attrs: Attribut
     private val btList = column()
     private val btDeviceList = column()
     private val btAddList = column()
+    private val bgList = column()
     private var btDeviceTitle: TextView? = null
     private val mainPage = page(context.getString(R.string.settings_title), mainList) { close() }
     private val pointerPage = page(context.getString(R.string.pointer_title), pointerList) { back() }
     private val btPage = page(context.getString(R.string.bt_title), btList) { back() }
     private val btDevicePage = page("", btDeviceList, { btDeviceTitle = it }) { back() }
     private val btAddPage = page(context.getString(R.string.bt_add), btAddList) { back() }
+    private val bgPage = page(context.getString(R.string.background_title), bgList) { back() }
     private val stack = arrayListOf(mainPage)            // the pages open, one over another; the list first
 
     init {
         setBackgroundColor(context.getColor(R.color.background))
         isClickable = true   // nothing underneath gets the fingers
         // Each page over the ones it's opened from (the order they slide in).
-        for (page in listOf(mainPage, pointerPage, btPage, btDevicePage, btAddPage)) {
+        for (page in listOf(mainPage, pointerPage, btPage, btDevicePage, btAddPage, bgPage)) {
             addView(page, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
             if (page !== mainPage) page.visibility = GONE
         }
@@ -191,7 +197,11 @@ class SettingsScreen @JvmOverloads constructor(context: Context, attrs: Attribut
         this.version = version
         fillMain()
         fillPointer()
+        fillBackgrounds()
     }
+
+    /** A photo was just chosen (for the TV, or this remote): the page shows it. */
+    fun photoChanged() = fillBackgrounds()
 
     /** The pointer's page (true), or back to the list. */
     fun showPointer(on: Boolean, animate: Boolean = true) {
@@ -217,7 +227,7 @@ class SettingsScreen @JvmOverloads constructor(context: Context, attrs: Attribut
 
     private fun fillMain() {
         mainList.removeAllViews()
-        val tvRows = tv.filter { it.key !in POINTER_KEYS }
+        val tvRows = tv.filter { it.key !in POINTER_KEYS && it.key != BACKGROUND }
         heading(mainList, R.string.settings_tv)
         mainList.addView(card {
             if (tv.isEmpty()) note(it, R.drawable.ic_tv, R.color.muted, context.getString(R.string.settings_tv_offline))
@@ -229,6 +239,10 @@ class SettingsScreen @JvmOverloads constructor(context: Context, attrs: Attribut
                 divider(it)
                 link(it, R.drawable.ic_bluetooth, R.color.voice_bottom, context.getString(R.string.bt_title), bluetoothSummary()) { push(btPage) }
             }
+            tv.find { s -> s.key == BACKGROUND }?.let { s ->
+                divider(it)
+                link(it, R.drawable.ic_image, R.color.pointer_pink, s.label, lookName(s.value)) { push(bgPage) }
+            }
         })
         if (tv.any { it.key in POINTER_KEYS }) {
             heading(mainList, R.string.pointer_title)
@@ -238,9 +252,13 @@ class SettingsScreen @JvmOverloads constructor(context: Context, attrs: Attribut
         }
         heading(mainList, R.string.settings_phone)
         mainList.addView(card {
-            phone.forEachIndexed { i, s ->
+            phone.filter { s -> s.key != BACKGROUND }.forEachIndexed { i, s ->
                 if (i > 0) divider(it)
                 row(it, s, iconFor(s.key), colourFor(s.key)) { value -> onPhoneChange?.invoke(s.key, value) }
+            }
+            phone.find { s -> s.key == BACKGROUND }?.let { s ->
+                divider(it)
+                link(it, R.drawable.ic_image, R.color.pointer_pink, s.label, lookName(s.value)) { push(bgPage) }
             }
         })
         heading(mainList, R.string.settings_about)
@@ -615,6 +633,122 @@ class SettingsScreen @JvmOverloads constructor(context: Context, attrs: Attribut
         "pink" -> R.color.pointer_pink
         else -> R.color.pointer_white
     })
+
+    // ---------------------------------------------------------------- backgrounds
+
+    private fun lookName(key: String): String =
+        if (key == Backdrop.PHOTO) context.getString(R.string.look_photo)
+        else Backdrop.LOOKS.find { it.key == key }?.let { context.getString(it.name) } ?: key
+
+    /** The looks for this remote, then for the TV's home screen, each with "Choose a photo"; the chosen one ringed. */
+    private fun fillBackgrounds() {
+        bgList.removeAllViews()
+        val mine = phone.find { it.key == BACKGROUND }
+        if (mine != null) {
+            heading(bgList, R.string.background_remote)
+            bgList.addView(looks(mine.value, Backdrop.photoFile(context), false) { value ->
+                phone = phone.map { if (it.key == BACKGROUND) it.copy(value = value) else it }
+                fillBackgrounds()
+                fillMain()
+                onPhoneChange?.invoke(BACKGROUND, value)
+            })
+        }
+        heading(bgList, R.string.background_tv)
+        val theirs = tv.find { it.key == BACKGROUND }
+        if (theirs == null) {
+            note(bgList, R.drawable.ic_tv, R.color.muted, context.getString(R.string.background_tv_offline))
+        } else {
+            bgList.addView(looks(theirs.value, Backdrop.tvPhotoFile(context), true, theirs.choices.any { it.first == Backdrop.PHOTO }) { value ->
+                tv = tv.map { if (it.key == BACKGROUND) it.copy(value = value) else it }
+                fillBackgrounds()
+                fillMain()
+                onTvChange?.invoke(BACKGROUND, value)
+            })
+            bgList.addView(TextView(context).apply {
+                setText(R.string.background_tv_note)
+                setTextColor(context.getColor(R.color.muted))
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                setPadding(dp(4), dp(10), dp(4), 0)
+            })
+        }
+        bgList.addView(View(context), LinearLayout.LayoutParams(1, dp(32)))
+    }
+
+    /** The looks as tiles, three to a row: each drawn as it looks; then the photo (if there is one) and "Choose a photo". */
+    private fun looks(chosen: String, photo: java.io.File, forTv: Boolean, hasPhoto: Boolean = photo.exists(), choose: (String) -> Unit): View {
+        val column = column()
+        val tiles = ArrayList<View>()
+        for (look in Backdrop.LOOKS) tiles += lookTile(context.getString(look.name), Backdrop.drawable(context, look.key), look.key == chosen) {
+            choose(look.key)
+        }
+        if (hasPhoto) {
+            val picture = if (photo.exists()) Backdrop.drawable(context, Backdrop.PHOTO, photo) else null
+            tiles += lookTile(context.getString(R.string.look_photo), picture, chosen == Backdrop.PHOTO) { choose(Backdrop.PHOTO) }
+        }
+        tiles += lookTile(context.getString(R.string.background_choose_photo), null, false, R.drawable.ic_add) { onPickPhoto?.invoke(forTv) }
+        for (start in tiles.indices step 3) {
+            val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
+            for (i in start until start + 3) {
+                row.addView(if (i < tiles.size) tiles[i] else View(context), LinearLayout.LayoutParams(0, dp(108), 1f).apply {
+                    marginStart = if (i == start) 0 else dp(5)
+                    marginEnd = if (i == start + 2) 0 else dp(5)
+                })
+            }
+            column.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(10)
+            })
+        }
+        return column
+    }
+
+    /** One look: drawn as it looks (or an icon on plain), its name at the bottom; ringed and ticked when chosen. */
+    private fun lookTile(name: String, look: android.graphics.drawable.Drawable?, picked: Boolean, icon: Int = 0, tap: () -> Unit): View {
+        val radius = dp(16).toFloat()
+        return FrameLayout(context).apply {
+            background = look ?: GradientDrawable().apply {
+                cornerRadius = radius
+                setColor(context.getColor(R.color.surface))
+                setStroke(dp(1), context.getColor(R.color.surface_pressed))
+            }
+            outlineProvider = object : android.view.ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: android.graphics.Outline) = outline.setRoundRect(0, 0, view.width, view.height, radius)
+            }
+            clipToOutline = true
+            foreground = GradientDrawable().apply {
+                cornerRadius = radius
+                setColor(0)
+                if (picked) setStroke(dp(3), context.getColor(R.color.good))
+            }
+            contentDescription = name
+            isClickable = true
+            setOnClickListener {
+                Haptics.press(it)
+                tap()
+            }
+            if (icon != 0) addView(ImageView(context).apply {
+                setImageResource(icon)
+                imageTintList = ColorStateList.valueOf(context.getColor(R.color.ink))
+            }, LayoutParams(dp(28), dp(28), Gravity.CENTER or Gravity.TOP).apply { topMargin = dp(26) })
+            if (picked) addView(ImageView(context).apply {
+                setImageResource(R.drawable.ic_check)
+                imageTintList = ColorStateList.valueOf(context.getColor(R.color.background))
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(context.getColor(R.color.good))
+                }
+                setPadding(dp(3), dp(3), dp(3), dp(3))
+            }, LayoutParams(dp(22), dp(22), Gravity.TOP or Gravity.END).apply { setMargins(0, dp(8), dp(8), 0) })
+            addView(TextView(context).apply {
+                text = name
+                gravity = Gravity.CENTER
+                setTextColor(context.getColor(R.color.ink))
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                setShadowLayer(dp(4).toFloat(), 0f, dp(1).toFloat(), 0xCC000000.toInt())
+                maxLines = 2
+            }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT, Gravity.BOTTOM).apply { setMargins(dp(6), 0, dp(6), dp(10)) })
+        }
+    }
 
     // ---------------------------------------------------------------- the pieces
 

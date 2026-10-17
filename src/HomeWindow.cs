@@ -169,16 +169,8 @@ namespace CouchTV
         Grid BuildRoot()
         {
             var root = new Grid { Background = Theme.Brush(Theme.Base), ClipToBounds = true };
-            root.Children.Add(Glow(new Point(0.06, -0.05), 0.85, 1.05, Theme.Hex("#B31E3A72")));
-            root.Children.Add(Glow(new Point(1.0, 1.08), 0.7, 0.85, Theme.Hex("#80472066")));
-            if (!string.IsNullOrEmpty(_cfg.Wallpaper) && File.Exists(_cfg.Wallpaper))
-            {
-                root.Children.Add(new Image { Source = LoadBitmap(_cfg.Wallpaper, 1920), Stretch = Stretch.UniformToFill });
-                root.Children.Add(new Rectangle
-                {
-                    Fill = new LinearGradientBrush(Theme.Alpha(Theme.Base, 0xF0), Theme.Alpha(Theme.Base, 0xA0), 90),
-                });
-            }
+            root.Children.Add(_backdrop = new Grid { IsHitTestVisible = false });   // the look, or the photo (HomeWindow.Backdrop.cs)
+            FillBackdrop();
 
             _stage = new Canvas { Width = DesignW, Height = DesignH, RenderTransform = _pageShift };
             _layers = new Grid { Width = DesignW, Height = DesignH };
@@ -1772,6 +1764,18 @@ namespace CouchTV
                 drawn.Margin = new Thickness(0, 10, 20, 0);
                 _layers.Children.Add(drawn);
             }
+            if (state.Contains("bgphoto"))
+            {
+                _cfg.Wallpaper = Diagnostics.SamplePhoto();   // a bright photo, to see the words over it
+                _cfg.Background = PhotoLook;
+                FillBackdrop();
+            }
+            foreach (Look look in Looks)
+                if (state.Contains("bg" + look.Key))
+                {
+                    _cfg.Background = look.Key;   // a background, for its screenshot
+                    FillBackdrop();
+                }
             if (state.Contains("osd"))
             {
                 var panel = new OsdPanel { HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 40, 40, 0) };

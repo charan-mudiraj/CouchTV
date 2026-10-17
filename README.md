@@ -165,7 +165,7 @@ Foreground = #FFFFFF
 - **Bigger text on a website** (helpful from the sofa): `Scale = 1.25`.
 - **Search in another app:** add its search address to the tile, with `{q}` where the words go, for example `Search = https://example.com/search?q={q}`. `Search = off` leaves a tile out of search.
 - **Remote's Home button does nothing?** Add the key it sends to `HomeKeys` in the `[CouchTV]` section, for example `HomeKeys = BrowserHome, Win, Hold:BrowserBack, F12`.
-- **Wallpaper:** `Wallpaper = C:\Users\Public\Pictures\beach.jpg`.
+- **Background:** `Background = midnight` (or `aurora`, `sunset`, `ocean`, `forest`, `rose`, `graphite`), also on the Settings screen. For a photo, the easiest way is the phone remote's *Settings > Backgrounds*: **Choose a photo** under *TV home screen* sends it over Wi-Fi, made to fill the screen, and it's kept on the TV (`wallpaper.jpg` in CouchTV's data folder). Or set any picture by hand: `Wallpaper = C:\Users\Public\Pictures\beach.jpg` with `Background = photo`. A photo goes under a dark veil so the clock and tiles stay easy to read.
 - A Kodi tile appears by itself if Kodi is installed. The VLC tile is hidden; set `Enabled = true` in its section to bring it back.
 - **Settings changes from updates:** updates never replace your `couchtv.ini`. When a new version changes a default (like hiding VLC), it applies that change to your file once and records `ConfigVersion`; if you change it back, your choice stays.
 

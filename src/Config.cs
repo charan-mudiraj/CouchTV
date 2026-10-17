@@ -45,6 +45,7 @@ namespace CouchTV
         public readonly Dictionary<string, string> BrowserPaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         public readonly List<string> Warnings = new List<string>();
         public string Wallpaper;
+        public string Background = "midnight";   // a look (HomeWindow.Looks), or "photo" (Wallpaper)
         public string RemotePort;   // optional, e.g. COM5; normally the receiver is found by itself
         public bool Updates = true;
         public string UpdateRepo = "charan-mudiraj/CouchTV", UpdateBranch = "main";
@@ -168,6 +169,10 @@ namespace CouchTV
                     if (k.Trim().Length > 0) HomeKeys.Add(k.Trim());
             }
             Wallpaper = ResolvePath(Get(v, "Wallpaper", null));
+            // A Wallpaper set by hand (from before there were looks) is the background unless another's chosen.
+            string background = (Get(v, "Background", null) ?? "").Trim().ToLowerInvariant();
+            bool photo = !string.IsNullOrEmpty(Wallpaper) && File.Exists(Wallpaper);
+            Background = background.Length > 0 ? background : photo ? "photo" : "midnight";
             RemotePort = Get(v, "RemotePort", null);
             Updates = GetBool(v, "Updates", true);
             UpdateRepo = Get(v, "UpdateRepo", UpdateRepo);

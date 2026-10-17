@@ -16,6 +16,11 @@ class PhoneSettings(context: Context) {
         get() = prefs.getBoolean("bluetooth_off", true)
         set(value) = prefs.edit().putBoolean("bluetooth_off", value).apply()
 
+    /** The remote's background: one of Backdrop's looks ("midnight"...), or "photo". */
+    var background: String
+        get() = prefs.getString("background", "midnight") ?: "midnight"
+        set(value) = prefs.edit().putString("background", value).apply()
+
     /** The screen mirror's picture: "saver", "balanced" or "sharp". */
     var mirror: String
         get() = prefs.getString("mirror", "balanced") ?: "balanced"

@@ -127,6 +127,8 @@ namespace CouchTV
             StartMedia();
             // The phone's search page: results as it's typed in, and songs hummed into it.
             StartPhoneSearch();
+            // A photo from the phone's Backgrounds page, for behind the home screen.
+            _wifi.Wallpaper += PhotoFromPhone;
             _wifi.Button += OnIrSignal;
             _wifi.Text += ReceiveSearchText;
             _wifi.Connected += who => { if (IsActive && !SearchOpen) Toast("Phone remote connected over Wi-Fi"); };

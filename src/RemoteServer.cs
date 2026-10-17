@@ -58,6 +58,7 @@ namespace CouchTV
     ///     PLAYNEXT &lt;as PLAY&gt;       a song to play next on YouTube (up next)
     ///     FIND &lt;seq&gt; &lt;words&gt;        the phone's search box as it's typed in  →  FOUND &lt;seq&gt; &lt;count&gt;, then FITEM lines (as SUGGEST)
     ///     HUM &lt;seq&gt; &lt;part&gt; &lt;parts&gt; &lt;audio&gt;   a song hummed on the phone, in pieces  →  FOUND &lt;seq&gt; ... (Gemini's guesses)
+    ///     WALLPAPER &lt;seq&gt; &lt;part&gt; &lt;parts&gt; &lt;JPEG&gt;   a photo from the phone for the home screen's background, in pieces
     ///     QUEUE PLAY|REMOVE &lt;video&gt;   a song of up next played now, or taken out
     ///                  →  QUEUE &lt;count&gt; and that many QITEM lines (on connecting, and whenever up next changes)
     ///     LOG [&lt;lines&gt;]             →  LOG &lt;count&gt;, then that many lines "| &lt;line&gt;": the end of the TV's log (CouchTV.exe --tv)
@@ -94,7 +95,8 @@ namespace CouchTV
         public event Action<string, long> Media;
         public event Action<string> PlayNext;
         public event Action<RemoteSession, int, string> Find;          // the phone's search box, as it's typed in: its number and the words (UI thread)
-        public event Action<RemoteSession, int, byte[]> Hum;           // a recording of a song hummed on the phone (AAC): its number (UI thread)                // a phone's Play next on a song: as PLAY says it (UI thread)
+        public event Action<RemoteSession, int, byte[]> Hum;           // a recording of a song hummed on the phone (AAC): its number (UI thread)
+        public event Action<byte[]> Wallpaper;                         // a photo from the phone for the home screen's background (JPEG) (UI thread)                // a phone's Play next on a song: as PLAY says it (UI thread)
         public event Action<string, string> Queue;           // a phone played ("play") or took out ("remove") a song of up next: its video (UI thread)             // a phone's button for what's playing: play, pause, toggle, next, previous, stop, or seek and where to, in ms (UI thread)
 
         /// <summary>The pointer's look now ("arrow 64 white"), told to each phone as it connects.</summary>
@@ -786,6 +788,14 @@ namespace CouchTV
                         Raise(() => { if (Hum != null) Hum(hummer, humSeq, audio); });
                     }
                     return null;
+                case "WALLPAPER":
+                    // WALLPAPER <seq> <part> <parts> <base64>: a photo for the background, in pieces like HUM.
+                    int wallSeq, wallPart, wallCount;
+                    if (session == null || parts.Length < 5 || !int.TryParse(parts[1], out wallSeq) || !int.TryParse(parts[2], out wallPart) ||
+                        !int.TryParse(parts[3], out wallCount) || wallCount < 1 || wallCount > 500 || wallPart < 0 || wallPart >= wallCount) return null;
+                    byte[] photo = session.WallpaperPart(wallSeq, wallPart, wallCount, parts[4]);
+                    if (photo != null) Raise(() => { if (Wallpaper != null) Wallpaper(photo); });
+                    return null;
                 case "QUEUE":
                     // Up next under the phone's player: a song played from it, or taken out (by its YouTube video).
                     if (parts.Length >= 3 && (parts[1] == "PLAY" || parts[1] == "REMOVE") && System.Text.RegularExpressions.Regex.IsMatch(parts[2], @"^[\w-]{11}$"))
@@ -992,25 +1002,36 @@ namespace CouchTV
         internal Channel Channel;
         internal readonly object SendLock = new object();
 
-        int _humSeq = -1;
-        string[] _humParts;
+        int _humSeq = -1, _wallSeq = -1;
+        string[] _humParts, _wallParts;
 
         /// <summary>A piece of a recording (HUM); the whole recording once its last piece is in, else null.</summary>
         internal byte[] HumPart(int seq, int part, int count, string base64)
         {
-            if (seq != _humSeq || _humParts == null || _humParts.Length != count)
+            return Piece(ref _humSeq, ref _humParts, seq, part, count, base64, 600 * 1024);
+        }
+
+        /// <summary>A piece of a photo (WALLPAPER); the whole photo once its last piece is in, else null.</summary>
+        internal byte[] WallpaperPart(int seq, int part, int count, string base64)
+        {
+            return Piece(ref _wallSeq, ref _wallParts, seq, part, count, base64, 2 * 1024 * 1024);
+        }
+
+        static byte[] Piece(ref int number, ref string[] pieces, int seq, int part, int count, string base64, int most)
+        {
+            if (seq != number || pieces == null || pieces.Length != count)
             {
-                _humSeq = seq;
-                _humParts = new string[count];
+                number = seq;
+                pieces = new string[count];
             }
-            _humParts[part] = base64;
-            foreach (string p in _humParts) if (p == null) return null;
-            string all = string.Concat(_humParts);
-            _humParts = null;
+            pieces[part] = base64;
+            foreach (string p in pieces) if (p == null) return null;
+            string all = string.Concat(pieces);
+            pieces = null;
             try
             {
-                byte[] audio = Convert.FromBase64String(all);
-                return audio.Length > 0 && audio.Length <= 600 * 1024 ? audio : null;
+                byte[] bytes = Convert.FromBase64String(all);
+                return bytes.Length > 0 && bytes.Length <= most ? bytes : null;
             }
             catch (FormatException) { return null; }
         }

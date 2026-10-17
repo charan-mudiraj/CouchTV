@@ -15,6 +15,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.provider.MediaStore
 import android.provider.Settings
 import android.text.InputFilter
 import android.text.InputType
@@ -49,6 +50,8 @@ class MainActivity : Activity() {
         private const val REMOTE_PAGE = 1                // the page it opens on; the suggestions are page 0
         private const val REQUEST_BLUETOOTH = 44       // the "Nearby devices" permission, to switch Bluetooth off
         private const val REQUEST_BLUETOOTH_OFF = 45   // Android's "turn off Bluetooth?" question
+        private const val REQUEST_PHOTO = 46           // a photo for this remote's background
+        private const val REQUEST_TV_PHOTO = 47        // a photo for the TV's home screen
         private const val ACTION_REQUEST_DISABLE = "android.bluetooth.adapter.action.REQUEST_DISABLE"
         private const val TV_GAP_MS = 15_000L          // the TV ignores its power button this long after switching
     }
@@ -101,6 +104,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        showBackdrop()
         statusPanel = StatusPanel(this)
         phone = PhoneSettings(this)
         Haptics.enabled = phone.vibration
@@ -140,6 +144,7 @@ class MainActivity : Activity() {
         val settings = findViewById<SettingsScreen>(R.id.settings_screen)
         settings.onTvChange = { key, value -> remote.wifi.setSetting(key, value) }
         settings.onPhoneChange = { key, value -> changePhoneSetting(key, value) }
+        settings.onPickPhoto = { forTv -> pickPhoto(forTv) }
         settings.onVersion = { checkForUpdate(manual = true) }
         settings.onConnection = { openStatus() }
         // The TV's Bluetooth, on pages of its own in Settings: the TV says how it is while they're open.
@@ -723,6 +728,11 @@ class MainActivity : Activity() {
 
     /** Google's voice screen (the fallback for voice search) and Android's Bluetooth question answer here. */
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == REQUEST_PHOTO || requestCode == REQUEST_TV_PHOTO) {
+            val uri = data?.data
+            if (resultCode == RESULT_OK && uri != null) usePhoto(uri, requestCode == REQUEST_TV_PHOTO)
+            return
+        }
         if (requestCode == REQUEST_BLUETOOTH_OFF) {
             if (BluetoothGuard.isOn(this) && resultCode != RESULT_OK) toast(getString(R.string.bluetooth_still_on))
             return
@@ -1262,6 +1272,8 @@ class MainActivity : Activity() {
             TvSetting("mirror", phone.mirror, getString(R.string.set_mirror), getString(R.string.set_mirror_note), listOf(
                 "saver" to getString(R.string.set_mirror_saver), "balanced" to getString(R.string.set_mirror_balanced),
                 "sharp" to getString(R.string.set_mirror_sharp))),
+            TvSetting("background", phone.background, getString(R.string.background_label), null,
+                Backdrop.LOOKS.map { it.key to getString(it.name) } + (Backdrop.PHOTO to getString(R.string.look_photo))),
         )
         findViewById<SettingsScreen>(R.id.settings_screen).show(remote.wifi.settings, mine,
             getString(R.string.version_label, BuildConfig.VERSION_NAME, BuildConfig.COMMIT))
@@ -1279,7 +1291,64 @@ class MainActivity : Activity() {
                 if (phone.bluetoothOff) BluetoothGuard.hold(this, "screen") else BluetoothGuard.release("screen")
             }
             "mirror" -> phone.mirror = value
+            "background" -> {
+                phone.background = value
+                showBackdrop()
+            }
         }
+    }
+
+    // ---------------------------------------------------------------- backgrounds
+
+    /** The remote's background, as chosen (Settings > This phone > Background). */
+    private fun showBackdrop() {
+        findViewById<View>(R.id.remote_root).background = Backdrop.drawable(this, phone.background)
+    }
+
+    /** Android's photo picker (no permission needed), for this remote or the TV's home screen. */
+    private fun pickPhoto(forTv: Boolean) {
+        if (forTv && !remote.wifi.connected) {
+            toast(getString(R.string.keyboard_offline))
+            return
+        }
+        val pick = if (Build.VERSION.SDK_INT >= 33) Intent(MediaStore.ACTION_PICK_IMAGES).setType("image/*")
+                   else Intent(Intent.ACTION_GET_CONTENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE)
+        try {
+            startActivityForResult(pick, if (forTv) REQUEST_TV_PHOTO else REQUEST_PHOTO)
+        } catch (e: Exception) {
+            toast(getString(R.string.background_no_picker))
+        }
+    }
+
+    /** The photo chosen: made the right shape (off the main thread), then this remote's background, or sent to the TV. */
+    private fun usePhoto(uri: Uri, forTv: Boolean) {
+        val metrics = resources.displayMetrics
+        val width = if (forTv) 1920 else minOf(metrics.widthPixels, 1440)
+        val height = if (forTv) 1080 else (width.toLong() * metrics.heightPixels / metrics.widthPixels).toInt()
+        if (forTv) toast(getString(R.string.background_sending))
+        Thread {
+            val jpeg = Backdrop.prepare(this, uri, width, height, if (forTv) 84 else 88)
+            runOnUiThread {
+                if (jpeg == null) {
+                    toast(getString(R.string.background_unreadable))
+                    return@runOnUiThread
+                }
+                if (forTv) {
+                    if (!remote.wifi.connected) {
+                        toast(getString(R.string.keyboard_offline))
+                        return@runOnUiThread
+                    }
+                    runCatching { Backdrop.tvPhotoFile(this).writeBytes(jpeg) }
+                    remote.wifi.wallpaper((SystemClock.elapsedRealtime() / 1000).toInt(), jpeg)
+                } else {
+                    runCatching { Backdrop.photoFile(this).writeBytes(jpeg) }
+                    phone.background = Backdrop.PHOTO
+                    showBackdrop()
+                    showSettings()
+                }
+                findViewById<SettingsScreen>(R.id.settings_screen).photoChanged()
+            }
+        }.start()
     }
 
     private fun sendPower(turningOff: Boolean) {
