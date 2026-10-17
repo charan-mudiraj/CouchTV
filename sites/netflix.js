@@ -106,9 +106,10 @@
   function asked() {
     var gate = document.querySelector('.profile-gate-container, .list-profiles, [data-uia="profile-choices-list"], [data-uia*="profile-gate"]');
     if (gate && CouchTV.shown(gate)) return true;
-    var heads = document.querySelectorAll('h1, h2, [role="heading"]');
-    for (var i = 0; i < heads.length; i++) {
-      if (/who.s watching/i.test(heads[i].textContent) && CouchTV.shown(heads[i])) return true;
+    // The new layout's question is plain text in a box with a made-up class: found by its words.
+    var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (var n = walker.nextNode(); n; n = walker.nextNode()) {
+      if (/^\s*who.s watching\??\s*$/i.test(n.nodeValue) && CouchTV.shown(n.parentElement)) return true;
     }
     return false;
   }
@@ -126,9 +127,11 @@
 
   try { picked = sessionStorage.getItem('couchtv-profile') === '1'; } catch (e) { /* no storage: pick each time */ }
 
+  var lookUntil = Date.now() + 60000;   // it asks as Netflix opens; later, it's you choosing to switch
+
   function pickProfile() {
     var s = CouchTV.settings();
-    if (picked || !s.netflixPick || !s.netflixProfile || !asked()) return;
+    if (picked || Date.now() > lookUntil || !s.netflixPick || !s.netflixProfile || !asked()) return;
     var choice = profile(s.netflixProfile);
     if (!choice) {
       CouchTV.status('netflix: asked who\'s watching, no profile named ' + s.netflixProfile);

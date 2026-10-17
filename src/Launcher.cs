@@ -117,7 +117,7 @@ namespace CouchTV
                 }
             }
             if (exe == null) return LaunchResult.Fail(Title(t.Browser) + " isn't installed");
-            Sites.Prepare(cfg);   // the websites' touches (Sites.cs), loaded below
+            if (Sites.Prepare(cfg)) Sites.Freshen(exe, UserDataDir(t, browser));   // the websites' touches (Sites.cs), loaded below
             Start(exe, BrowserArgs(t, browser));
             return LaunchResult.Success(note);
         }
@@ -130,11 +130,8 @@ namespace CouchTV
         public static string BrowserArgs(Tile t, string browser)
         {
             var args = new List<string>();
-            if (!string.Equals(t.Profile, "default", StringComparison.OrdinalIgnoreCase))
-            {
-                string profile = string.IsNullOrEmpty(t.Profile) || t.Profile.Equals("tv", StringComparison.OrdinalIgnoreCase) ? browser : t.Profile;
-                args.Add("--user-data-dir=" + Quote(Path.Combine(Config.DataDir, "profiles", profile)));
-            }
+            string dataDir = UserDataDir(t, browser);
+            if (dataDir != null) args.Add("--user-data-dir=" + Quote(dataDir));
             if (t.Kind == TileKind.Web)
             {
                 args.Add("--app=" + Quote(t.Url));
@@ -155,6 +152,14 @@ namespace CouchTV
             if (!string.IsNullOrEmpty(t.Args)) args.Add(t.Args);
             if (t.Kind == TileKind.Browser && !string.IsNullOrEmpty(t.Url)) args.Add(Quote(t.Url));
             return string.Join(" ", args);
+        }
+
+        /// <summary>The browser profile's folder for a tile (CouchTV's own), or null for the browser's normal one.</summary>
+        public static string UserDataDir(Tile t, string browser)
+        {
+            if (string.Equals(t.Profile, "default", StringComparison.OrdinalIgnoreCase)) return null;
+            string profile = string.IsNullOrEmpty(t.Profile) || t.Profile.Equals("tv", StringComparison.OrdinalIgnoreCase) ? browser : t.Profile;
+            return Path.Combine(Config.DataDir, "profiles", profile);
         }
 
         public static string FindBrowser(Config cfg, string key)
