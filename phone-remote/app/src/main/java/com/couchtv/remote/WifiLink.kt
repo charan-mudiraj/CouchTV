@@ -166,6 +166,19 @@ class WifiLink(context: Context) {
     /** Plays a song next on the TV (after the one playing), or now when nothing plays there. */
     fun playNext(s: Suggestion) = send("PLAYNEXT " + s.playLine().removePrefix("PLAY "))
 
+    /** Called on the main thread with what the TV found for a FIND or HUM: its number, the films and songs, and why none (or null). */
+    var onFound: ((Int, List<Suggestion>, String?) -> Unit)? = null
+
+    /** The search page's words as they're typed: the TV answers with what's on (FOUND, [onFound]). */
+    fun find(number: Int, words: String) = send("FIND $number " + Base64.encodeToString(words.toByteArray(Charsets.UTF_8), Base64.NO_WRAP))
+
+    /** A song hummed into the phone (AAC), in pieces (the TV takes lines up to 8 KB): it answers with its guesses (FOUND). */
+    fun hum(number: Int, audio: ByteArray) {
+        val all = Base64.encodeToString(audio, Base64.NO_WRAP)
+        val pieces = all.chunked(6000)
+        pieces.forEachIndexed { i, piece -> send("HUM $number $i ${pieces.size} $piece") }
+    }
+
     /** A song of up next: played now, or taken out. */
     fun queuePlay(id: String) = send("QUEUE PLAY $id")
     fun queueRemove(id: String) = send("QUEUE REMOVE $id")
@@ -585,6 +598,19 @@ class WifiLink(context: Context) {
                     mediaArt = bytes?.let { runCatching { BitmapFactory.decodeByteArray(it, 0, it.size) }.getOrNull() }
                 }
                 line.startsWith("MEDIA ") -> setMedia(TvMedia.parse(line.removePrefix("MEDIA "), SystemClock.elapsedRealtime()))
+                line.startsWith("FOUND ") -> {
+                    // What the search found: that many FITEM lines follow (as SUGGEST lines).
+                    val p = line.removePrefix("FOUND ").trim().split(" ")
+                    foundNumber = p.getOrNull(0)?.toIntOrNull() ?: -1
+                    foundExpected = p.getOrNull(1)?.toIntOrNull() ?: 0
+                    foundWhy = p.getOrNull(2)
+                    foundArriving = mutableListOf()
+                    if (foundExpected <= 0) setFound()
+                }
+                line.startsWith("FITEM ") -> foundArriving?.let { arriving ->
+                    arriving.add(line.removePrefix("FITEM "))
+                    if (arriving.size >= foundExpected) setFound()
+                }
                 line.startsWith("QUEUE ") -> {
                     // Up next: that many QITEM lines follow.
                     queueExpected = line.removePrefix("QUEUE ").trim().toIntOrNull() ?: 0
@@ -685,6 +711,20 @@ class WifiLink(context: Context) {
     private fun setMedia(m: TvMedia?) {
         media = m
         main.post { onMedia?.invoke() }
+    }
+
+    private var foundArriving: MutableList<String>? = null   // on the connection's own thread
+    private var foundNumber = -1
+    private var foundExpected = 0
+    private var foundWhy: String? = null
+
+    private fun setFound() {
+        val lines = foundArriving ?: return
+        foundArriving = null
+        val number = foundNumber
+        val why = foundWhy
+        val items = lines.mapNotNull { Suggestion.parse(it) }
+        main.post { onFound?.invoke(number, items, why) }
     }
 
     private var queueArriving: MutableList<TvQueueItem>? = null   // on the connection's own thread

@@ -56,6 +56,8 @@ namespace CouchTV
     ///     BT POWER ON|OFF, BT SEARCH ON|OFF, BT PAIR|CONNECT|DISCONNECT|FORGET &lt;address&gt;, BT AUTO|TOGETHER &lt;address&gt; ON|OFF
     ///     MEDIA PLAY|PAUSE|TOGGLE|NEXT|PREVIOUS|STOP, MEDIA SEEK &lt;ms&gt;   the buttons of the phone's notification for what's playing
     ///     PLAYNEXT &lt;as PLAY&gt;       a song to play next on YouTube (up next)
+    ///     FIND &lt;seq&gt; &lt;words&gt;        the phone's search box as it's typed in  →  FOUND &lt;seq&gt; &lt;count&gt;, then FITEM lines (as SUGGEST)
+    ///     HUM &lt;seq&gt; &lt;part&gt; &lt;parts&gt; &lt;audio&gt;   a song hummed on the phone, in pieces  →  FOUND &lt;seq&gt; ... (Gemini's guesses)
     ///     QUEUE PLAY|REMOVE &lt;video&gt;   a song of up next played now, or taken out
     ///                  →  QUEUE &lt;count&gt; and that many QITEM lines (on connecting, and whenever up next changes)
     ///     LOG [&lt;lines&gt;]             →  LOG &lt;count&gt;, then that many lines "| &lt;line&gt;": the end of the TV's log (CouchTV.exe --tv)
@@ -90,7 +92,9 @@ namespace CouchTV
         public event Action<bool> BluetoothWatch;            // a phone has its Bluetooth page open (true), or none has now (UI thread)
         public event Action<string[]> BluetoothAsk;          // a phone asked its Bluetooth page's question: "POWER ON" etc., split (UI thread)
         public event Action<string, long> Media;
-        public event Action<string> PlayNext;                // a phone's Play next on a song: as PLAY says it (UI thread)
+        public event Action<string> PlayNext;
+        public event Action<RemoteSession, int, string> Find;          // the phone's search box, as it's typed in: its number and the words (UI thread)
+        public event Action<RemoteSession, int, byte[]> Hum;           // a recording of a song hummed on the phone (AAC): its number (UI thread)                // a phone's Play next on a song: as PLAY says it (UI thread)
         public event Action<string, string> Queue;           // a phone played ("play") or took out ("remove") a song of up next: its video (UI thread)             // a phone's button for what's playing: play, pause, toggle, next, previous, stop, or seek and where to, in ms (UI thread)
 
         /// <summary>The pointer's look now ("arrow 64 white"), told to each phone as it connects.</summary>
@@ -757,6 +761,31 @@ namespace CouchTV
                         Raise(() => { if (PlayNext != null) PlayNext(request); });
                     }
                     return null;
+                case "FIND":
+                    // The search box on the phone, as it's typed in: results go back to it alone (FOUND).
+                    int findSeq;
+                    if (session != null && parts.Length >= 3 && int.TryParse(parts[1], out findSeq) && parts[2].Length <= 400)
+                    {
+                        string words;
+                        try { words = new UTF8Encoding(false, true).GetString(Convert.FromBase64String(parts[2])).Trim(); }
+                        catch (FormatException) { return null; }
+                        catch (ArgumentException) { return null; }
+                        RemoteSession asker = session;
+                        if (words.Length > 0 && words.Length <= 120) Raise(() => { if (Find != null) Find(asker, findSeq, words); });
+                    }
+                    return null;
+                case "HUM":
+                    // HUM <seq> <part> <parts> <base64>: a recording in pieces (lines are at most 8 KB), then off it goes.
+                    int humSeq, part, count;
+                    if (session == null || parts.Length < 5 || !int.TryParse(parts[1], out humSeq) || !int.TryParse(parts[2], out part) ||
+                        !int.TryParse(parts[3], out count) || count < 1 || count > 80 || part < 0 || part >= count) return null;
+                    byte[] audio = session.HumPart(humSeq, part, count, parts[4]);
+                    if (audio != null)
+                    {
+                        RemoteSession hummer = session;
+                        Raise(() => { if (Hum != null) Hum(hummer, humSeq, audio); });
+                    }
+                    return null;
                 case "QUEUE":
                     // Up next under the phone's player: a song played from it, or taken out (by its YouTube video).
                     if (parts.Length >= 3 && (parts[1] == "PLAY" || parts[1] == "REMOVE") && System.Text.RegularExpressions.Regex.IsMatch(parts[2], @"^[\w-]{11}$"))
@@ -831,6 +860,17 @@ namespace CouchTV
                 foreach (RemoteSession s in _sessions.Values)
                     if (s.Bluetooth && !s.Closed) open = true;
             Raise(() => { if (BluetoothWatch != null) BluetoothWatch(open); });
+        }
+
+        /// <summary>Tells one phone these lines (what its search found); from any thread.</summary>
+        public void SendTo(RemoteSession session, List<string> lines)
+        {
+            ThreadPool.QueueUserWorkItem(state =>
+            {
+                if (session.Closed) return;
+                try { foreach (string line in lines) session.Send(line); }
+                catch (Exception) { }   // it's going away; its own thread tidies up
+            });
         }
 
         /// <summary>Tells every connected phone remote these lines (a new list of suggestions); from any thread.</summary>
@@ -951,6 +991,29 @@ namespace CouchTV
         internal Stream Stream;
         internal Channel Channel;
         internal readonly object SendLock = new object();
+
+        int _humSeq = -1;
+        string[] _humParts;
+
+        /// <summary>A piece of a recording (HUM); the whole recording once its last piece is in, else null.</summary>
+        internal byte[] HumPart(int seq, int part, int count, string base64)
+        {
+            if (seq != _humSeq || _humParts == null || _humParts.Length != count)
+            {
+                _humSeq = seq;
+                _humParts = new string[count];
+            }
+            _humParts[part] = base64;
+            foreach (string p in _humParts) if (p == null) return null;
+            string all = string.Concat(_humParts);
+            _humParts = null;
+            try
+            {
+                byte[] audio = Convert.FromBase64String(all);
+                return audio.Length > 0 && audio.Length <= 600 * 1024 ? audio : null;
+            }
+            catch (FormatException) { return null; }
+        }
 
         /// <summary>Encrypts and sends one line; from any thread (one at a time, in order).</summary>
         internal void Send(string line)

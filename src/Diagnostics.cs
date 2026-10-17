@@ -132,6 +132,20 @@ namespace CouchTV
                 Convert.ToBase64String(Encoding.UTF8.GetBytes("Radio")) + " -");
             check("now playing: ...and nothing", string.Join("|", HomeWindow.MediaLines(null, "", true)) == "MEDIA none");
 
+            var tube = new Tile { Name = "YouTube", Label = "YouTube", Kind = TileKind.Web, Url = "https://www.youtube.com", Background = Colors.Red, Foreground = Colors.White };
+            List<Suggestion> found = Suggestions.ParseFoundSongs("{\"results\":[" +
+                "{\"trackId\":1440839613,\"trackName\":\"Tum Hi Ho\",\"artistName\":\"Mithoon & Arijit Singh\",\"artworkUrl100\":\"https://is1.mzstatic.com/a/100x100bb.jpg\"}," +
+                "{\"trackId\":1440839999,\"trackName\":\"Tum Hi Ho\",\"artistName\":\"Mithoon & Arijit Singh\"}," +
+                "{\"trackId\":5,\"trackName\":\"Kesariya (From \\\"Brahmastra\\\")\",\"artistName\":\"Pritam, Arijit Singh\"}]}", tube);
+            check("search on the phone: songs from Apple's search, the same song once, played on YouTube (" + string.Join(" | ", found.ConvertAll(f => f.Title + " / " + f.Query)) + ")",
+                found.Count == 2 && found[0].Id == "a1440839613" && found[0].Query == "Tum Hi Ho Mithoon" && found[0].ImageUrl == "https://is1.mzstatic.com/a/300x300bb.jpg" &&
+                found[1].Title == "Kesariya" && found[1].App == "YouTube" && found[1].PlayUrl == null);
+            List<string> foundLines = Suggestions.FoundLines(7, found, name => name == "YouTube" ? tube : null, null);
+            check("search on the phone: FOUND, then FITEM lines as SUGGEST says them (" + foundLines[0] + ", " + foundLines[1].Substring(0, 24) + "…)",
+                foundLines.Count == 3 && foundLines[0] == "FOUND 7 2" && foundLines[1].StartsWith("FITEM S a1440839613 ") && foundLines[1].Split(' ').Length == 12);
+            check("search on the phone: none found says why", string.Join("|", Suggestions.FoundLines(8, new List<Suggestion>(), name => tube, "nokey")) == "FOUND 8 0 nokey");
+            List<KeyValuePair<string, string>> guesses = SmartSearch.ParseSongGuesses("{\"songs\":[{\"title\":\"Kesariya\",\"artist\":\"Arijit Singh\"},{\"title\":\" \",\"artist\":\"x\"},{\"title\":\"Apna Bana Le\",\"artist\":\"Arijit Singh\"}]}");
+            check("a hummed song: Gemini's guesses, blank ones left out", guesses.Count == 2 && guesses[0].Key == "Kesariya" && guesses[1].Key == "Apna Bana Le");
             check("a film: an episode (22 min) is one, a song or a trailer (3 min) isn't", NowPlaying.IsFilm(22 * 60000L) && !NowPlaying.IsFilm(3 * 60000L) && !NowPlaying.IsFilm(0));
             int length;
             check("up next: a song's name in YouTube's list loses its length", YouTubePage.WithoutLength("Sabrina Carpenter - Espresso 3 minutes, 21 seconds", out length) == "Sabrina Carpenter - Espresso" && length == 201);
@@ -252,6 +266,29 @@ namespace CouchTV
                 report.AppendLine(Shell.WindowTitle(found) + ": " + songs.Count + " songs in its list (" + clock.ElapsedMilliseconds + " ms)");
                 foreach (PageSong s in songs) report.AppendLine(s.Index + ". " + s.Title + " | " + s.Artist + " | " + s.Seconds + " s | " + s.Id);
             }
+            File.WriteAllText(path, report.ToString());
+            return 0;
+        }
+
+        /// <summary>What the phone's search page would show for some words: films and shows, then songs (live, read only).</summary>
+        public static int FindTest(string path, string words)
+        {
+            var report = new StringBuilder();
+            Config cfg = Config.Load();
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            try
+            {
+                foreach (Suggestion s in Suggestions.SearchTitles(cfg, words, 8)) report.AppendLine("film  " + s.Title + " | " + s.Subtitle + " | " + s.App + " | " + s.PlayUrl);
+            }
+            catch (Exception ex) { report.AppendLine("films: " + ex.Message); }
+            report.AppendLine("(" + clock.ElapsedMilliseconds + " ms)");
+            clock.Restart();
+            try
+            {
+                foreach (Suggestion s in Suggestions.SearchSongs(cfg, words, 8)) report.AppendLine("song  " + s.Title + " | " + s.Subtitle + " | " + s.Query);
+            }
+            catch (Exception ex) { report.AppendLine("songs: " + ex.Message); }
+            report.AppendLine("(" + clock.ElapsedMilliseconds + " ms)");
             File.WriteAllText(path, report.ToString());
             return 0;
         }
@@ -1909,6 +1946,8 @@ namespace CouchTV
             server.Media += (what, ms) => { lock (media) media.Add(what == "seek" ? what + " " + ms : what); };
             server.PlayNext += request => { lock (media) media.Add("next: " + request.Split(' ')[0]); };
             server.Queue += (what, video) => { lock (media) media.Add(what + " " + video); };
+            server.Find += (phone, seq, query) => { lock (media) media.Add("find " + seq + " " + query); };
+            server.Hum += (phone, seq, audio) => { lock (media) media.Add("hum " + seq + " " + audio.Length); };
             Func<string> code = () => { lock (pairing) return shown; };
             Func<string> wrongCode = () => { lock (pairing) return ((int.Parse(shown) + 1) % 1000000).ToString("D6"); };
             Func<string> pairingLog = () => { lock (pairing) return string.Join(", ", pairing); };
@@ -2033,6 +2072,11 @@ namespace CouchTV
                     a.Send("QUEUE PLAY kJQP7kiw5Fk");
                     a.Send("QUEUE REMOVE TUVcZfQe-Kw");
                     a.Send("QUEUE REMOVE ../../etc");         // ignored: not a video
+                    a.Send("FIND 3 " + Convert.ToBase64String(Encoding.UTF8.GetBytes("tum hi ho")));
+                    a.Send("FIND x eA==");                    // ignored
+                    a.Send("HUM 4 1 2 " + Convert.ToBase64String(new byte[] { 4, 5, 6 }));
+                    a.Send("HUM 4 0 2 " + Convert.ToBase64String(new byte[] { 1, 2, 3 }));   // in any order
+                    a.Send("HUM 5 0 99 AAAA");                // ignored: too many pieces
                     a.Send("KEY A2 D");      // Ctrl, still held when the phone leaves
                     a.Send("KEY 43 D");
                     a.Send("KEY 43 U");
@@ -2071,7 +2115,7 @@ namespace CouchTV
                 server.CurrentQueue = null;
                 check("Wi-Fi: its sound session ends with the connection", server.FindSession(session) == null);
                 lock (media) check("Wi-Fi: MEDIA works what's playing from the phone's notification; PLAYNEXT and QUEUE, up next (" + string.Join(", ", media) + ")",
-                    string.Join(", ", media) == "pause, next, seek 83000, toggle, next: s1, play kJQP7kiw5Fk, remove TUVcZfQe-Kw");
+                    string.Join(", ", media) == "pause, next, seek 83000, toggle, next: s1, play kJQP7kiw5Fk, remove TUVcZfQe-Kw, find 3 tum hi ho, hum 4 6");
                 lock (played) check("Wi-Fi: PLAY plays a suggestion (" + string.Join(", ", played) + ")", string.Join(", ", played) == "s1");
                 lock (sleepTimers) check("Wi-Fi: SLEEPTIMER sets the sleep timer, any number of minutes, or 0 for off (" + string.Join(", ", sleepTimers) + ")",
                     string.Join(", ", sleepTimers) == "95, 0");

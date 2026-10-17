@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The search page: a box at the top (back, the words, clear; the mic; hum a song), and under it, as you type, films
+     and shows on your apps and songs, to play on the TV. Humming takes over the page while it listens. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/search_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/background"
+    android:orientation="vertical">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="6dp"
+        android:paddingTop="10dp"
+        android:paddingEnd="12dp"
+        android:paddingBottom="10dp">
+
+        <ImageView
+            android:id="@+id/search_back"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="@drawable/round_plain_bg"
+            android:contentDescription="@string/close"
+            android:padding="12dp"
+            android:src="@drawable/ic_arrow_back"
+            android:tint="@color/ink" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="52dp"
+            android:layout_marginStart="2dp"
+            android:layout_weight="1"
+            android:background="@drawable/field_bg"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="16dp"
+            android:paddingEnd="4dp">
+
+            <ImageView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:importantForAccessibility="no"
+                android:src="@drawable/ic_search"
+                android:tint="@color/muted" />
+
+            <EditText
+                android:id="@+id/search_input"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_marginStart="10dp"
+                android:layout_weight="1"
+                android:background="@null"
+                android:hint="@string/search_page_hint"
+                android:imeOptions="actionSearch"
+                android:importantForAutofill="no"
+                android:inputType="text"
+                android:singleLine="true"
+                android:textColor="@color/ink"
+                android:textColorHint="@color/muted"
+                android:textCursorDrawable="@null"
+                android:textSize="17sp" />
+
+            <ImageView
+                android:id="@+id/search_clear"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="@drawable/round_plain_bg"
+                android:contentDescription="@string/clear"
+                android:padding="12dp"
+                android:src="@drawable/ic_close"
+                android:tint="@color/muted"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <ImageView
+            android:id="@+id/search_voice"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/round_bg"
+            android:contentDescription="@string/voice_search"
+            android:padding="13dp"
+            android:src="@drawable/ic_mic"
+            android:tint="@color/ink" />
+
+        <ImageView
+            android:id="@+id/search_hum"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/hum_bg"
+            android:contentDescription="@string/hum_a_song"
+            android:padding="13dp"
+            android:src="@drawable/ic_music"
+            android:tint="@color/ink" />
+    </LinearLayout>
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <ScrollView
+            android:id="@+id/search_scroll"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:id="@+id/search_list"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:paddingBottom="24dp" />
+        </ScrollView>
+
+        <!-- Hum a song: over the results while it listens and finds the song -->
+        <LinearLayout
+            android:id="@+id/hum_panel"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@color/background"
+            android:clickable="true"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:paddingStart="32dp"
+            android:paddingEnd="32dp"
+            android:visibility="gone">
+
+            <FrameLayout
+                android:layout_width="220dp"
+                android:layout_height="220dp">
+
+                <com.couchtv.remote.VoiceRings
+                    android:id="@+id/hum_rings"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:importantForAccessibility="no" />
+
+                <ImageView
+                    android:id="@+id/hum_icon"
+                    android:layout_width="108dp"
+                    android:layout_height="108dp"
+                    android:layout_gravity="center"
+                    android:background="@drawable/hum_bg"
+                    android:importantForAccessibility="no"
+                    android:padding="30dp"
+                    android:src="@drawable/ic_music"
+                    android:tint="@color/ink" />
+            </FrameLayout>
+
+            <TextView
+                android:id="@+id/hum_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:fontFamily="sans-serif-medium"
+                android:gravity="center"
+                android:textColor="@color/ink"
+                android:textSize="21sp" />
+
+            <TextView
+                android:id="@+id/hum_hint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:gravity="center"
+                android:minHeight="44dp"
+                android:textColor="@color/muted"
+                android:textSize="15sp" />
+
+            <TextView
+                android:id="@+id/hum_action"
+                style="@style/Chip"
+                android:layout_marginTop="16dp" />
+        </LinearLayout>
+    </FrameLayout>
+</LinearLayout>

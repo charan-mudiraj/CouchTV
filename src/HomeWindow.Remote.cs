@@ -125,6 +125,8 @@ namespace CouchTV
             StartLevels();
             // What's playing: a card on the home screen, a notification on phones, and their buttons.
             StartMedia();
+            // The phone's search page: results as it's typed in, and songs hummed into it.
+            StartPhoneSearch();
             _wifi.Button += OnIrSignal;
             _wifi.Text += ReceiveSearchText;
             _wifi.Connected += who => { if (IsActive && !SearchOpen) Toast("Phone remote connected over Wi-Fi"); };

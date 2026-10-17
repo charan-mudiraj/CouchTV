@@ -372,6 +372,82 @@ Examples:
             return ParseIntent(raw);
         }
 
+        const string HumInstructions =
+            "The recording is someone humming, whistling or singing part of a song: maybe Indian (Hindi film, Punjabi, Tamil, Telugu, " +
+            "Malayalam, Kannada, Bengali, indie) or international. Work out which song it is from the tune and any words. Give up to " +
+            "3 guesses, the likeliest first, each with the song's usual title and its main artist (for a film song, the singer). " +
+            "If it's too unclear to tell, give none.";
+
+        static readonly Dictionary<string, object> HumSchema = new Dictionary<string, object>
+        {
+            { "type", "OBJECT" },
+            { "properties", new Dictionary<string, object>
+                {
+                    { "songs", new Dictionary<string, object>
+                        {
+                            { "type", "ARRAY" },
+                            { "items", new Dictionary<string, object>
+                                {
+                                    { "type", "OBJECT" },
+                                    { "properties", new Dictionary<string, object>
+                                        {
+                                            { "title", new Dictionary<string, object> { { "type", "STRING" } } },
+                                            { "artist", new Dictionary<string, object> { { "type", "STRING" } } },
+                                        } },
+                                    { "required", new[] { "title", "artist" } },
+                                } },
+                        } },
+                } },
+            { "required", new[] { "songs" } },
+        };
+
+        /// <summary>
+        /// Which song is hummed (or sung, or whistled) in a recording (AAC, from the phone): Gemini listens and guesses,
+        /// up to three, likeliest first ("title", "artist" pairs); empty if it can't tell. Tries the fuller model first
+        /// (better at tunes), then couchtv.ini's.
+        /// </summary>
+        internal static List<KeyValuePair<string, string>> IdentifySong(byte[] audio, string mime, Config cfg, string key)
+        {
+            var body = new Dictionary<string, object>
+            {
+                { "systemInstruction", new Dictionary<string, object> { { "parts", new object[] { new Dictionary<string, object> { { "text", HumInstructions } } } } } },
+                { "contents", new object[] { new Dictionary<string, object> { { "role", "user" }, { "parts", new object[]
+                    {
+                        new Dictionary<string, object> { { "inline_data", new Dictionary<string, object> { { "mime_type", mime }, { "data", Convert.ToBase64String(audio) } } } },
+                        new Dictionary<string, object> { { "text", "Which song is this?" } },
+                    } } } } },
+                { "generationConfig", new Dictionary<string, object> { { "temperature", 0 }, { "responseMimeType", "application/json" }, { "responseSchema", HumSchema } } },
+            };
+            string json = Json.Serialize(body);
+            Exception last = null;
+            foreach (string model in new[] { "gemini-flash-latest", cfg.AiModel })
+            {
+                try
+                {
+                    string response = Send("POST", GeminiBase + Uri.EscapeDataString(model) + ":generateContent", json,
+                                           new Dictionary<string, string> { { "x-goog-api-key", key } }, 25000);
+                    return ParseSongGuesses(AnswerText(response));
+                }
+                catch (Exception ex) { last = ex; }
+            }
+            throw last ?? new Exception("no model answered");
+        }
+
+        internal static List<KeyValuePair<string, string>> ParseSongGuesses(string json)
+        {
+            var guesses = new List<KeyValuePair<string, string>>();
+            object[] songs = Arr(Get(Json.Deserialize<Dictionary<string, object>>(json), "songs"));
+            if (songs == null) return guesses;
+            foreach (object song in songs)
+            {
+                string title = Get(song, "title") as string, artist = Get(song, "artist") as string;
+                if (string.IsNullOrWhiteSpace(title)) continue;
+                guesses.Add(new KeyValuePair<string, string>(title.Trim(), (artist ?? "").Trim()));
+                if (guesses.Count == 3) break;
+            }
+            return guesses;
+        }
+
         /// <summary>The model's text from a generateContent response (skipping any "thought" parts).</summary>
         internal static string AnswerText(string response)
         {

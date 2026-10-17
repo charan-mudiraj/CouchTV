@@ -59,6 +59,15 @@ namespace CouchTV
   }
 }";
 
+        const string SearchQuery = @"query Search($country: Country!, $language: Language!, $first: Int!, $filter: TitleFilter, $offers: OfferFilter!) {
+  popularTitles(country: $country, filter: $filter, first: $first, sortBy: POPULAR, sortRandomSeed: 0) {
+    edges { node { id objectType
+      content(country: $country, language: $language) { title originalReleaseYear runtime posterUrl(profile: S332, format: JPG) }
+      offers(country: $country, platform: WEB, filter: $offers) { monetizationType standardWebURL package { shortName } }
+    } }
+  }
+}";
+
         static Suggestions()
         {
             ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
@@ -224,6 +233,104 @@ namespace CouchTV
             m = Regex.Match(url, @"^(https?://(?:www\.)?hotstar\.com/in/movies/[^/?#]+/\d+)(?:/watch)?(?:[?#].*)?$", RegexOptions.IgnoreCase);
             if (m.Success) return m.Groups[1].Value + "/watch";
             return url;
+        }
+
+        // ================================================================ search, as the phone's search box is typed in
+
+        /// <summary>Films and shows for some words (JustWatch's search, in India), each on the best of your apps for it.</summary>
+        public static List<Suggestion> SearchTitles(Config cfg, string words, int most)
+        {
+            var apps = new Dictionary<string, Tile>();
+            foreach (string[] p in Packages)
+            {
+                Tile t = SmartSearch.FindHost(cfg.AppTiles, p[1]);
+                if (t != null) apps[p[0]] = t;
+            }
+            if (apps.Count == 0) return new List<Suggestion>();
+            var packages = new List<string>(apps.Keys);
+            var money = new[] { "FLATRATE", "FREE", "ADS" };
+            var variables = new Dictionary<string, object>
+            {
+                { "country", "IN" }, { "language", "en" }, { "first", most * 2 },
+                { "filter", new Dictionary<string, object> { { "searchQuery", words }, { "objectTypes", new[] { "MOVIE", "SHOW" } } } },
+                { "offers", new Dictionary<string, object> { { "packages", packages }, { "monetizationTypes", money } } },
+            };
+            string body = Json.Serialize(new Dictionary<string, object> { { "query", SearchQuery }, { "variables", variables } });
+            List<Suggestion> list = ParseMovies(Http("POST", JustWatch, body, 8000), apps, cfg.Subscriptions);
+            foreach (Suggestion s in list) s.Id = "f" + s.Id;   // not the home screen's
+            // JustWatch also finds the words in casts and plots: titles that have them come first (in its order still).
+            var ranked = new List<KeyValuePair<int, Suggestion>>();
+            for (int i = 0; i < list.Count; i++) ranked.Add(new KeyValuePair<int, Suggestion>(i, list[i]));
+            ranked.Sort((a, b) =>
+            {
+                int byTitle = TitleMatch(b.Value.Title, words).CompareTo(TitleMatch(a.Value.Title, words));
+                return byTitle != 0 ? byTitle : a.Key.CompareTo(b.Key);
+            });
+            list = ranked.ConvertAll(r => r.Value);
+            // With titles that match, the rest are noise; with none (an actor's name, say), keep JustWatch's own.
+            if (list.Count > 0 && TitleMatch(list[0].Title, words) > 0) list = list.FindAll(s => TitleMatch(s.Title, words) > 0);
+            return list.Count > most ? list.GetRange(0, most) : list;
+        }
+
+        /// <summary>How well a title has the words: 3 starts with them, 2 has them, 1 has every word, 0 none.</summary>
+        internal static int TitleMatch(string title, string words)
+        {
+            string t = title.ToLowerInvariant(), w = words.Trim().ToLowerInvariant();
+            if (w.Length == 0) return 0;
+            if (t.StartsWith(w)) return 3;
+            if (t.Contains(w)) return 2;
+            foreach (string word in w.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries))
+                if (!t.Contains(word)) return 0;
+            return 1;
+        }
+
+        /// <summary>Songs for some words (Apple's music search, in India), played on YouTube (looked up when played).</summary>
+        public static List<Suggestion> SearchSongs(Config cfg, string words, int most)
+        {
+            Tile youtube = SmartSearch.FindHost(cfg.AppTiles, "youtube.com");
+            if (youtube == null) return new List<Suggestion>();
+            string url = "https://itunes.apple.com/search?country=IN&media=music&entity=song&limit=" + most + "&term=" + Uri.EscapeDataString(words);
+            return ParseFoundSongs(Http("GET", url, null, 8000), youtube);
+        }
+
+        internal static List<Suggestion> ParseFoundSongs(string json, Tile app)
+        {
+            object[] results = Arr(Get(Json.Deserialize<Dictionary<string, object>>(json), "results"));
+            var list = new List<Suggestion>();
+            if (results == null) return list;
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (object r in results)
+            {
+                string name = Get(r, "trackName") as string, artist = Get(r, "artistName") as string, art = Get(r, "artworkUrl100") as string;
+                object id = Get(r, "trackId");
+                if (id == null || string.IsNullOrEmpty(name) || string.IsNullOrEmpty(artist)) continue;
+                string title = SongTitle(name), lead = LeadArtist(artist);
+                if (!seen.Add(title + "|" + lead)) continue;   // the same song from two albums
+                list.Add(new Suggestion
+                {
+                    Kind = SuggestionKind.Song, Id = "a" + Convert.ToString(id, System.Globalization.CultureInfo.InvariantCulture), Title = title,
+                    Subtitle = artist.Trim(), App = app.Name, ImageUrl = string.IsNullOrEmpty(art) ? null : art.Replace("100x100bb", "300x300bb"),
+                    Query = title + " " + lead,
+                });
+            }
+            return list;
+        }
+
+        /// <summary>
+        /// For the phone that searched: "FOUND &lt;seq&gt; &lt;count&gt; [&lt;why none&gt;]", then that many "FITEM" lines, each as a
+        /// SUGGEST line (PhoneLines) says it, played with PLAY or PLAYNEXT like those.
+        /// </summary>
+        public static List<string> FoundLines(int seq, List<Suggestion> list, Func<string, Tile> tile, string whyNone)
+        {
+            var items = new List<string>();
+            foreach (Suggestion s in list)
+            {
+                Tile app = tile(s.App);
+                if (app != null) items.Add("FITEM " + ItemLine(s, app));
+            }
+            var lines = new List<string> { "FOUND " + seq + " " + items.Count + (items.Count == 0 && whyNone != null ? " " + whyNone : "") };
+            lines.AddRange(items);
+            return lines;
         }
 
         static List<Suggestion> Songs(Config cfg, Dictionary<string, Suggestion> known, StringBuilder notes)
@@ -411,13 +518,19 @@ namespace CouchTV
             {
                 Tile app = tile(s.App);
                 if (app == null) continue;
-                items.Add("SUGGEST " + (s.Kind == SuggestionKind.Movie ? "M" : "S") + " " + s.Id + " " + B64(s.Title) + " " + B64(s.Subtitle) + " " +
-                          B64(app.Label) + " " + B64(s.ImageUrl) + " " + Rgb(app.Background) + " " + Rgb(app.Foreground) + " " +
-                          (AppKey(app) ?? "-") + " " + B64(s.PlayUrl) + " " + B64(s.Query));
+                items.Add("SUGGEST " + ItemLine(s, app));
             }
             lines.Add("SUGGESTIONS " + items.Count);
             lines.AddRange(items);
             return lines;
+        }
+
+        /// <summary>A suggestion as the phone reads it, after "SUGGEST " (or "FITEM ").</summary>
+        static string ItemLine(Suggestion s, Tile app)
+        {
+            return (s.Kind == SuggestionKind.Movie ? "M" : "S") + " " + s.Id + " " + B64(s.Title) + " " + B64(s.Subtitle) + " " +
+                   B64(app.Label) + " " + B64(s.ImageUrl) + " " + Rgb(app.Background) + " " + Rgb(app.Foreground) + " " +
+                   (AppKey(app) ?? "-") + " " + B64(s.PlayUrl) + " " + B64(s.Query);
         }
 
         /// <summary>JustWatch's name for a tile's app ("nfx"), or "youtube"; null for others.</summary>

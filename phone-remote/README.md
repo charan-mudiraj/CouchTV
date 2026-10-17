@@ -31,7 +31,9 @@ The **trackpad** is a dialog over the remote: its key at the D-pad's top right o
 
 The D-pad, trackpad and keyboard size themselves to the phone's screen. The keys look and feel like a real remote's: raised, with their sides showing, they sink when pressed and click under your finger (a short vibration going down, and a lighter one coming up on phones with a precise vibration motor).
 
-- **Voice search.** Tap the blue mic and say what to watch (rings round the big mic swell with your voice). The phone turns your words into text and sends them to the TV, which lets you pick the app to search in. Tap the search bar to type instead.
+- **Voice search.** Tap the blue mic and say what to watch: a sheet rises from the bottom, rings round the big mic swelling with your voice. The phone turns your words into text and sends them to the TV, which lets you pick the app to search in. **Hum a song** and **Type** are under the mic.
+- **The search page** (tap the search bar): a box that starts empty, and under it, as you type, the films and shows on your apps (posters, with the app on them) and songs (with **Play next**), straight from the TV; tap one to play it there. Enter (or the first row) sends the words to the TV's own search, as before. Over Wi-Fi.
+- **Hum a song** (the music button on the search page): hum, whistle or sing for up to 10 seconds; the TV works out which song it is (Gemini, with the key AI search uses) and its guesses show, to play or play next. Singing some of the words helps; a plain hum of a well-known tune often works, a rare one may not.
 - **D-pad and OK.** Hold a direction to keep moving.
 - **Back, Home, Menu.** Holding Back also goes Home. Menu is a shortcut on the first page.
 - **Volume and brightness sliders.** Drag along either, starting anywhere: the level follows your finger by how far it moves, so touching one never jumps. The bar swells under your finger, stretches like a rubber band past either end, ticks every 10%, and shows the level as you go; the speaker changes with the volume, and the sun turns with the brightness. Tap the speaker to mute or unmute. Both show what the TV is at, whatever changed it (the remote's keys, voice search, Windows). Over Wi-Fi the volume is set exactly; by infrared the slider presses the volume keys for you. Brightness is over Wi-Fi: a screen that takes DDC/CI commands (most monitors, a few TVs) turns its own backlight down; on any other, CouchTV dims the picture itself with a see-through black layer, which screenshots and the screen mirror leave out.
@@ -110,8 +112,8 @@ The sound plays on wired earphones (or USB, or line out) when they're plugged in
 ## Voice search
 
 - **The first time,** Android asks to let CouchTV Remote use the microphone. If you say no, the app uses Google's own voice screen instead, which has its own permission.
-- **Speech recognition is Google's,** the same as Android's voice typing, so it needs the internet. The listening screen has a language button: **English** (Indian English, which also copes with Hinglish) or **हिंदी**. The app remembers your choice.
-- **While it listens,** the TV shows *Listening…* and turns its sound down. Tap the mic to finish early, **Type** to type instead, or **Cancel**.
+- **Speech recognition is Google's,** the same as Android's voice typing, so it needs the internet. It listens in Indian English, which also copes with Hinglish.
+- **While it listens,** the TV shows *Listening…* and turns its sound down. Tap the mic to finish early; tap outside the sheet (or Back) to stop; **Hum a song** or **Type** instead.
 - **Then the words go to the TV** over infrared, about a second for a short search. Keep pointing at the TV until the search bar says they've arrived. If some got lost, the TV says so; just try again.
 
 If the in-app listening screen fails on your phone (some phones have no speech service built in), the app switches to Google's voice screen by itself. If the phone has neither, it offers typing.

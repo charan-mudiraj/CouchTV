@@ -105,7 +105,7 @@ Display and Network open Windows' Settings app, which only runs while the deskto
 
 ### Search
 
-1. **Tap the blue mic** at the top of the phone remote and say what you want to watch, for example *"Panchayat season 3"*. While the phone listens, the TV shows *Listening…* and turns its sound down, even over a playing show. Hindi works too: tap the language button on the phone's listening screen.
+1. **Tap the blue mic** at the top of the phone remote and say what you want to watch, for example *"Panchayat season 3"*. While the phone listens, the TV shows *Listening…* and turns its sound down, even over a playing show. Or tap the phone's search bar and type: films, shows and songs on your apps show on the phone as you type, to play with a tap (songs also *Play next*); or hum a song there and the TV works out which (Gemini).
 2. **The words appear on the TV** about a second later. Keep the phone pointed at the TV while they're sent.
 3. **Pick where to search** (Netflix, YouTube, Prime Video, JioHotstar or Web) and press OK. That app opens on its own search results.
 

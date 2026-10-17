@@ -2,7 +2,7 @@ package com.couchtv.remote
 
 import android.Manifest
 import android.app.Activity
-import android.app.AlertDialog
+import android.app.Dialog
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -11,50 +11,44 @@ import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
-import android.text.InputType
+import android.view.Gravity
 import android.view.LayoutInflater
+import android.view.View
 import android.view.WindowManager
-import android.view.inputmethod.EditorInfo
-import android.widget.Button
-import android.widget.EditText
-import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 
 /**
- * Voice search. The phone turns speech into text with Google's speech recognition (which knows Indian English and
- * Hindi), then sends the text to CouchTV over infrared. While the phone listens, the TV shows "Listening…" and
- * turns its sound down. If this phone's recognizer doesn't work, Google's own voice screen is used instead.
+ * Voice search. The phone turns speech into text with Google's speech recognition (Indian English, which copes with
+ * Hinglish too), then sends the text to CouchTV. While the phone listens (a sheet from the bottom, rings round the mic
+ * swelling with your voice), the TV shows "Listening…" and turns its sound down. If this phone's recognizer doesn't
+ * work, Google's own voice screen is used instead. The sheet also hums a song, or types, instead (the search page).
  */
 class VoiceSearch(private val activity: Activity, private val remote: Remote) {
     companion object {
         const val REQUEST_MIC = 41
         const val REQUEST_POPUP = 42
-        private val LANGUAGES = listOf("en-IN", "hi-IN")
+        private const val LANGUAGE = "en-IN"
         private const val ERROR_SERVER_DISCONNECTED = 11   // SpeechRecognizer constant from Android 12
     }
 
     /** Shows progress, e.g. in the search bar. */
     var onStatus: ((String) -> Unit)? = null
 
-    private val prefs = activity.getSharedPreferences("voice", Context.MODE_PRIVATE)
+    /** Type instead: the search page. */
+    var onType: (() -> Unit)? = null
+
+    /** Hum a song instead: the search page, humming. */
+    var onHum: (() -> Unit)? = null
+
     private var recognizer: SpeechRecognizer? = null
-    private var panel: AlertDialog? = null
+    private var panel: Dialog? = null
     private var mic: ImageView? = null
     private var rings: VoiceRings? = null
     private var status: TextView? = null
     private var heard: TextView? = null
-    private var languageButton: Button? = null
     private var listening = false
-
-    private var language: String
-        get() = prefs.getString("language", null)?.takeIf { it in LANGUAGES } ?: LANGUAGES[0]
-        set(value) = prefs.edit().putString("language", value).apply()
-
-    private var lastText: String
-        get() = prefs.getString("last", null) ?: ""
-        set(value) = prefs.edit().putString("last", value).apply()
 
     // ---------------------------------------------------------------- starting
 
@@ -110,7 +104,7 @@ class VoiceSearch(private val activity: Activity, private val remote: Remote) {
 
     private fun recognizerIntent() = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
         putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_WEB_SEARCH)
-        putExtra(RecognizerIntent.EXTRA_LANGUAGE, language)
+        putExtra(RecognizerIntent.EXTRA_LANGUAGE, LANGUAGE)
         putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
         putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
         putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, activity.packageName)
@@ -123,25 +117,32 @@ class VoiceSearch(private val activity: Activity, private val remote: Remote) {
         val view = LayoutInflater.from(activity).inflate(R.layout.voice_panel, null)
         mic = view.findViewById(R.id.voice_mic)
         rings = view.findViewById(R.id.voice_rings)
-        rings?.micShare = 100f / 184f
+        rings?.micShare = 96f / 176f
         status = view.findViewById(R.id.voice_status)
         heard = view.findViewById(R.id.voice_heard)
-        languageButton = view.findViewById(R.id.voice_language)
         // Tap the mic to finish early, or to try again after a miss.
         mic?.setOnClickListener { if (listening) recognizer?.stopListening() else listen() }
         mic?.let { Haptics.attach(it) }
-        languageButton?.setOnClickListener { nextLanguage() }
-        view.findViewById<Button>(R.id.voice_type).setOnClickListener {
-            stopListening()
-            closePanel()
+        view.findViewById<View>(R.id.voice_type).setOnClickListener {
+            cancel()
             type()
         }
-        view.findViewById<Button>(R.id.voice_cancel).setOnClickListener { cancel() }
-        showLanguage()
-        panel = AlertDialog.Builder(activity, android.R.style.Theme_Material_Dialog_Alert)
-            .setView(view)
-            .setOnCancelListener { cancel() }
-            .show()
+        view.findViewById<View>(R.id.voice_hum).setOnClickListener {
+            cancel()
+            onHum?.invoke()
+        }
+        // A sheet from the bottom of the screen; a tap outside it, or Back, stops listening.
+        panel = Dialog(activity, R.style.Sheet).apply {
+            setContentView(view)
+            window?.let { w ->
+                w.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.WRAP_CONTENT)
+                w.setGravity(Gravity.BOTTOM)
+                w.decorView.setPadding(0, 0, 0, 0)
+            }
+            setCanceledOnTouchOutside(true)
+            setOnCancelListener { cancel() }
+            show()
+        }
     }
 
     private fun listen() {
@@ -190,20 +191,6 @@ class VoiceSearch(private val activity: Activity, private val remote: Remote) {
         rings = null
         status = null
         heard = null
-        languageButton = null
-    }
-
-    private fun nextLanguage() {
-        language = LANGUAGES[(LANGUAGES.indexOf(language) + 1) % LANGUAGES.size]
-        showLanguage()
-        if (listening) {
-            stopListening()
-            listen()
-        }
-    }
-
-    private fun showLanguage() {
-        languageButton?.setText(if (language == "hi-IN") R.string.language_hindi else R.string.language_english)
     }
 
     /** Not listening any more: the rings settle and fade. */
@@ -279,50 +266,15 @@ class VoiceSearch(private val activity: Activity, private val remote: Remote) {
 
     // ---------------------------------------------------------------- typing, and sending
 
-    /** Typing instead of speaking (tap the search bar). */
+    /** Typing instead of speaking: the search page (it starts empty). */
     fun type() {
-        val density = activity.resources.displayMetrics.density
-        val input = EditText(activity).apply {
-            setText(lastText)
-            selectAll()
-            hint = activity.getString(R.string.type_hint)
-            inputType = InputType.TYPE_CLASS_TEXT
-            imeOptions = EditorInfo.IME_ACTION_SEARCH
-            setSingleLine()
-        }
-        val frame = FrameLayout(activity).apply {
-            setPadding((20 * density).toInt(), (8 * density).toInt(), (20 * density).toInt(), 0)
-            addView(input)
-        }
-        val shown = AlertDialog.Builder(activity, android.R.style.Theme_Material_Dialog_Alert)
-            .setTitle(R.string.type_title)
-            .setView(frame)
-            .setPositiveButton(R.string.search, null)
-            .setNegativeButton(R.string.cancel) { _, _ -> remote.press(Codes.ADDRESS, Codes.SEARCH_CANCEL, hold = false) }
-            .show()
-        val submit = {
-            val text = input.text.toString().trim()
-            if (text.isNotEmpty()) {
-                shown.dismiss()
-                send(text)
-            }
-        }
-        shown.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener { submit() }
-        input.setOnEditorActionListener { _, actionId, _ ->
-            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
-                submit()
-                true
-            } else false
-        }
-        input.requestFocus()
-        shown.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
+        onType?.invoke()
     }
 
     /** Sends the words to the TV, which shows them and lets you pick the app to search in. */
-    private fun send(text: String) {
+    fun send(text: String) {
         val words = Nec.fitText(text)
         if (words.isEmpty()) return
-        lastText = words
         if (!remote.viaWifi) onStatus?.invoke(activity.getString(R.string.search_sending, words))   // infrared takes a second
         remote.sendText(words) {
             activity.runOnUiThread { onStatus?.invoke(activity.getString(R.string.search_sent, words)) }

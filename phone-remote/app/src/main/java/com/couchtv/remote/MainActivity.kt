@@ -57,6 +57,7 @@ class MainActivity : Activity() {
     private lateinit var feed: SuggestionFeed
     private var tvWasThere = false
     private lateinit var voice: VoiceSearch
+    private lateinit var search: SearchScreen
     private lateinit var statusPanel: StatusPanel
     private lateinit var sleepTimer: SleepTimer
     private lateinit var tests: TestHooks
@@ -154,20 +155,23 @@ class MainActivity : Activity() {
 
         voice = VoiceSearch(this, remote)
         voice.onStatus = { findViewById<TextView>(R.id.search_hint).text = it }
+        // The search page: as you type, films, shows and songs from the TV to play there; Enter, the TV's own search.
+        search = SearchScreen(this, remote).apply {
+            onSend = { voice.send(it) }
+            onPlay = { playSuggestion(it) }
+            onPlayNext = { playNext(it) }
+            onVoice = { voice.start() }
+        }
+        remote.wifi.onFound = { number, items, why -> search.found(number, items, why) }
+        voice.onType = { search.open() }
+        voice.onHum = { search.open(hum = true) }
         findViewById<View>(R.id.voice_search).setOnClickListener { voice.start() }
-        findViewById<View>(R.id.search_bar).setOnClickListener { voice.type() }
+        findViewById<View>(R.id.search_bar).setOnClickListener { search.open() }
 
         // The first page: popular films and songs, the TV's list, or with the TV off the phone's own; a tap plays it there.
         val suggestions = findViewById<SuggestionsView>(R.id.suggestions)
         suggestions.onPlay = { playSuggestion(it) }
-        suggestions.onPlayNext = { s ->
-            if (!remote.wifi.connected) toast(getString(R.string.keyboard_offline))
-            else {
-                remote.wifi.playNext(s)
-                // Next after YouTube's song; with nothing on YouTube, it plays now.
-                toast(if (TvPlayer.media?.app == "YouTube") getString(R.string.plays_next, s.title) else getString(R.string.suggestion_playing, s.title, s.app))
-            }
-        }
+        suggestions.onPlayNext = { playNext(it) }
         suggestions.show(feed.current, false)
         feed.onChange = { list -> if (remote.wifi.tvName == null) suggestions.show(list, false) }
         remote.wifi.onSuggestSetup = { feed.setSetup(it) }
@@ -417,6 +421,17 @@ class MainActivity : Activity() {
      * A film or song from the first page: played on the TV. With the TV off (asleep, or shut down), Power turns it on
      * (through the receiver box, as the Power key does) and it plays as soon as the TV is back, within 3 minutes.
      */
+    /** Play next on a song (its button, a hold, the search page). */
+    private fun playNext(s: Suggestion) {
+        if (!remote.wifi.connected) {
+            toast(getString(R.string.keyboard_offline))
+            return
+        }
+        remote.wifi.playNext(s)
+        // Next after YouTube's song; with nothing on YouTube, it plays now.
+        toast(if (TvPlayer.media?.app == "YouTube") getString(R.string.plays_next, s.title) else getString(R.string.suggestion_playing, s.title, s.app))
+    }
+
     private fun playSuggestion(s: Suggestion) {
         if (remote.wifi.connected) {
             remote.wifi.play(s)
@@ -660,6 +675,7 @@ class MainActivity : Activity() {
 
     override fun onPause() {
         voice.stop()
+        search.stop()
         keyboard.releaseAll()
         resumed = false
         tests.stop()
@@ -700,6 +716,7 @@ class MainActivity : Activity() {
         val granted = grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED
         when (requestCode) {
             VoiceSearch.REQUEST_MIC -> voice.onPermissionResult(granted)
+            SearchScreen.REQUEST_HUM -> search.onPermissionResult(granted)
             REQUEST_BLUETOOTH -> if (granted) askAndroidToTurnOffBluetooth() else openBluetoothSettings()
         }
     }
