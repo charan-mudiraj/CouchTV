@@ -132,6 +132,7 @@ namespace CouchTV
                 Convert.ToBase64String(Encoding.UTF8.GetBytes("Radio")) + " -");
             check("now playing: ...and nothing", string.Join("|", HomeWindow.MediaLines(null, "", true)) == "MEDIA none");
 
+            check("a film: an episode (22 min) is one, a song or a trailer (3 min) isn't", NowPlaying.IsFilm(22 * 60000L) && !NowPlaying.IsFilm(3 * 60000L) && !NowPlaying.IsFilm(0));
             int length;
             check("up next: a song's name in YouTube's list loses its length", YouTubePage.WithoutLength("Sabrina Carpenter - Espresso 3 minutes, 21 seconds", out length) == "Sabrina Carpenter - Espresso" && length == 201);
             check("up next: ...an hour long too", YouTubePage.WithoutLength("Lofi mix 1 hour, 2 minutes, 5 seconds", out length) == "Lofi mix" && length == 3725);

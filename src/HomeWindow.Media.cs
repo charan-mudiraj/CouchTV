@@ -56,6 +56,7 @@ namespace CouchTV
             NowPlaying.Start(Dispatcher);
             Activated += (s, e) => UpdateMini();
             Deactivated += (s, e) => UpdateMini();
+            NowPlaying.FilmChanged += FilmChanged;
             if (_wifi == null) return;
             _wifi.CurrentMedia = () => MediaLines(NowPlaying.Current, _mediaApp, true);
             _wifi.Media += (what, ms) =>
@@ -241,7 +242,7 @@ namespace CouchTV
             IntPtr front = Native.GetForegroundWindow();
             if (front == IntPtr.Zero) return;   // between two windows
             MediaNow now = NowPlaying.Current;
-            if (now == null || !BackgroundAlive || front == _hwnd || front == _bgWindow || Shell.ExplorerRunning)
+            if (now == null || !BackgroundAlive || front == _hwnd || front == _bgWindow || Shell.ExplorerRunning || NowPlaying.FilmPlaying)
             {
                 if (_mini != null) _mini.HideNow();
                 return;
@@ -262,6 +263,22 @@ namespace CouchTV
                 };
             }
             _mini.Show(now, _mediaApp);
+        }
+
+        /// <summary>
+        /// A film started in another app (Netflix, a long video...) with music playing behind it: the music pauses, and
+        /// the mini player keeps out of the way while the film plays (it's back when the film stops or pauses).
+        /// </summary>
+        void FilmChanged(bool playing)
+        {
+            MediaNow now = NowPlaying.Current;
+            if (playing && BackgroundAlive && now != null && now.Playing)
+            {
+                Log.Info("A film started: \"" + now.Title + "\" paused");
+                NowPlaying.Command("pause");
+                Osd.ShowMessage('\uE769', "Music paused for the film", 2.5);
+            }
+            UpdateMini();
         }
 
         /// <summary>

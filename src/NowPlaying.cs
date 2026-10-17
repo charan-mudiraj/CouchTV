@@ -66,6 +66,19 @@ namespace CouchTV
         /// </summary>
         public static volatile string Prefer;
 
+        /// <summary>
+        /// A film plays in another app beside the music left behind (Prefer): something at least FilmMinutes long,
+        /// playing for a few seconds in a row, so trailers on a browse page (shorter) don't count. UI thread.
+        /// </summary>
+        public static bool FilmPlaying { get; private set; }
+
+        /// <summary>FilmPlaying changed (UI thread).</summary>
+        public static event Action<bool> FilmChanged;
+
+        public const int FilmMinutes = 10;
+        static bool _filmTold;    // the work thread's
+        static int _filmLooks;    // looks in a row that disagree with it
+
         sealed class Ask
         {
             public string What;
@@ -121,6 +134,7 @@ namespace CouchTV
                     GlobalSystemMediaTransportControlsSession session = Pick(manager);
                     if (RunAsks(session)) _quick = 8;
                     Publish(session == null ? null : Read(session));
+                    LookForFilm(manager);
                     failures = 0;
                 }
                 catch (Exception ex)
@@ -152,6 +166,42 @@ namespace CouchTV
             if (current != null && Active(current.GetPlaybackInfo().PlaybackStatus)) return current;
             return paused;
         }
+
+        /// <summary>Whether a film plays in another app than the music left behind; told after three looks that agree.</summary>
+        static void LookForFilm(GlobalSystemMediaTransportControlsSessionManager manager)
+        {
+            string prefer = Prefer;
+            bool film = false;
+            if (prefer != null)
+                foreach (GlobalSystemMediaTransportControlsSession s in manager.GetSessions())
+                {
+                    if (s.SourceAppUserModelId == prefer || s.GetPlaybackInfo().PlaybackStatus != GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing) continue;
+                    GlobalSystemMediaTransportControlsSessionTimelineProperties timeline = s.GetTimelineProperties();
+                    if (IsFilm((long)(timeline.EndTime - timeline.StartTime).TotalMilliseconds))
+                    {
+                        film = true;
+                        break;
+                    }
+                }
+            if (film == _filmTold)
+            {
+                _filmLooks = 0;
+                return;
+            }
+            if (++_filmLooks < 3) return;
+            _filmLooks = 0;
+            _filmTold = film;
+            if (film) Log.Info("Now playing: a film plays beside the music");
+            if (_ui == null) return;
+            _ui.BeginInvoke(new Action(() =>
+            {
+                FilmPlaying = film;
+                if (FilmChanged != null) FilmChanged(film);
+            }));
+        }
+
+        /// <summary>Long enough to be a film or an episode, not a song or a trailer.</summary>
+        internal static bool IsFilm(long lengthMs) { return lengthMs >= FilmMinutes * 60000L; }
 
         static bool Active(GlobalSystemMediaTransportControlsSessionPlaybackStatus status)
         {
