@@ -104,9 +104,9 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        showBackdrop()
         statusPanel = StatusPanel(this)
         phone = PhoneSettings(this)
+        showBackdrop()   // after the settings, which say which
         Haptics.enabled = phone.vibration
         BluetoothGuard.enabled = phone.bluetoothOff
         remote = Remote(this)
