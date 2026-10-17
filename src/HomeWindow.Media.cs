@@ -266,17 +266,22 @@ namespace CouchTV
         }
 
         /// <summary>
-        /// A film started in another app (Netflix, a long video...) with music playing behind it: the music pauses, and
-        /// the mini player keeps out of the way while the film plays (it's back when the film stops or pauses).
+        /// A film started in another app (Netflix, a long video...) with music left behind it, playing or paused: the
+        /// music stops altogether (its app closes, up next is cleared), so the film is what's playing everywhere: the
+        /// phones' player and notification, and the home screen's card.
         /// </summary>
         void FilmChanged(bool playing)
         {
-            MediaNow now = NowPlaying.Current;
-            if (playing && BackgroundAlive && now != null && now.Playing)
+            if (playing && BackgroundAlive)
             {
-                Log.Info("A film started: \"" + now.Title + "\" paused");
-                NowPlaying.Command("pause");
-                Osd.ShowMessage('\uE769', "Music paused for the film", 2.5);
+                MediaNow now = NowPlaying.Current;
+                Log.Info("A film started: the music behind it stops" + (now != null ? " (\"" + now.Title + "\")" : ""));
+                StopBackground();
+                _upNext.Clear();
+                _pageList = new List<PageSong>();
+                _pageListFor = null;
+                TellQueue();
+                Osd.ShowMessage('\uE71A', "Music stopped for the film", 2.5);
             }
             UpdateMini();
         }
