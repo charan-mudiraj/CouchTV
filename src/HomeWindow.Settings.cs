@@ -97,6 +97,14 @@ namespace CouchTV
                 },
                 new TvSetting
                 {
+                    Key = "netflixprofile", Label = "Netflix profile",
+                    Note = "Skips “Who's watching?” for this profile (NetflixProfile in couchtv.ini names it)",
+                    Values = OnOffValues, Names = new[] { "“" + _cfg.NetflixProfile + "”", "Ask each time" },
+                    Get = () => OnOff(_cfg.NetflixPickProfile),
+                    Set = v => { _cfg.NetflixPickProfile = v == "on"; Sites.WriteSettings(_cfg); SaveSetting("NetflixPickProfile", v); },
+                },
+                new TvSetting
+                {
                     Key = "pointerstyle", Label = "Pointer", Note = "Shown while the phone's trackpad is open",
                     Values = Pointer.Styles, Names = new[] { "Arrow", "Dot", "Ring" },
                     Get = () => _cfg.PointerStyle, Set = v => ChangePointer(v, _cfg.PointerSize, _cfg.PointerColor),

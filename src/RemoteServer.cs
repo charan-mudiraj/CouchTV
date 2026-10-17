@@ -59,6 +59,7 @@ namespace CouchTV
     ///     FIND &lt;seq&gt; &lt;words&gt;        the phone's search box as it's typed in  →  FOUND &lt;seq&gt; &lt;count&gt;, then FITEM lines (as SUGGEST)
     ///     HUM &lt;seq&gt; &lt;part&gt; &lt;parts&gt; &lt;audio&gt;   a song hummed on the phone, in pieces  →  FOUND &lt;seq&gt; ... (Gemini's guesses)
     ///     WALLPAPER &lt;seq&gt; &lt;part&gt; &lt;parts&gt; &lt;JPEG&gt;   a photo from the phone for the home screen's background, in pieces
+    ///     INSPECT [max] [skip]   the web page in front as accessibility sees it  →  INSPECT &lt;gzip, base64&gt;
     ///     QUEUE PLAY|REMOVE &lt;video&gt;   a song of up next played now, or taken out
     ///                  →  QUEUE &lt;count&gt; and that many QITEM lines (on connecting, and whenever up next changes)
     ///     LOG [&lt;lines&gt;]             →  LOG &lt;count&gt;, then that many lines "| &lt;line&gt;": the end of the TV's log (CouchTV.exe --tv)
@@ -92,12 +93,13 @@ namespace CouchTV
         public event Action<int> Brightness;                 // a phone's brightness slider: 0 to 100 (UI thread)
         public event Action<bool> BluetoothWatch;            // a phone has its Bluetooth page open (true), or none has now (UI thread)
         public event Action<string[]> BluetoothAsk;          // a phone asked its Bluetooth page's question: "POWER ON" etc., split (UI thread)
-        public event Action<string, long> Media;
-        public event Action<string> PlayNext;
+        public event Action<string, long> Media;             // a phone's button for what's playing: play, pause, toggle, next, previous, stop, or seek and where to, in ms (UI thread)
+        public event Action<string> PlayNext;                // a phone's Play next on a song: as PLAY says it (UI thread)
         public event Action<RemoteSession, int, string> Find;          // the phone's search box, as it's typed in: its number and the words (UI thread)
         public event Action<RemoteSession, int, byte[]> Hum;           // a recording of a song hummed on the phone (AAC): its number (UI thread)
-        public event Action<byte[]> Wallpaper;                         // a photo from the phone for the home screen's background (JPEG) (UI thread)                // a phone's Play next on a song: as PLAY says it (UI thread)
-        public event Action<string, string> Queue;           // a phone played ("play") or took out ("remove") a song of up next: its video (UI thread)             // a phone's button for what's playing: play, pause, toggle, next, previous, stop, or seek and where to, in ms (UI thread)
+        public event Action<byte[]> Wallpaper;                         // a photo from the phone for the home screen's background (JPEG) (UI thread)
+        public event Action<RemoteSession, int, int> Inspect;          // the web page in front, as accessibility sees it, wanted: how many elements, from which (UI thread)
+        public event Action<string, string> Queue;           // a phone played ("play") or took out ("remove") a song of up next: its video (UI thread)
 
         /// <summary>The pointer's look now ("arrow 64 white"), told to each phone as it connects.</summary>
         internal Func<string> CurrentPointer;
@@ -787,6 +789,14 @@ namespace CouchTV
                         RemoteSession hummer = session;
                         Raise(() => { if (Hum != null) Hum(hummer, humSeq, audio); });
                     }
+                    return null;
+                case "INSPECT":
+                    // INSPECT [max] [skip]: the page in front's elements, for working out a site's layout (PageInspect.cs).
+                    int most = 1500, from = 0;
+                    if (session == null || (parts.Length > 1 && !int.TryParse(parts[1], out most)) || (parts.Length > 2 && !int.TryParse(parts[2], out from))) return null;
+                    RemoteSession inspector = session;
+                    int inspectMost = Math.Max(1, Math.Min(5000, most)), inspectFrom = Math.Max(0, from);
+                    Raise(() => { if (Inspect != null) Inspect(inspector, inspectMost, inspectFrom); });
                     return null;
                 case "WALLPAPER":
                     // WALLPAPER <seq> <part> <parts> <base64>: a photo for the background, in pieces like HUM.

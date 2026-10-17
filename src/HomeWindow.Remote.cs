@@ -129,6 +129,14 @@ namespace CouchTV
             StartPhoneSearch();
             // A photo from the phone's Backgrounds page, for behind the home screen.
             _wifi.Wallpaper += PhotoFromPhone;
+            // The page in front, as accessibility sees it, for working out a site's layout from the laptop (PageInspect.cs).
+            _wifi.Inspect += (asker, most, from) =>
+            {
+                IntPtr front = Native.GetForegroundWindow();
+                Log.Info("Inspecting the page in front for a phone (" + most + " from " + from + ")");
+                System.Threading.ThreadPool.QueueUserWorkItem(state =>
+                    _wifi.SendTo(asker, new List<string> { "INSPECT " + PageInspect.Pack(PageInspect.Dump(front, most, from)) }));
+            };
             _wifi.Button += OnIrSignal;
             _wifi.Text += ReceiveSearchText;
             _wifi.Connected += who => { if (IsActive && !SearchOpen) Toast("Phone remote connected over Wi-Fi"); };

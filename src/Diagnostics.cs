@@ -148,10 +148,18 @@ namespace CouchTV
             check("a hummed song: Gemini's guesses, blank ones left out", guesses.Count == 2 && guesses[0].Key == "Kesariya" && guesses[1].Key == "Apna Bana Le");
             check("a film: an episode (22 min) is one, a song or a trailer (3 min) isn't", NowPlaying.IsFilm(22 * 60000L) && !NowPlaying.IsFilm(3 * 60000L) && !NowPlaying.IsFilm(0));
             check("websites: " + SitesCheck(), SitesCheck() == "the extension's built in, and every file its manifest names");
-            var siteCfg = new Config { SiteArrows = false, YouTubeRow = 5, NetflixTidy = true };
+            var siteCfg = new Config { SiteArrows = false, YouTubeRow = 5, NetflixTidy = true, NetflixProfile = "Couch \"TV\"" };
             var siteSettings = new System.Web.Script.Serialization.JavaScriptSerializer().Deserialize<Dictionary<string, object>>(Sites.SettingsJson(siteCfg));
             check("websites: settings.json (" + Sites.SettingsJson(siteCfg).Trim() + ")",
-                false.Equals(siteSettings["keys"]) && 5.Equals(siteSettings["youtubeRow"]) && true.Equals(siteSettings["netflixTidy"]));
+                false.Equals(siteSettings["keys"]) && 5.Equals(siteSettings["youtubeRow"]) && true.Equals(siteSettings["netflixTidy"]) &&
+                true.Equals(siteSettings["netflixPick"]) && "Couch \"TV\"".Equals(siteSettings["netflixProfile"]));
+            string inspected = PageInspect.Dump(IntPtr.Zero, 10, 0);
+            string packed = PageInspect.Pack("Window: x\nDocument \"Netflix\" 0,0 10x10\n");
+            string unpacked;
+            using (var zip = new System.IO.Compression.GZipStream(new MemoryStream(Convert.FromBase64String(packed)), System.IO.Compression.CompressionMode.Decompress))
+            using (var reader = new StreamReader(zip, Encoding.UTF8)) unpacked = reader.ReadToEnd();
+            check("inspecting a page: no window is said, not thrown; the dump packs and unpacks (" + inspected.Trim().Replace("\r\n", " | ") + ")",
+                inspected.Contains("Failed") && unpacked.Contains("\"Netflix\""));
             Sites.Prepare(Config.Load());   // as a web tile opening would, with this PC's own settings
             string webArgs = Launcher.BrowserArgs(tube, "brave");
             check("websites: a web tile's browser loads it (" + webArgs.Substring(Math.Max(0, webArgs.IndexOf("--load-extension"))) + ")",
@@ -2005,6 +2013,7 @@ namespace CouchTV
             server.Find += (phone, seq, query) => { lock (media) media.Add("find " + seq + " " + query); };
             server.Hum += (phone, seq, audio) => { lock (media) media.Add("hum " + seq + " " + audio.Length); };
             server.Wallpaper += photo => { lock (media) media.Add("wallpaper " + photo.Length); };
+            server.Inspect += (phone, most, from) => { lock (media) media.Add("inspect " + most + " " + from); };
             Func<string> code = () => { lock (pairing) return shown; };
             Func<string> wrongCode = () => { lock (pairing) return ((int.Parse(shown) + 1) % 1000000).ToString("D6"); };
             Func<string> pairingLog = () => { lock (pairing) return string.Join(", ", pairing); };
@@ -2136,6 +2145,8 @@ namespace CouchTV
                     a.Send("HUM 5 0 99 AAAA");                // ignored: too many pieces
                     a.Send("WALLPAPER 9 0 2 " + Convert.ToBase64String(new byte[] { 0xFF, 0xD8, 0xFF }));
                     a.Send("WALLPAPER 9 1 2 " + Convert.ToBase64String(new byte[] { 0xE0, 0, 16 }));
+                    a.Send("INSPECT 9999 40");                 // at most 5000
+                    a.Send("INSPECT lots");                    // ignored
                     a.Send("KEY A2 D");      // Ctrl, still held when the phone leaves
                     a.Send("KEY 43 D");
                     a.Send("KEY 43 U");
@@ -2174,7 +2185,7 @@ namespace CouchTV
                 server.CurrentQueue = null;
                 check("Wi-Fi: its sound session ends with the connection", server.FindSession(session) == null);
                 lock (media) check("Wi-Fi: MEDIA works what's playing from the phone's notification; PLAYNEXT and QUEUE, up next (" + string.Join(", ", media) + ")",
-                    string.Join(", ", media) == "pause, next, seek 83000, toggle, next: s1, play kJQP7kiw5Fk, remove TUVcZfQe-Kw, find 3 tum hi ho, hum 4 6, wallpaper 6");
+                    string.Join(", ", media) == "pause, next, seek 83000, toggle, next: s1, play kJQP7kiw5Fk, remove TUVcZfQe-Kw, find 3 tum hi ho, hum 4 6, wallpaper 6, inspect 5000 40");
                 lock (played) check("Wi-Fi: PLAY plays a suggestion (" + string.Join(", ", played) + ")", string.Join(", ", played) == "s1");
                 lock (sleepTimers) check("Wi-Fi: SLEEPTIMER sets the sleep timer, any number of minutes, or 0 for off (" + string.Join(", ", sleepTimers) + ")",
                     string.Join(", ", sleepTimers) == "95, 0");

@@ -61,7 +61,9 @@ namespace CouchTV
         {
             return "{\"keys\": " + (cfg.SiteArrows ? "true" : "false") +
                    ", \"youtubeRow\": " + cfg.YouTubeRow +
-                   ", \"netflixTidy\": " + (cfg.NetflixTidy ? "true" : "false") + "}\n";
+                   ", \"netflixTidy\": " + (cfg.NetflixTidy ? "true" : "false") +
+                   ", \"netflixPick\": " + (cfg.NetflixPickProfile && cfg.NetflixProfile.Length > 0 ? "true" : "false") +
+                   ", \"netflixProfile\": " + new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(cfg.NetflixProfile) + "}\n";
         }
 
         /// <summary>The browser's command line for loading it (nothing if it isn't written out).</summary>

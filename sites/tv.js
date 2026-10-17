@@ -55,18 +55,21 @@ var CouchTV = (function () {
     });
   }
 
-  /** Shown on the page (not hidden, not a sliver), and near enough to the screen to be worth moving to. */
-  function shown(el) {
+  /**
+   * Shown on the page (not hidden, not a sliver), and near enough to the screen to be worth moving to. Loose: also
+   * one past the screen's side, on a site whose rows otherwise only count what's wholly on screen.
+   */
+  function shown(el, loose) {
     if (!el || !el.isConnected) return false;
     var r = el.getBoundingClientRect();
     if (r.width < 16 || r.height < 12) return false;
     if (r.bottom < -innerHeight * 3 || r.top > innerHeight * 4) return false;
-    if (site && site.wholeAcross && (r.left < -2 || r.right > innerWidth + 2)) return false;
+    if (!loose && site && site.wholeAcross && (r.left < -2 || r.right > innerWidth + 2)) return false;
     return el.checkVisibility ? el.checkVisibility({ opacityProperty: true, visibilityProperty: true }) : true;
   }
 
-  function candidates() {
-    return (site.cards() || []).filter(shown);
+  function candidates(loose) {
+    return (site.cards() || []).filter(function (el) { return shown(el, loose); });
   }
 
   /**
@@ -213,7 +216,7 @@ var CouchTV = (function () {
   /** The ring follows its element as the page scrolls and moves; it goes if the element does. */
   function track() {
     if (!current || asleep) { tracking = false; return; }
-    if (!shown(current) || document.fullscreenElement) {
+    if (!shown(current, true) || document.fullscreenElement) {
       clear();
       tracking = false;
       return;
@@ -300,6 +303,22 @@ var CouchTV = (function () {
     readSettings();
   }
 
+  /**
+   * A line about what's going on, kept in the page where Windows' accessibility (and so CouchTV's INSPECT) reads it:
+   * how the layout was recognised, for working out a site's changes on the TV. Not shown.
+   */
+  var note = null;
+  function status(text) {
+    if (!note || !note.isConnected) {
+      note = document.createElement('div');
+      note.setAttribute('role', 'note');
+      note.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:1px;overflow:hidden;';
+      document.documentElement.appendChild(note);
+    }
+    var said = 'CouchTV: ' + text;
+    if (note.getAttribute('aria-label') !== said) note.setAttribute('aria-label', said);
+  }
+
   /** Clicks it the way a person would, so the site's own handlers (which change pages without reloading) run. */
   function click(el) {
     if (!el) return false;
@@ -310,6 +329,6 @@ var CouchTV = (function () {
   return {
     site: use, settings: function () { return settings; }, onSettings: onSettings,
     all: all, shown: shown, show: show, clear: clear, current: function () { return current; },
-    candidates: candidates, first: first, click: click,
+    candidates: candidates, first: first, click: click, nearest: best, status: status,
   };
 })();

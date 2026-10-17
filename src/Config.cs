@@ -61,6 +61,8 @@ namespace CouchTV
         public bool SiteArrows = true;                        // YouTube and Netflix: the arrows move between videos (Sites.cs)
         public int YouTubeRow;                                // YouTube's videos per row (0: YouTube's own choice)
         public bool NetflixTidy = true;                       // Netflix without its big trailer and games rows
+        public bool NetflixPickProfile = true;                // Netflix's "Who's watching?" answered by itself, with...
+        public string NetflixProfile = "CouchTV";             // ...this profile
         public readonly List<string> Subscriptions = new List<string>();   // tile names you pay for; empty = don't filter
         public string Source;
 
@@ -199,6 +201,8 @@ namespace CouchTV
             int row;
             YouTubeRow = int.TryParse(Get(v, "YouTubeRow", "auto"), out row) && row >= 2 && row <= 6 ? row : 0;
             NetflixTidy = GetBool(v, "NetflixTidy", true);
+            NetflixPickProfile = GetBool(v, "NetflixPickProfile", true);
+            NetflixProfile = (Get(v, "NetflixProfile", NetflixProfile) ?? "").Trim();
             string subscriptions = Get(v, "Subscriptions", null);
             if (subscriptions != null)
             {

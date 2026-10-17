@@ -201,8 +201,11 @@ namespace CouchTV
                         case "hear":
                         {
                             string wanted = args[++i], heard = null;
+                            int patience = 5000;
+                            if (i + 1 < args.Length && int.TryParse(args[i + 1], out patience)) i++;   // hear <prefix> [ms]
+                            else patience = 5000;
                             var clock = System.Diagnostics.Stopwatch.StartNew();
-                            while (clock.ElapsedMilliseconds < 5000)
+                            while (clock.ElapsedMilliseconds < patience)
                             {
                                 string line = link.Receive();
                                 if (line == null) break;
