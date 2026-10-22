@@ -108,7 +108,7 @@ class SuggestionsView @JvmOverloads constructor(context: Context, attrs: Attribu
                 bottomMargin = dp(18)
             })
         }
-        if (watching.isNotEmpty()) grid(R.string.watchlist_title, watching.map { card(it.film, 1.5f, it) }, false, top = true)
+        if (watching.isNotEmpty()) grid(context.getString(R.string.watchlist_title), watching.map { card(it.film, 1.5f, it) }, false, top = true)
         // A style's layout_ settings only apply in a layout file: the margins are set here.
         column.addView(TextView(context, null, 0, R.style.PageTitle).apply { setText(R.string.suggestions_title) },
             wrap(if (watching.isEmpty()) 0 else 18, 12))
@@ -129,20 +129,31 @@ class SuggestionsView @JvmOverloads constructor(context: Context, attrs: Attribu
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
             }, wrap(0, 6))
         }
-        section(R.string.suggestions_movies, list.filter { it.movie }, 1.5f, rise)
-        section(R.string.suggestions_songs, list.filter { !it.movie }, 1f, rise)
+        // A section a row, in the TV's order: popular films, series, each app you pay for, songs.
+        val rows = LinkedHashMap<String, MutableList<Suggestion>>()
+        for (s in list) rows.getOrPut(s.rowKey) { ArrayList() }.add(s)
+        for ((key, items) in rows) section(rowName(key, items[0]), items, if (items[0].movie) 1.5f else 1f, rise)
         column.addView(View(context), LinearLayout.LayoutParams(1, dp(24)))
     }
 
+    /** A row's name, as the TV gave it (or for a TV from before rows, the films' or the songs'). */
+    private fun rowName(key: String, first: Suggestion): String = first.rowTitle.ifEmpty {
+        context.getString(when (key) {
+            "series" -> R.string.row_series
+            "songs" -> R.string.suggestions_songs
+            else -> R.string.suggestions_movies
+        })
+    }
+
     /** A heading, then the cards three to a row; [ratio] is a picture's height to its width; [rise]: they wait for [reveal]. */
-    private fun section(heading: Int, items: List<Suggestion>, ratio: Float, rise: Boolean) {
+    private fun section(heading: String, items: List<Suggestion>, ratio: Float, rise: Boolean) {
         if (items.isNotEmpty()) grid(heading, items.map { card(it, ratio) }, rise)
     }
 
     /** A heading ([top]: the page's own, as big as its title), then [cards] three to a row. */
-    private fun grid(heading: Int, cards: List<View>, rise: Boolean, top: Boolean = false) {
+    private fun grid(heading: String, cards: List<View>, rise: Boolean, top: Boolean = false) {
         val first = column.getChildAt(column.childCount - 1) !is LinearLayout   // nothing but text above
-        column.addView(TextView(context, null, 0, if (top) R.style.PageTitle else R.style.Section).apply { setText(heading) },
+        column.addView(TextView(context, null, 0, if (top) R.style.PageTitle else R.style.Section).apply { text = heading },
             wrap(if (first || top) 0 else 14, if (top) 12 else 10))
         for (start in cards.indices step 3) {
             val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }

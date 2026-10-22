@@ -63,7 +63,7 @@ class Watchlist private constructor(context: Context) {
     fun set(film: Suggestion, at: Long) {
         val t = now()
         val old = synchronized(book) { book.get(WatchItem.idOf(film)) }
-        changedHere(old?.let { WatchItem(it.id, film, at, maxOf(t, it.changed + 1), me, true) } ?: WatchItem.new(film, at, me, t))
+        changedHere(old?.let { WatchItem(it.id, film.withoutRow(), at, maxOf(t, it.changed + 1), me, true) } ?: WatchItem.new(film, at, me, t))
     }
 
     /** Taken off the list here. */

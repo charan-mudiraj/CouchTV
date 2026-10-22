@@ -37,7 +37,7 @@ class WatchItem(val id: String, val film: Suggestion, val watchAt: Long, val cha
         }
 
         /** A film picked just now by this phone ([me]) to watch at [at]. */
-        fun new(film: Suggestion, at: Long, me: String, now: Long) = WatchItem(idOf(film), film, at, now, me, true)
+        fun new(film: Suggestion, at: Long, me: String, now: Long) = WatchItem(idOf(film), film.withoutRow(), at, now, me, true)
 
         /** Null if it isn't a watchlist line (or isn't a film). */
         fun parse(line: String): WatchItem? {

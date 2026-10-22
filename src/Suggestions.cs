@@ -24,17 +24,19 @@ namespace CouchTV
         public string ImageFile;   // the same, downloaded for the TV: a file name in Suggestions.Folder
         public string PlayUrl;     // what the app opens: the film's own page, made to play; the song's YouTube video
         public string Query;       // a song: what to look for on YouTube, if its video wasn't found beforehand
+        public string Row;         // the row it's in: "films", "series", "app:nfx" (popular on that app), "songs"
     }
 
     /// <summary>
-    /// What's popular, for the home screen and the phone remote: films streaming in India now (JustWatch's popularity,
-    /// the list its website shows, with each film's own address in each app), and India's most-played songs (Apple
-    /// Music's chart, from Apple's free feed), played on YouTube. Fetched every few hours on a background thread and
-    /// kept on disk with the pictures, so the rows are there at once after a restart, and offline.
+    /// What's popular, for the home screen and the phone remote, a row each: films and series streaming in India now
+    /// (JustWatch's popularity, the list its website shows, with each title's own address in each app), what's popular
+    /// on each app you pay for (once there are two or more), and India's most-played songs (Apple Music's chart, from
+    /// Apple's free feed), played on YouTube. Fetched every few hours on a background thread and kept on disk with the
+    /// pictures, so the rows are there at once after a restart, and offline.
     /// </summary>
     internal static class Suggestions
     {
-        public const int MostMovies = 20, MostSongs = 20;
+        public const int MostMovies = 20, MostSeries = 20, MostPerApp = 15, MostSongs = 20;
         public static readonly TimeSpan FreshFor = TimeSpan.FromHours(6);
         const string JustWatch = "https://apis.justwatch.com/graphql";
         const string JustWatchImages = "https://images.justwatch.com";
@@ -47,13 +49,14 @@ namespace CouchTV
         static readonly string[][] Packages =
         {
             new[] { "nfx", "netflix.com" }, new[] { "prv", "primevideo.com" }, new[] { "jhs", "hotstar.com" },
-            new[] { "zee", "zee5.com" }, new[] { "snl", "sonyliv.com" },
+            new[] { "zee", "zee5.com" }, new[] { "snl", "sonyliv.com" }, new[] { "snx", "sunnxt.com" },
         };
 
         const string PopularQuery = @"query Popular($country: Country!, $language: Language!, $first: Int!, $filter: TitleFilter, $offers: OfferFilter!) {
   popularTitles(country: $country, filter: $filter, first: $first, sortBy: POPULAR, sortRandomSeed: 0) {
-    edges { node { id
+    edges { node { id objectType
       content(country: $country, language: $language) { title originalReleaseYear runtime posterUrl(profile: S332, format: JPG) }
+      ... on Show { totalSeasonCount }
       offers(country: $country, platform: WEB, filter: $offers) { monetizationType standardWebURL package { shortName } }
     } }
   }
@@ -63,6 +66,7 @@ namespace CouchTV
   popularTitles(country: $country, filter: $filter, first: $first, sortBy: POPULAR, sortRandomSeed: 0) {
     edges { node { id objectType
       content(country: $country, language: $language) { title originalReleaseYear runtime posterUrl(profile: S332, format: JPG) }
+      ... on Show { totalSeasonCount }
       offers(country: $country, platform: WEB, filter: $offers) { monetizationType standardWebURL package { shortName } }
     } }
   }
@@ -94,7 +98,7 @@ namespace CouchTV
             if (cfg.SuggestMovies)
             {
                 tried++;
-                try { list.AddRange(Movies(cfg, known, notes)); }
+                try { list.AddRange(Titles(cfg, previous, known, notes)); }
                 catch (Exception ex)
                 {
                     errors.Add("films: " + ex.Message);
@@ -121,7 +125,67 @@ namespace CouchTV
             return list;
         }
 
-        static List<Suggestion> Movies(Config cfg, Dictionary<string, Suggestion> known, StringBuilder notes)
+        /// <summary>
+        /// The films-and-series rows: popular films (this year's and last), popular series, and, once you pay for two
+        /// apps or more, what's popular on each of them, films and series. A title shows once, in the first row it's in.
+        /// A row that couldn't be fetched keeps what it had; if none could be, this throws.
+        /// </summary>
+        static List<Suggestion> Titles(Config cfg, List<Suggestion> previous, Dictionary<string, Suggestion> known, StringBuilder notes)
+        {
+            Dictionary<string, Tile> apps = KnownApps(cfg);
+            var list = new List<Suggestion>();
+            if (apps.Count == 0) return list;
+            var seen = new HashSet<string>();
+            int tried = 0, failed = 0;
+            string error = null;
+            Action<string, Dictionary<string, Tile>, string[], bool, int> row = (key, from, kinds, latest, most) =>
+            {
+                tried++;
+                List<Suggestion> found;
+                try { found = Popular(from, cfg.Subscriptions, kinds, latest); }
+                catch (Exception ex)
+                {
+                    failed++;
+                    error = ex.Message;
+                    Note(notes, "Couldn't fetch the row " + key + ": " + ex.Message);
+                    found = previous.FindAll(s => s.Row == key);
+                }
+                int added = 0;
+                foreach (Suggestion s in found)
+                {
+                    if (added == most || !seen.Add(s.Id)) continue;
+                    s.Row = key;
+                    list.Add(s);
+                    added++;
+                }
+            };
+            row("films", apps, new[] { "MOVIE" }, true, MostMovies);
+            row("series", apps, new[] { "SHOW" }, false, MostSeries);
+            foreach (string key in YourApps(cfg, apps))
+                row("app:" + key, new Dictionary<string, Tile> { { key, apps[key] } }, new[] { "MOVIE", "SHOW" }, false, MostPerApp);
+            if (failed == tried) throw new Exception(error);
+            PrimeLinks(list, known, notes);
+            return list;
+        }
+
+        /// <summary>JustWatch's most popular in India of these kinds ("MOVIE", "SHOW") on these apps; [latest]: this year's and last year's.</summary>
+        static List<Suggestion> Popular(Dictionary<string, Tile> apps, List<string> subscriptions, string[] kinds, bool latest)
+        {
+            var packages = new List<string>(apps.Keys);
+            var money = new[] { "FLATRATE", "FREE", "ADS" };
+            var filter = new Dictionary<string, object> { { "objectTypes", kinds }, { "packages", packages }, { "monetizationTypes", money } };
+            if (latest) filter["releaseYear"] = new Dictionary<string, object> { { "min", DateTime.Now.Year - 1 } };
+            var variables = new Dictionary<string, object>
+            {
+                { "country", "IN" }, { "language", "en" }, { "first", 80 }, { "filter", filter },
+                { "offers", new Dictionary<string, object> { { "packages", packages }, { "monetizationTypes", money } } },
+            };
+            string body = Json.Serialize(new Dictionary<string, object> { { "query", PopularQuery }, { "variables", variables } });
+            return ParseMovies(Http("POST", JustWatch, body, 15000), apps, subscriptions, int.MaxValue);
+        }
+
+        /// <summary>The TV's apps JustWatch knows, by its name for them ("nfx").</summary>
+        static Dictionary<string, Tile> KnownApps(Config cfg)
         {
             var apps = new Dictionary<string, Tile>();
             foreach (string[] p in Packages)
@@ -129,28 +193,33 @@ namespace CouchTV
                 Tile t = SmartSearch.FindHost(cfg.AppTiles, p[1]);
                 if (t != null) apps[p[0]] = t;
             }
-            if (apps.Count == 0) return new List<Suggestion>();
-            var packages = new List<string>(apps.Keys);
-            var money = new[] { "FLATRATE", "FREE", "ADS" };
-            var filter = new Dictionary<string, object>
-            {
-                { "objectTypes", new[] { "MOVIE" } }, { "packages", packages }, { "monetizationTypes", money },
-                { "releaseYear", new Dictionary<string, object> { { "min", DateTime.Now.Year - 1 } } },   // the latest: this year's and last year's
-            };
-            var variables = new Dictionary<string, object>
-            {
-                { "country", "IN" }, { "language", "en" }, { "first", 80 }, { "filter", filter },
-                { "offers", new Dictionary<string, object> { { "packages", packages }, { "monetizationTypes", money } } },
-            };
-            string body = Json.Serialize(new Dictionary<string, object> { { "query", PopularQuery }, { "variables", variables } });
-            List<Suggestion> list = ParseMovies(Http("POST", JustWatch, body, 15000), apps, cfg.Subscriptions);
+            return apps;
+        }
 
-            // Prime Video's links go through a redirect, and only its final page takes autoplay.
+        /// <summary>
+        /// The apps you pay for (all of them, with no Subscriptions), in the home screen's order, for a row each; none
+        /// with fewer than two, as then the films and series rows are already that app's.
+        /// </summary>
+        static List<string> YourApps(Config cfg, Dictionary<string, Tile> apps)
+        {
+            var keys = new List<string>();
+            foreach (Tile t in cfg.AppTiles)
+            {
+                string key = AppKey(t);
+                if (key == null || !apps.ContainsKey(key) || keys.Contains(key)) continue;
+                if (cfg.Subscriptions.Count == 0 || SmartSearch.IsSubscribed(t, cfg.Subscriptions)) keys.Add(key);
+            }
+            return keys.Count >= 2 ? keys : new List<string>();
+        }
+
+        /// <summary>Prime Video's links go through a redirect, and only its final page takes autoplay (a film's; a series opens on its page).</summary>
+        static void PrimeLinks(List<Suggestion> list, Dictionary<string, Suggestion> known, StringBuilder notes)
+        {
             foreach (Suggestion s in list)
             {
                 if (!s.PlayUrl.StartsWith("https://app.primevideo.com/", StringComparison.OrdinalIgnoreCase)) continue;
                 Suggestion old;
-                if (known.TryGetValue(s.Id, out old) && old.PlayUrl != null && old.PlayUrl.Contains("autoplay=1"))
+                if (known.TryGetValue(s.Id, out old) && old.PlayUrl != null && old.PlayUrl.StartsWith("https://www.primevideo.com/", StringComparison.OrdinalIgnoreCase))
                 {
                     s.PlayUrl = old.PlayUrl;
                     continue;
@@ -158,19 +227,18 @@ namespace CouchTV
                 try
                 {
                     string page = Redirect(s.PlayUrl);
-                    if (page != null) s.PlayUrl = page.Split('?')[0] + "?autoplay=1&t=0";
+                    if (page != null) s.PlayUrl = page.Split('?')[0] + (IsSeries(s.Id) ? "" : "?autoplay=1&t=0");
                 }
                 catch (Exception ex) { Note(notes, "Prime Video's page for " + s.Title + ": " + ex.Message); }
             }
-            return list;
         }
 
         /// <summary>
-        /// JustWatch's popular films, in its order, each with the best of your apps to watch it on: one you subscribe to
-        /// (couchtv.ini Subscriptions; with none listed, any), otherwise one that has it free. Films only on apps you
-        /// don't pay for are left out.
+        /// JustWatch's popular films (and series), in its order, each with the best of your apps to watch it on: one you
+        /// subscribe to (couchtv.ini Subscriptions; with none listed, any), otherwise one that has it free. Ones only on
+        /// apps you don't pay for are left out; [most] at most. A series opens on its page, to pick an episode.
         /// </summary>
-        internal static List<Suggestion> ParseMovies(string json, Dictionary<string, Tile> apps, List<string> subscriptions)
+        internal static List<Suggestion> ParseMovies(string json, Dictionary<string, Tile> apps, List<string> subscriptions, int most = MostMovies)
         {
             var root = Json.Deserialize<Dictionary<string, object>>(json);
             object[] errors = Arr(Get(root, "errors"));
@@ -186,16 +254,18 @@ namespace CouchTV
                 Tile app;
                 string link;
                 if (!BestOffer(Arr(Get(node, "offers")), apps, subscriptions, out app, out link)) continue;
+                bool series = Get(node, "objectType") as string == "SHOW";
                 var details = new List<string>();
-                int year = Int(Get(content, "originalReleaseYear")), minutes = Int(Get(content, "runtime"));
+                int year = Int(Get(content, "originalReleaseYear")), minutes = Int(Get(content, "runtime")), seasons = Int(Get(node, "totalSeasonCount"));
                 if (year > 0) details.Add(year.ToString());
-                if (minutes > 0) details.Add(minutes >= 60 ? minutes / 60 + "h " + minutes % 60 + "m" : minutes + "m");
+                if (series && seasons > 0) details.Add(seasons == 1 ? "1 season" : seasons + " seasons");
+                else if (!series && minutes > 0) details.Add(minutes >= 60 ? minutes / 60 + "h " + minutes % 60 + "m" : minutes + "m");
                 list.Add(new Suggestion
                 {
                     Kind = SuggestionKind.Movie, Id = "m" + id, Title = title.Trim(), Subtitle = string.Join(" · ", details),
-                    App = app.Name, ImageUrl = poster.StartsWith("http") ? poster : JustWatchImages + poster, PlayUrl = PlayableUrl(link),
+                    App = app.Name, ImageUrl = poster.StartsWith("http") ? poster : JustWatchImages + poster, PlayUrl = series ? link : PlayableUrl(link),
                 });
-                if (list.Count == MostMovies) break;
+                if (list.Count == most) break;
             }
             return list;
         }
@@ -222,6 +292,9 @@ namespace CouchTV
             return app != null;
         }
 
+        /// <summary>A series' id ("m" and JustWatch's "ts…"; "f" before it from the search): it opens on its page, to pick an episode.</summary>
+        internal static bool IsSeries(string id) { return id != null && Regex.IsMatch(id, @"^f?mts\d+$"); }
+
         /// <summary>
         /// A film's page in its app, made to start playing where the app allows it: Netflix's /watch/ page plays the
         /// film, JioHotstar's ends in /watch; others open the film's own page, one press of Play away.
@@ -240,12 +313,7 @@ namespace CouchTV
         /// <summary>Films and shows for some words (JustWatch's search, in India), each on the best of your apps for it.</summary>
         public static List<Suggestion> SearchTitles(Config cfg, string words, int most)
         {
-            var apps = new Dictionary<string, Tile>();
-            foreach (string[] p in Packages)
-            {
-                Tile t = SmartSearch.FindHost(cfg.AppTiles, p[1]);
-                if (t != null) apps[p[0]] = t;
-            }
+            Dictionary<string, Tile> apps = KnownApps(cfg);
             if (apps.Count == 0) return new List<Suggestion>();
             var packages = new List<string>(apps.Keys);
             var money = new[] { "FLATRATE", "FREE", "ADS" };
@@ -376,7 +444,7 @@ namespace CouchTV
                 list.Add(new Suggestion
                 {
                     Kind = SuggestionKind.Song, Id = "s" + id, Title = title, Subtitle = artist.Trim(), App = app.Name,
-                    ImageUrl = string.IsNullOrEmpty(art) ? null : art.Replace("100x100bb", "400x400bb"), Query = title + " " + lead,
+                    ImageUrl = string.IsNullOrEmpty(art) ? null : art.Replace("100x100bb", "400x400bb"), Query = title + " " + lead, Row = "songs",
                 });
                 if (list.Count == MostSongs) break;
             }
@@ -460,6 +528,7 @@ namespace CouchTV
                     {
                         Kind = f[0] == "M" ? SuggestionKind.Movie : SuggestionKind.Song, Id = f[1], Title = f[2], Subtitle = f[3], App = f[4],
                         ImageUrl = Null(f[5]), ImageFile = Null(f[6]), PlayUrl = Null(f[7]), Query = Null(f[8]),
+                        Row = f.Length > 9 && f[9].Length > 0 ? f[9] : f[0] == "M" ? "films" : "songs",   // a list from before rows
                     });
                 }
             }
@@ -475,7 +544,7 @@ namespace CouchTV
                 text.Append(string.Join("\t", new[]
                 {
                     s.Kind == SuggestionKind.Movie ? "M" : "S", Field(s.Id), Field(s.Title), Field(s.Subtitle), Field(s.App),
-                    Field(s.ImageUrl), Field(s.ImageFile), Field(s.PlayUrl), Field(s.Query),
+                    Field(s.ImageUrl), Field(s.ImageFile), Field(s.PlayUrl), Field(s.Query), Field(s.Row),
                 })).Append('\n');
             }
             File.WriteAllText(ListFile + ".part", text.ToString(), new UTF8Encoding(false));
@@ -495,8 +564,9 @@ namespace CouchTV
         ///     while the TV is off. Each app as key:name:label:colour:text colour:Y|N (JustWatch's name for it, or
         ///     youtube; Y for one you subscribe to, or any with no Subscriptions), comma separated; "-" for none.
         ///   SUGGESTIONS &lt;count&gt;, then that many
-        ///   SUGGEST M|S &lt;id&gt; &lt;title&gt; &lt;details&gt; &lt;app&gt; &lt;picture&gt; &lt;colour&gt; &lt;text colour&gt; &lt;app key&gt; &lt;link&gt; &lt;query&gt;
-        /// Texts in base64 UTF-8, "-" for none; colours RRGGBB. The phone plays one with PLAY (FromPhone).
+        ///   SUGGEST M|S &lt;id&gt; &lt;title&gt; &lt;details&gt; &lt;app&gt; &lt;picture&gt; &lt;colour&gt; &lt;text colour&gt; &lt;app key&gt; &lt;link&gt; &lt;query&gt; &lt;row&gt; &lt;row name&gt;
+        /// Texts in base64 UTF-8, "-" for none; colours RRGGBB; the rows in order (Suggestion.Row, RowTitle). The phone
+        /// plays one with PLAY (FromPhone).
         /// </summary>
         public static List<string> PhoneLines(List<Suggestion> list, Config cfg, Func<string, Tile> tile)
         {
@@ -518,11 +588,32 @@ namespace CouchTV
             {
                 Tile app = tile(s.App);
                 if (app == null) continue;
-                items.Add("SUGGEST " + ItemLine(s, app));
+                items.Add("SUGGEST " + ItemLine(s, app) + " " + (s.Row ?? "-") + " " + B64(RowTitle(s.Row, cfg.AppTiles)));
             }
             lines.Add("SUGGESTIONS " + items.Count);
             lines.AddRange(items);
             return lines;
+        }
+
+        /// <summary>A row's name: "Popular films", "Popular series", "Popular on Sun NXT", "Top songs".</summary>
+        public static string RowTitle(string row, List<Tile> apps)
+        {
+            switch (row)
+            {
+                case "films": return "Popular films";
+                case "series": return "Popular series";
+                case "songs": return "Top songs";
+            }
+            Tile app = row != null && row.StartsWith("app:") ? TileForKey(row.Substring(4), apps) : null;
+            return app != null ? "Popular on " + app.Label : "Popular now";
+        }
+
+        /// <summary>What the home screen says at the right of a row's name.</summary>
+        public static string RowNote(string row)
+        {
+            if (row == "songs") return "India's most played · plays on YouTube";
+            if (row != null && row.StartsWith("app:")) return "Films and series · from JustWatch";
+            return "Streaming now in India · from JustWatch";
         }
 
         /// <summary>A suggestion as the phone reads it, after "SUGGEST " (or "FITEM ").</summary>
@@ -564,7 +655,7 @@ namespace CouchTV
             return new Suggestion
             {
                 Kind = movie ? SuggestionKind.Movie : SuggestionKind.Song, Id = p[0], Title = title ?? "", App = app.Name,
-                PlayUrl = link == null ? null : PlayableUrl(link), Query = query,
+                PlayUrl = link == null ? null : IsSeries(p[0]) ? link : PlayableUrl(link), Query = query,
             };
         }
 

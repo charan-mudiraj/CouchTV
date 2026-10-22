@@ -13,9 +13,9 @@ using System.Windows.Threading;
 namespace CouchTV
 {
     /// <summary>
-    /// The suggestion rows under the apps: popular films, each on the app it streams on, and India's most-played songs,
-    /// on YouTube (see Suggestions). OK plays it in that app. The phone remote gets the same list for its first page,
-    /// and plays from it with PLAY.
+    /// The suggestion rows under the apps: popular films and series, each on the app it streams on, what's popular on
+    /// each app you pay for, and India's most-played songs, on YouTube (see Suggestions). OK plays it in that app (a
+    /// series opens on its page). The phone remote gets the same list for its first page, and plays from it with PLAY.
     /// </summary>
     internal sealed partial class HomeWindow
     {
@@ -32,32 +32,59 @@ namespace CouchTV
             return _suggestions.FindAll(s => (s.Kind == SuggestionKind.Movie ? _cfg.SuggestMovies : _cfg.SuggestSongs) && FindTile(s.App) != null);
         }
 
+        /// <summary>A row of suggestions under the apps: its heading, and its tiles on a strip that slides sideways.</summary>
+        sealed class ContentRow
+        {
+            public string Key;            // Suggestion.Row: "films", "series", "app:nfx", "songs"
+            public bool Covers;           // square song covers, not posters
+            public FrameworkElement Heading, Host;
+            public StackPanel Strip;
+            public readonly List<TileView> Tiles = new List<TileView>();
+            public readonly TranslateTransform Shift = new TranslateTransform();
+        }
+
+        readonly List<ContentRow> _content = new List<ContentRow>();
+
+        /// <summary>The rows afresh from the list, in its order (films, series, a row per app, songs).</summary>
         void BuildSuggestionRows()
         {
-            _movies.Clear();
-            _songs.Clear();
-            _movieRow.Children.Clear();
-            _songRow.Children.Clear();
+            foreach (ContentRow old in _content)
+            {
+                _stage.Children.Remove(old.Heading);
+                _stage.Children.Remove(old.Host);
+            }
+            _content.Clear();
             List<Suggestion> shown = VisibleSuggestions();
             foreach (Suggestion s in shown)
             {
+                string key = s.Row ?? (s.Kind == SuggestionKind.Movie ? "films" : "songs");
+                ContentRow row = _content.Find(r => r.Key == key);
+                if (row == null)
+                {
+                    if (_content.Count == MostRows - 2) continue;
+                    row = NewContentRow(key, s.Kind == SuggestionKind.Song);
+                    _content.Add(row);
+                }
                 TileView v = MakeSuggestionTile(s, FindTile(s.App));
-                if (s.Kind == SuggestionKind.Movie)
-                {
-                    _movies.Add(v);
-                    _movieRow.Children.Add(v.Root);
-                }
-                else
-                {
-                    _songs.Add(v);
-                    _songRow.Children.Add(v.Root);
-                }
+                row.Tiles.Add(v);
+                row.Strip.Children.Add(v.Root);
             }
 
             List<string> lines = Suggestions.PhoneLines(shown, _cfg, FindTile);
             if (string.Join("\n", lines) == string.Join("\n", _phoneSuggestions)) return;
             _phoneSuggestions = lines;
             if (_wifi != null) _wifi.SendToPhones(lines);
+        }
+
+        ContentRow NewContentRow(string key, bool covers)
+        {
+            var row = new ContentRow { Key = key, Covers = covers };
+            row.Heading = RowHeading(Suggestions.RowTitle(key, _cfg.AppTiles), Suggestions.RowNote(key));
+            row.Strip = new StackPanel { Orientation = Orientation.Horizontal, RenderTransform = row.Shift };
+            row.Host = new Canvas { Width = DesignW - 2 * Side + 2 * RingPad, Height = (covers ? CoverSize : PosterH) + 2 * RingPad, Children = { row.Strip } };
+            Place(row.Heading, Side, 0);
+            Place(row.Host, Side - RingPad, 0);
+            return row;
         }
 
         /// <summary>A poster (or a song's cover) with the app it plays in on it, and its title and details below.</summary>
@@ -76,7 +103,7 @@ namespace CouchTV
             face.Children.Add(stand);
             var picture = new Image { Stretch = Stretch.UniformToFill };
             face.Children.Add(picture);
-            LoadPicture(picture, s.ImageFile, (int)(2 * w));
+            LoadPicture(picture, s.ImageFile, (int)(1.25 * w));   // a little over its size: many rows of them now
             face.Children.Add(new Border
             {
                 CornerRadius = new CornerRadius(8), Background = Theme.Brush(app.Background), Padding = new Thickness(10, 3, 10, 5),
@@ -218,8 +245,9 @@ namespace CouchTV
                 catch (Exception ex) { Log.Info("Suggestions: couldn't fetch them: " + ex.Message); }
                 if (list != null)
                 {
-                    int movies = list.FindAll(x => x.Kind == SuggestionKind.Movie).Count;
-                    Log.Info("Suggestions: " + movies + " films, " + (list.Count - movies) + " songs. " + notes.ToString().Trim());
+                    var rows = new List<string>();
+                    foreach (Suggestion x in list) if (!rows.Contains(x.Row)) rows.Add(x.Row);
+                    Log.Info("Suggestions: " + string.Join(", ", rows.ConvertAll(r => r + " " + list.FindAll(x => x.Row == r).Count)) + ". " + notes.ToString().Trim());
                 }
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
@@ -257,10 +285,11 @@ namespace CouchTV
         /// <summary>New suggestions: the rows again, keeping the highlight where it was.</summary>
         void RebuildSuggestions()
         {
-            BuildSuggestionRows();
-            LayoutRows();
-            for (int r = 0; r < RowCount; r++) _col[r] = Math.Max(0, Math.Min(_col[r], Row(r).Count - 1));
-            if (Row(_row).Count == 0) _row = FirstRow();
+            KeepPlace(() =>
+            {
+                BuildSuggestionRows();
+                LayoutRows();
+            });
             RefreshFocus(false);
         }
     }

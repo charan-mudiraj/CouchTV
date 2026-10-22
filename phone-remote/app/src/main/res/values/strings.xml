@@ -129,6 +129,8 @@
     <string name="suggestions_title">Popular now</string>
     <string name="suggestions_movies">Popular films</string>
     <string name="suggestions_songs">Top songs</string>
+    <string name="row_series">Popular series</string>
+    <string name="row_app">Popular on %1$s</string>
     <string name="suggestions_offline">Finding what\'s popular. This needs the internet.</string>
     <string name="suggestions_waiting">The TV hasn\'t found any suggestions yet. It looks every few hours while it\'s on, and they show up here.</string>
     <string name="suggestion_playing">Playing %1$s on %2$s</string>

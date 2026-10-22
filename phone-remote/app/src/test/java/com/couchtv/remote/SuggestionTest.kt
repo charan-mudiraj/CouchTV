@@ -30,6 +30,18 @@ class SuggestionTest {
     }
 
     @Test
+    fun readsItsRowAndKeepsIt() {
+        val line = "M mts296797 ${b64("Black Clover")} ${b64("2017 · 5 seasons")} ${b64("Netflix")} - 141414 E50914 nfx " +
+            "${b64("https://www.netflix.com/title/80238012")} - app:nfx ${b64("Popular on Netflix")}"
+        val s = Suggestion.parse(line)!!
+        assertEquals("app:nfx", s.row)
+        assertEquals("Popular on Netflix", s.rowTitle)
+        assertEquals(line, s.line())
+        assertEquals(line.substringBefore(" app:nfx"), s.withoutRow().line())   // the watchlist keeps it without
+        assertEquals("films", Suggestion.parse(line.substringBefore(" app:nfx"))!!.rowKey)   // a TV from before rows
+    }
+
+    @Test
     fun readsASongWithoutDetailsOrPicture() {
         val s = Suggestion.parse("S s1267390213 SGF3YXllaW4= - WW91VHViZQ== - FF0000 FFFFFF")!!   // a TV from before the last three
         assertFalse(s.movie)

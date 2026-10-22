@@ -14,23 +14,26 @@ import java.util.concurrent.Executors
 
 /**
  * The first page's list, there with the TV off too, so you can choose before turning it on. With the TV connected
- * it's the TV's own list ([fromTv]); otherwise the phone fetches the same two lists itself, from the same places as the
- * TV (JustWatch's films popular in India, Apple Music's most-played songs in India), picked for the TV's apps and
- * subscriptions as the TV last told this phone ([setSetup]). Kept between runs; fetched again once 3 hours old.
+ * it's the TV's own list ([fromTv]); otherwise the phone fetches the same rows itself, from the same places as the TV
+ * (JustWatch's films and series popular in India, and on each app you pay for once there are two; Apple Music's
+ * most-played songs in India), picked for the TV's apps and subscriptions as the TV last told this phone ([setSetup]).
+ * Kept between runs; fetched again once 3 hours old.
  */
 class SuggestionFeed(context: Context) {
     companion object {
         private const val TAG = "CouchTV"
         private const val STALE_MS = 3 * 3600 * 1000L
         private const val MOST = 20
+        private const val MOST_PER_APP = 15
         private const val JUSTWATCH = "https://apis.justwatch.com/graphql"
         private const val JUSTWATCH_IMAGES = "https://images.justwatch.com"
         private const val APPLE_CHART = "https://rss.applemarketingtools.com/api/v2/in/music/most-played/50/songs.json"
         private const val BROWSER = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
         private val POPULAR = """query Popular(${'$'}country: Country!, ${'$'}language: Language!, ${'$'}first: Int!, ${'$'}filter: TitleFilter, ${'$'}offers: OfferFilter!) {
   popularTitles(country: ${'$'}country, filter: ${'$'}filter, first: ${'$'}first, sortBy: POPULAR, sortRandomSeed: 0) {
-    edges { node { id
+    edges { node { id objectType
       content(country: ${'$'}country, language: ${'$'}language) { title originalReleaseYear runtime posterUrl(profile: S332, format: JPG) }
+      ... on Show { totalSeasonCount }
       offers(country: ${'$'}country, platform: WEB, filter: ${'$'}offers) { monetizationType standardWebURL package { shortName } }
     } }
   }
@@ -83,7 +86,8 @@ class SuggestionFeed(context: Context) {
     var current: List<Suggestion>
         private set
 
-    private val prefs = context.applicationContext.getSharedPreferences("suggestions", Context.MODE_PRIVATE)
+    private val app = context.applicationContext
+    private val prefs = app.getSharedPreferences("suggestions", Context.MODE_PRIVATE)
     private val main = Handler(Looper.getMainLooper())
     private val pool = Executors.newSingleThreadExecutor()
     private var setup = prefs.getString("setup", null)?.let { Setup.parse(it) } ?: Setup.DEFAULT
@@ -114,13 +118,14 @@ class SuggestionFeed(context: Context) {
         fetching = true
         val wanted = setup
         val started = generation
+        val before = current
         pool.execute {
-            val films = if (!wanted.movies) emptyList() else runCatching { films(wanted) }.onFailure { Log.i(TAG, "Films: ${it.message}") }.getOrNull()
+            val titles = if (!wanted.movies) emptyList() else runCatching { titles(wanted, before) }.onFailure { Log.i(TAG, "Films: ${it.message}") }.getOrNull()
             val songs = if (!wanted.music) emptyList() else runCatching { songs(wanted) }.onFailure { Log.i(TAG, "Songs: ${it.message}") }.getOrNull()
             main.post {
                 fetching = false
-                if ((films == null && songs == null) || generation != started) return@post   // offline, or the TV's list came meanwhile
-                val list = (films ?: current.filter { it.movie }) + (songs ?: current.filter { !it.movie })
+                if ((titles == null && songs == null) || generation != started) return@post   // offline, or the TV's list came meanwhile
+                val list = (titles ?: before.filter { it.movie }) + (songs ?: before.filter { !it.movie })
                 keep(list)
                 onChange?.invoke(list)
             }
@@ -135,13 +140,51 @@ class SuggestionFeed(context: Context) {
 
     // ---------------------------------------------------------------- fetching, as the TV does (Suggestions.cs)
 
-    private fun films(setup: Setup): List<Suggestion> {
+    /**
+     * The films-and-series rows, as the TV makes them (Suggestions.Titles): popular films (this year's and last),
+     * popular series, and once you pay for two apps or more, what's popular on each. A title once, in the first row
+     * it's in; a row that couldn't be fetched keeps what it had ([before]), and if none could be, this throws.
+     */
+    private fun titles(setup: Setup, before: List<Suggestion>): List<Suggestion> {
         val apps = setup.apps.filter { it.key != "youtube" }.associateBy { it.key }
         if (apps.isEmpty()) return emptyList()
+        val list = ArrayList<Suggestion>()
+        val seen = HashSet<String>()
+        var tried = 0
+        var failures = 0
+        var error: Throwable? = null
+        fun row(key: String, title: String, from: Map<String, App>, kinds: List<String>, latest: Boolean, most: Int) {
+            tried++
+            val found = runCatching { popular(from, kinds, latest) }.getOrElse {
+                failures++
+                error = it
+                Log.i(TAG, "Row $key: ${it.message}")
+                before.filter { s -> s.row == key }
+            }
+            var added = 0
+            for (s in found) {
+                if (added == most || !seen.add(s.id)) continue
+                list.add(s.inRow(key, title))
+                added++
+            }
+        }
+        row("films", app.getString(R.string.suggestions_movies), apps, listOf("MOVIE"), true, MOST)
+        row("series", app.getString(R.string.row_series), apps, listOf("SHOW"), false, MOST)
+        val yours = setup.apps.filter { it.yours && it.key in apps }.map { it.key }.distinct()
+        if (yours.size >= 2) for (key in yours) {
+            val one = apps.getValue(key)
+            row("app:$key", app.getString(R.string.row_app, one.label), mapOf(key to one), listOf("MOVIE", "SHOW"), false, MOST_PER_APP)
+        }
+        if (failures == tried) throw error ?: IOException("nothing fetched")
+        return list
+    }
+
+    /** JustWatch's most popular in India of these kinds on these apps; [latest]: this year's and last year's. A series opens on its page. */
+    private fun popular(apps: Map<String, App>, kinds: List<String>, latest: Boolean): List<Suggestion> {
         val packages = JSONArray(apps.keys.toList())
         val money = JSONArray(listOf("FLATRATE", "FREE", "ADS"))
-        val filter = JSONObject().put("objectTypes", JSONArray(listOf("MOVIE"))).put("packages", packages).put("monetizationTypes", money)
-            .put("releaseYear", JSONObject().put("min", Calendar.getInstance().get(Calendar.YEAR) - 1))   // this year's and last year's
+        val filter = JSONObject().put("objectTypes", JSONArray(kinds)).put("packages", packages).put("monetizationTypes", money)
+        if (latest) filter.put("releaseYear", JSONObject().put("min", Calendar.getInstance().get(Calendar.YEAR) - 1))
         val variables = JSONObject().put("country", "IN").put("language", "en").put("first", 80).put("filter", filter)
             .put("offers", JSONObject().put("packages", packages).put("monetizationTypes", money))
         val root = JSONObject(http(JUSTWATCH, JSONObject().put("query", POPULAR).put("variables", variables).toString()))
@@ -156,13 +199,15 @@ class SuggestionFeed(context: Context) {
             val poster = str(content, "posterUrl")
             if (id.isEmpty() || title.isEmpty() || poster.isEmpty()) continue
             val (app, link) = bestOffer(node.optJSONArray("offers"), apps) ?: continue
+            val series = str(node, "objectType") == "SHOW"
             val year = content.optInt("originalReleaseYear")
             val minutes = content.optInt("runtime")
-            val details = listOfNotNull(year.takeIf { it > 0 }?.toString(),
-                minutes.takeIf { it > 0 }?.let { if (it >= 60) "${it / 60}h ${it % 60}m" else "${it}m" }).joinToString(" · ")
+            val seasons = node.optInt("totalSeasonCount")
+            val length = if (series) seasons.takeIf { it > 0 }?.let { if (it == 1) "1 season" else "$it seasons" }
+                         else minutes.takeIf { it > 0 }?.let { if (it >= 60) "${it / 60}h ${it % 60}m" else "${it}m" }
+            val details = listOfNotNull(year.takeIf { it > 0 }?.toString(), length).joinToString(" · ")
             list.add(Suggestion(true, "m$id", title, details, app.label, if (poster.startsWith("http")) poster else JUSTWATCH_IMAGES + poster,
                 app.color, app.textColor, app.key, link))
-            if (list.size == MOST) break
         }
         return list
     }
@@ -203,7 +248,7 @@ class SuggestionFeed(context: Context) {
             perArtist[lead.lowercase()] = count + 1
             val title = songTitle(name)
             list.add(Suggestion(false, "s$id", title, artist, app.label, str(r, "artworkUrl100").replace("100x100bb", "400x400bb").ifEmpty { null },
-                app.color, app.textColor, app.key, null, "$title $lead"))
+                app.color, app.textColor, app.key, null, "$title $lead", "songs", this.app.getString(R.string.suggestions_songs)))
             if (list.size == MOST) break
         }
         return list

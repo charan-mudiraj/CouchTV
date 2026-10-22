@@ -155,7 +155,7 @@ namespace CouchTV
                 if (Math.Abs(dx) > Math.Abs(dy) && _dragRow >= 0 && RowLimit(_dragRow) > 0)
                 {
                     _axis = DragAxis.Row;
-                    _dragFrom = -_shift[_dragRow].X;
+                    _dragFrom = -Shift(_dragRow).X;
                 }
                 else if (PageLimit() > 0)
                 {
@@ -182,7 +182,7 @@ namespace CouchTV
             if (_axis != DragAxis.None)
             {
                 double limit = _axis == DragAxis.Row ? RowLimit(_dragRow) : PageLimit();
-                double now = _axis == DragAxis.Row ? -_shift[_dragRow].X : -_pageShift.Y;
+                double now = _axis == DragAxis.Row ? -Shift(_dragRow).X : -_pageShift.Y;
                 double speed = 0;   // design pixels a second
                 if (_trail.Count >= 2 && unchecked(Environment.TickCount - _trail[_trail.Count - 1].Key) < 80)
                 {
@@ -211,7 +211,7 @@ namespace CouchTV
         /// <summary>Puts the row being dragged (or the page) at this offset: at once, or gliding there over ms.</summary>
         void SetSlide(double offset, double ms)
         {
-            TranslateTransform shift = _axis == DragAxis.Row ? _shift[_dragRow] : _pageShift;
+            TranslateTransform shift = _axis == DragAxis.Row ? Shift(_dragRow) : _pageShift;
             DependencyProperty property = _axis == DragAxis.Row ? TranslateTransform.XProperty : TranslateTransform.YProperty;
             if (ms <= 0)
             {
@@ -264,7 +264,7 @@ namespace CouchTV
         /// </summary>
         void WheelSlide(int row, int delta)
         {
-            TranslateTransform shift = row >= 0 ? _shift[row] : _pageShift;
+            TranslateTransform shift = row >= 0 ? Shift(row) : _pageShift;
             DependencyProperty property = row >= 0 ? TranslateTransform.XProperty : TranslateTransform.YProperty;
             double limit = row >= 0 ? RowLimit(row) : PageLimit();
             if (limit <= 0) return;
@@ -288,7 +288,7 @@ namespace CouchTV
             {
                 FrameworkElement host = RowHost(r);
                 if (host == null || host.Visibility != Visibility.Visible || Row(r).Count == 0) continue;
-                double top = Canvas.GetTop(host), bottom = top + host.Height + (r == RowMovies || r == RowSongs ? SuggestionTextH : 0);
+                double top = Canvas.GetTop(host), bottom = top + host.Height + (r > RowApps && r < RowSystem ? SuggestionTextH : 0);
                 if (onPage >= top - 16 && onPage <= bottom + 16) return r;
             }
             return -1;
@@ -296,7 +296,8 @@ namespace CouchTV
 
         FrameworkElement RowHost(int r)
         {
-            return r == RowApps ? _appsHost : r == RowMovies ? _movieHost : r == RowSongs ? _songHost : _sysHost;
+            if (r == RowApps) return _appsHost;
+            return r > RowApps && r < RowSystem ? _content[r - 1].Host : _sysHost;
         }
 
         /// <summary>How far a row slides at most (0: it all fits).</summary>
@@ -311,8 +312,8 @@ namespace CouchTV
 
         // ---------------------------------------------------------------- for the self-test (Diagnostics.DragTest)
 
-        internal static int MoviesRow { get { return RowMovies; } }
-        internal double Slid(int row) { return row >= 0 ? -_shift[row].X : -_pageShift.Y; }
+        internal static int MoviesRow { get { return 1; } }   // the first suggestion row: the films
+        internal double Slid(int row) { return row >= 0 ? -Shift(row).X : -_pageShift.Y; }
         internal double SlideLimit(int row) { return row >= 0 ? RowLimit(row) : PageLimit(); }
 
         internal double TilePitch(int row)

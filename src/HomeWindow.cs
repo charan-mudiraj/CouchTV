@@ -55,7 +55,10 @@ namespace CouchTV
         const double TileW = 300, TileH = 170, TileGap = 40, RingPad = 8;
         const double SysW = 150, SysGap = 8, DiscSize = 104;
         const int VolumeUpId = 101, VolumeDownId = 102, MuteId = 103;
-        const int RowApps = 0, RowMovies = 1, RowSongs = 2, RowSystem = 3, RowCount = 4;
+        // The rows, top to bottom: the apps, the suggestion rows that have anything (_content), settings & power.
+        const int RowApps = 0, MostRows = 32;
+        int RowSystem { get { return _content.Count + 1; } }
+        int RowCount { get { return _content.Count + 2; } }
         const double HeadingGap = 48, RowGap = 40;
 
         Config _cfg;
@@ -65,10 +68,10 @@ namespace CouchTV
 
         Grid _layers;
         Canvas _stage;
-        StackPanel _appsRow, _sysRow, _movieRow, _songRow;
-        FrameworkElement _movieHeading, _movieHost, _songHeading, _songHost, _sysHeading, _sysHost, _hints;
-        readonly TranslateTransform[] _shift = { new TranslateTransform(), new TranslateTransform(), new TranslateTransform(), new TranslateTransform() };
-        readonly double[] _scroll = new double[RowCount], _rowTop = new double[RowCount];
+        StackPanel _appsRow, _sysRow;
+        FrameworkElement _sysHeading, _sysHost, _hints;
+        readonly TranslateTransform _appsShift = new TranslateTransform(), _sysShift = new TranslateTransform();
+        readonly double[] _scroll = new double[MostRows], _rowTop = new double[MostRows];
         readonly TranslateTransform _pageShift = new TranslateTransform();
         double _pageBottom = DesignH;
         TextBlock _greeting, _time, _ampm, _date, _net, _focusTitle, _focusHint, _launchText, _toastText, _confirmTitle, _confirmText;
@@ -78,9 +81,8 @@ namespace CouchTV
         readonly RotateTransform _spin = new RotateTransform();
 
         readonly List<TileView> _apps = new List<TileView>(), _sys = new List<TileView>();
-        readonly List<TileView> _movies = new List<TileView>(), _songs = new List<TileView>();
         int _row;
-        readonly int[] _col = new int[RowCount];
+        readonly int[] _col = new int[MostRows];
 
         DispatcherTimer _timer;
         int _ticks;
@@ -245,7 +247,7 @@ namespace CouchTV
             Place(SectionLabel("Apps"), Side, 352);
             var appsHost = new Canvas { Width = DesignW - 2 * Side + 2 * RingPad, Height = TileH + 2 * RingPad };
             _appsHost = appsHost;
-            _appsRow = new StackPanel { Orientation = Orientation.Horizontal, RenderTransform = _shift[0] };
+            _appsRow = new StackPanel { Orientation = Orientation.Horizontal, RenderTransform = _appsShift };
             appsHost.Children.Add(_appsRow);
             Place(appsHost, Side - RingPad, 400);
 
@@ -261,19 +263,11 @@ namespace CouchTV
             _focusInfo = info;
             Place(info, Side, 618);
 
-            // The suggestions, placed by LayoutRows once it's known which rows have any.
-            Place(_movieHeading = RowHeading("Popular films", "Streaming now in India · from JustWatch"), Side, 0);
-            _movieRow = new StackPanel { Orientation = Orientation.Horizontal, RenderTransform = _shift[RowMovies] };
-            _movieHost = new Canvas { Width = DesignW - 2 * Side + 2 * RingPad, Height = PosterH + 2 * RingPad, Children = { _movieRow } };
-            Place(_movieHost, Side - RingPad, 0);
-            Place(_songHeading = RowHeading("Top songs", "India's most played · plays on YouTube"), Side, 0);
-            _songRow = new StackPanel { Orientation = Orientation.Horizontal, RenderTransform = _shift[RowSongs] };
-            _songHost = new Canvas { Width = DesignW - 2 * Side + 2 * RingPad, Height = CoverSize + 2 * RingPad, Children = { _songRow } };
-            Place(_songHost, Side - RingPad, 0);
+            // The suggestion rows come and go with the list (BuildSuggestionRows); LayoutRows places them.
 
             Place(_sysHeading = SectionLabel("Settings & power"), Side, 734);
             var sysHost = new Canvas { Width = DesignW - 2 * Side + (SysW - DiscSize), Height = 180 };
-            _sysRow = new StackPanel { Orientation = Orientation.Horizontal, RenderTransform = _shift[RowSystem] };
+            _sysRow = new StackPanel { Orientation = Orientation.Horizontal, RenderTransform = _sysShift };
             sysHost.Children.Add(_sysRow);
             Place(_sysHost = sysHost, Side - (SysW - DiscSize) / 2, 782);
 
@@ -292,11 +286,16 @@ namespace CouchTV
         {
             _rowTop[RowApps] = 352;
             double y = 734;
-            y = PlaceRow(RowMovies, _movieHeading, _movieHost, _movies.Count > 0, y, PosterH + 2 * RingPad + SuggestionTextH);
-            y = PlaceRow(RowSongs, _songHeading, _songHost, _songs.Count > 0, y, CoverSize + 2 * RingPad + SuggestionTextH);
+            bool any = false;
+            for (int i = 0; i < _content.Count; i++)
+            {
+                ContentRow row = _content[i];
+                y = PlaceRow(i + 1, row.Heading, row.Host, row.Tiles.Count > 0, y, (row.Covers ? CoverSize : PosterH) + 2 * RingPad + SuggestionTextH);
+                any |= row.Tiles.Count > 0;
+            }
             PlaceRow(RowSystem, _sysHeading, _sysHost, true, y, 180);
             _pageBottom = Math.Max(DesignH, y + HeadingGap + 200);
-            _hints.Visibility = _movies.Count > 0 || _songs.Count > 0 ? Visibility.Collapsed : Visibility.Visible;
+            _hints.Visibility = any ? Visibility.Collapsed : Visibility.Visible;
         }
 
         double PlaceRow(int row, FrameworkElement heading, FrameworkElement host, bool shown, double y, double height)
@@ -449,10 +448,11 @@ namespace CouchTV
                 _sys.Add(v);
                 _sysRow.Children.Add(v.Root);
             }
-            BuildSuggestionRows();
-            LayoutRows();
-            for (int r = 0; r < RowCount; r++) _col[r] = Math.Max(0, Math.Min(_col[r], Row(r).Count - 1));
-            if (Row(_row).Count == 0) _row = FirstRow();
+            KeepPlace(() =>
+            {
+                BuildSuggestionRows();
+                LayoutRows();
+            });
             _empty.Visibility = _apps.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             UpdateBadges();
             UpdateSleepCaption();
@@ -602,13 +602,47 @@ namespace CouchTV
 
         List<TileView> Row(int r)
         {
-            switch (r)
+            if (r == RowApps) return _apps;
+            return r > RowApps && r < RowSystem ? _content[r - 1].Tiles : _sys;
+        }
+
+        /// <summary>A row's sideways slide.</summary>
+        TranslateTransform Shift(int r)
+        {
+            if (r == RowApps) return _appsShift;
+            return r > RowApps && r < RowSystem ? _content[r - 1].Shift : _sysShift;
+        }
+
+        /// <summary>What a row is, to find it again after the rows change: "apps", "system", or its suggestions' row.</summary>
+        string RowKey(int r)
+        {
+            if (r == RowApps) return "apps";
+            return r > RowApps && r < RowSystem ? _content[r - 1].Key : "system";
+        }
+
+        /// <summary>Rebuilds rows ([rebuild]), keeping the highlight on the same row (by what it is) and tile where it can.</summary>
+        void KeepPlace(Action rebuild)
+        {
+            string focused = _row < RowCount ? RowKey(_row) : null;
+            var cols = new Dictionary<string, int>();
+            var scrolls = new Dictionary<string, double>();
+            for (int r = 0; r < RowCount; r++)
             {
-                case RowApps: return _apps;
-                case RowMovies: return _movies;
-                case RowSongs: return _songs;
-                default: return _sys;
+                cols[RowKey(r)] = _col[r];
+                scrolls[RowKey(r)] = _scroll[r];
             }
+            rebuild();
+            _row = -1;
+            for (int r = 0; r < RowCount; r++)
+            {
+                string key = RowKey(r);
+                int c;
+                double s;
+                _col[r] = cols.TryGetValue(key, out c) ? Math.Max(0, Math.Min(c, Row(r).Count - 1)) : 0;
+                _scroll[r] = r > RowApps && r < RowSystem ? 0 : scrolls.TryGetValue(key, out s) ? s : 0;   // a suggestion row's strip is new
+                if (key == focused) _row = r;
+            }
+            if (_row < 0 || Row(_row).Count == 0) _row = FirstRow();
         }
 
         /// <summary>The top row with anything in it: the apps, normally.</summary>
@@ -715,13 +749,14 @@ namespace CouchTV
             else if (x + item > offset + view) offset = x + item - view;
             offset = Math.Max(0, Math.Min(offset, limit));
             _scroll[r] = offset;
-            Theme.AnimateTo(_shift[r], TranslateTransform.XProperty, -offset, animate);
+            Theme.AnimateTo(Shift(r), TranslateTransform.XProperty, -offset, animate);
         }
 
         /// <summary>A row's step from one tile to the next and a tile's width (with its focus ring); returns how far it slides at most.</summary>
         double RowMetrics(int r, out double pitch, out double item)
         {
-            double width = r == RowApps ? TileW : r == RowMovies ? PosterW : r == RowSongs ? CoverSize : 0;
+            bool suggestions = r > RowApps && r < RowSystem;
+            double width = r == RowApps ? TileW : suggestions ? (_content[r - 1].Covers ? CoverSize : PosterW) : 0;
             pitch = r == RowApps ? TileW + TileGap : r == RowSystem ? SysW + SysGap : width + CardGap;
             item = r == RowSystem ? SysW : width + 2 * RingPad;
             double total = (Row(r).Count - 1) * pitch + item;
@@ -729,7 +764,7 @@ namespace CouchTV
         }
 
         /// <summary>How much of a row shows across the screen.</summary>
-        static double RowView(int r) { return DesignW - 2 * Side + (r == RowSystem ? SysW - DiscSize : 2 * RingPad); }
+        double RowView(int r) { return DesignW - 2 * Side + (r == RowSystem ? SysW - DiscSize : 2 * RingPad); }
 
         /// <summary>
         /// Slides the whole page up so the row being chosen sits near the top (the clock goes out of view); the apps

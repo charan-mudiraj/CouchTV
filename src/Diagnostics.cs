@@ -610,6 +610,17 @@ namespace CouchTV
             check("JioHotstar plays", Suggestions.PlayableUrl("https://www.hotstar.com/in/movies/bethlehem-kudumba-unit/1271710275?search_query=Bethlehem+Kudumba+Unit"),
                   "https://www.hotstar.com/in/movies/bethlehem-kudumba-unit/1271710275/watch");
             check("ZEE5 as it is", Suggestions.PlayableUrl("https://www.zee5.com/movies/details/nude/0-0-70944"), "https://www.zee5.com/movies/details/nude/0-0-70944");
+            check("a series' id", Suggestions.IsSeries("mts296797") + " " + Suggestions.IsSeries("fmts296797") + " " + Suggestions.IsSeries("mtm1269887"), "True True False");
+            string seriesJson = "{\"data\":{\"popularTitles\":{\"edges\":[{\"node\":{\"id\":\"ts296797\",\"objectType\":\"SHOW\",\"totalSeasonCount\":5," +
+                "\"content\":{\"title\":\"Black Clover\",\"originalReleaseYear\":2017,\"runtime\":24,\"posterUrl\":\"/poster/1/s332/x.jpg\"}," +
+                "\"offers\":[{\"monetizationType\":\"FLATRATE\",\"standardWebURL\":\"https://www.netflix.com/title/80238012\",\"package\":{\"shortName\":\"nfx\"}}]}}]}}}";
+            var netflixOnly = new Dictionary<string, Tile> { { "nfx", new Tile { Name = "Netflix", Label = "Netflix" } } };
+            List<Suggestion> parsedSeries = Suggestions.ParseMovies(seriesJson, netflixOnly, new List<string>());
+            check("a series: its seasons, and its page (to pick an episode)", parsedSeries.Count == 1 ? parsedSeries[0].Id + " | " + parsedSeries[0].Subtitle + " | " + parsedSeries[0].PlayUrl : "none",
+                  "mts296797 | 2017 · 5 seasons | https://www.netflix.com/title/80238012");
+            check("row names", Suggestions.RowTitle("films", new List<Tile>()) + ", " + Suggestions.RowTitle("series", new List<Tile>()) + ", " +
+                  Suggestions.RowTitle("app:nfx", new List<Tile> { new Tile { Name = "Netflix", Label = "Netflix", Url = "https://www.netflix.com/" } }) + ", " + Suggestions.RowTitle("songs", new List<Tile>()),
+                  "Popular films, Popular series, Popular on Netflix, Top songs");
 
             Config cfg = Config.Load();
             Func<string, string> b64 = text => Convert.ToBase64String(Encoding.UTF8.GetBytes(text));
@@ -620,6 +631,8 @@ namespace CouchTV
             };
             check("phone's film plays", fromPhone("mtm1 M nfx " + b64("https://www.netflix.com/title/82034837") + " " + b64("Vishwanath & Sons") + " -"),
                   "Netflix https://www.netflix.com/watch/82034837");
+            check("phone's series opens on its page", fromPhone("mts296797 M nfx " + b64("https://www.netflix.com/title/80238012") + " " + b64("Black Clover") + " -"),
+                  "Netflix https://www.netflix.com/title/80238012");
             check("phone's song is looked for", fromPhone("s1 S youtube - " + b64("Hawayein") + " " + b64("Hawayein Pritam")), "YouTube (look for: Hawayein Pritam)");
             check("phone's song with its video", fromPhone("s1 S youtube " + b64("https://www.youtube.com/watch?v=cYOB941gyXI&list=RDcYOB941gyXI") + " " + b64("Hawayein") + " -"),
                   "YouTube https://www.youtube.com/watch?v=cYOB941gyXI&list=RDcYOB941gyXI");
@@ -641,7 +654,7 @@ namespace CouchTV
                 List<Suggestion> list = Suggestions.Fetch(cfg, previous, notes);
                 report.AppendLine("Fetched in " + watch.ElapsedMilliseconds + " ms. " + notes.ToString().Trim());
                 foreach (Suggestion s in list)
-                    report.AppendLine((s.Kind == SuggestionKind.Movie ? "Film  " : "Song  ") + s.Title + "  |  " + s.Subtitle + "  |  " + s.App + "  |  " +
+                    report.AppendLine((s.Row ?? "?").PadRight(9) + " " + s.Title + "  |  " + s.Subtitle + "  |  " + s.App + "  |  " +
                                       (s.PlayUrl ?? "(looked for when chosen: " + s.Query + ")") + "  |  " + (s.ImageFile ?? "no picture"));
                 report.AppendLine();
                 report.AppendLine("To the phone:");
