@@ -30,6 +30,11 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Play on TV from CouchTV Watch: only apps signed with this app's key may hand it a title (CouchTV Watch
+         declares it too, so it's there whichever app is installed first). -->
+    <permission
+        android:name="com.couchtv.permission.PLAY_ON_TV"
+        android:protectionLevel="signature" />
     <!-- Not required: phones without an IR blaster use Wi-Fi. -->
     <uses-feature android:name="android.hardware.consumerir" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
@@ -66,6 +71,15 @@
         <receiver
             android:name=".InstallReceiver"
             android:exported="false" />
+        <!-- Play on TV from CouchTV Watch: hands the title to MainActivity, which plays it on the TV. -->
+        <activity
+            android:name=".PlayOnTv"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:noHistory="true"
+            android:permission="com.couchtv.permission.PLAY_ON_TV"
+            android:taskAffinity=""
+            android:theme="@style/Invisible" />
         <!-- The watchlist: Postpone from a reminder (just its picker, over whatever's on the screen), the reminders'
              alarms, setting them again after a restart or an update, and the mailbox checks. -->
         <activity

@@ -455,9 +455,20 @@ class MainActivity : Activity() {
         handleIntent(intent)
     }
 
-    /** From a watchlist notification: the first page, where the watchlist is, and for Play on TV, its film on the TV. */
+    /**
+     * From a watchlist notification: the first page, where the watchlist is, and for Play on TV, its film on the TV.
+     * From CouchTV Watch's Play on TV (through PlayOnTv): its title on the TV.
+     */
     private fun handleIntent(intent: Intent?) {
         val action = intent?.action
+        if (intent != null && action == PlayOnTv.ACTION) {
+            setIntent(Intent(this, MainActivity::class.java))
+            if (intent.getStringExtra(PlayOnTv.EXTRA_TOKEN) != PlayOnTv.TOKEN) return
+            val title = intent.getStringExtra(PlayOnTv.EXTRA_SUGGESTION)?.let { Suggestion.parse(it) } ?: return
+            findViewById<PagerView>(R.id.pager).go(0)
+            playOnTvSoon(title)
+            return
+        }
         if (action != WatchReminders.ACTION_OPEN && action != WatchReminders.ACTION_PLAY) return
         setIntent(Intent(this, MainActivity::class.java))   // done: not again if Android brings the app back later
         findViewById<PagerView>(R.id.pager).go(0)
@@ -465,6 +476,11 @@ class MainActivity : Activity() {
         val id = intent.getStringExtra(WatchReminders.EXTRA_ID) ?: return
         WatchReminders.cancel(this, id)
         val film = watchlist.find(id)?.film ?: return
+        playOnTvSoon(film)
+    }
+
+    /** A film to play on the TV as the app opens: now if the TV's there, else once it's found (or found to be off). */
+    private fun playOnTvSoon(film: Suggestion) {
         if (remote.wifi.connected) return playSuggestion(film)
         // The app has only just opened: a few seconds to find the TV (or hear from the receiver box that it's off)
         // before doing what a tap on the film does, as Power to a TV that's on but not found yet would turn it off.

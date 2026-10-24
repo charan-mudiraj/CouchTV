@@ -1,11 +1,11 @@
 # Builds the CouchTV Remote Android app whenever phone-remote/ changes on main, and publishes it to the
-# "phone-remote" release with a version.json the app checks for updates.
+# "phone-remote" release with a version.json the app checks for updates. A dev/* branch is built and tested, not published.
 # Download: https://github.com/charan-mudiraj/CouchTV/releases/download/phone-remote/CouchTV-Remote.apk
 name: Phone remote APK
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'dev/**']
     paths:
       - 'phone-remote/**'
       - '.github/workflows/phone-remote.yml'
@@ -15,7 +15,7 @@ permissions:
   contents: write             # to update the release
 
 concurrency:
-  group: phone-remote
+  group: phone-remote-${{ github.ref }}
   cancel-in-progress: false   # let each build finish, so versions are published in order
 
 jobs:
@@ -91,6 +91,7 @@ jobs:
 
       # The APK goes up before version.json, so the app never sees a version whose APK isn't there yet.
       - name: Publish
+        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

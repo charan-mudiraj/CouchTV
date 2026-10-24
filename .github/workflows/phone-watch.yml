@@ -1,0 +1,98 @@
+# Builds the CouchTV Watch Android app (phone-watch/: watching on the phone) whenever it changes on main, and publishes
+# it to the "phone-watch" release with a version.json the app checks for updates. A dev/* branch is built and tested,
+# not published.
+# Download: https://github.com/charan-mudiraj/CouchTV/releases/download/phone-watch/CouchTV-Watch.apk
+name: Phone watch APK
+
+on:
+  push:
+    branches: [main, 'dev/**']
+    paths:
+      - 'phone-watch/**'
+      - '.github/workflows/phone-watch.yml'
+  workflow_dispatch:          # "Run workflow" button on the Actions tab
+
+permissions:
+  contents: write             # to update the release
+
+concurrency:
+  group: phone-watch-${{ github.ref }}
+  cancel-in-progress: false   # let each build finish, so versions are published in order
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      VERSION_CODE: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 50     # to find the latest commit that changed the app
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      # The remote's permanent key: updates only install over an app signed the same, and Play on TV is only for
+      # apps signed like the remote.
+      - name: Signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.REMOTE_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/remote-signing.p12"
+            echo "REMOTE_KEYSTORE_FILE=$RUNNER_TEMP/remote-signing.p12" >> "$GITHUB_ENV"
+          else
+            echo "::warning::The REMOTE_KEYSTORE_B64 secret isn't set, so this build is signed with a temporary key: in-app updates and Play on TV won't work. See phone-remote/README.md."
+          fi
+
+      # Picking trailers on YouTube as the TV does.
+      - name: Test
+        working-directory: phone-watch
+        run: gradle testDebugUnitTest --no-daemon --stacktrace
+
+      - name: Build
+        working-directory: phone-watch
+        env:
+          REMOTE_KEYSTORE_PASSWORD: ${{ secrets.REMOTE_KEYSTORE_PASSWORD }}
+        run: gradle assembleDebug --no-daemon --stacktrace -PversionCode="$VERSION_CODE" -Pcommit="${GITHUB_SHA::7}"
+
+      - name: Describe the build
+        run: |
+          cp phone-watch/app/build/outputs/apk/debug/app-debug.apk CouchTV-Watch.apk
+          message="$(git log -1 --format=%s -- phone-watch)"
+          [ -n "$message" ] || message="$(git log -1 --format=%s)"
+          jq -n \
+            --argjson versionCode "$VERSION_CODE" \
+            --arg versionName "1.$VERSION_CODE" \
+            --arg commit "${GITHUB_SHA::7}" \
+            --arg message "$message" \
+            --arg apk "https://github.com/$GITHUB_REPOSITORY/releases/download/phone-watch/CouchTV-Watch.apk" \
+            --arg sha256 "$(sha256sum CouchTV-Watch.apk | cut -d' ' -f1)" \
+            '{versionCode: $versionCode, versionName: $versionName, commit: $commit, message: $message, apk: $apk, sha256: $sha256}' \
+            > version.json
+          cat version.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CouchTV-Watch
+          path: |
+            CouchTV-Watch.apk
+            version.json
+
+      # The APK goes up before version.json, so the app never sees a version whose APK isn't there yet.
+      - name: Publish
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view phone-watch >/dev/null 2>&1 || \
+            gh release create phone-watch --target "$GITHUB_SHA" --title "CouchTV Watch" --notes "Latest build of the phone app for watching."
+          gh release upload phone-watch CouchTV-Watch.apk --clobber
+          gh release upload phone-watch version.json --clobber
+          gh release edit phone-watch --notes "Version 1.$VERSION_CODE, built from ${GITHUB_SHA::7}: $(jq -r .message version.json). On the phone, tap CouchTV-Watch.apk to install; after that the app updates itself."

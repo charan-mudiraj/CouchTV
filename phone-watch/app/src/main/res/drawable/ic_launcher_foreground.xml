@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A screen on its stand with a play sign, inside the adaptive icon safe zone (the remote's is a remote). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#F4F6FA"
+        android:pathData="M35,36h38a5,5 0 0,1 5,5v24a5,5 0 0,1 -5,5h-38a5,5 0 0,1 -5,-5v-24a5,5 0 0,1 5,-5z" />
+    <path android:fillColor="#E5484D" android:pathData="M49,45.5v15l13,-7.5z" />
+    <path android:fillColor="#F4F6FA" android:pathData="M44,74h20a2,2 0 0,1 0,4h-20a2,2 0 0,1 0,-4z" />
+</vector>

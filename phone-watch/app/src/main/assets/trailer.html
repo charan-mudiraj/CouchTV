@@ -1,0 +1,95 @@
+<!doctype html>
+<!--
+  CouchTV Watch's trailer (TrailerView.kt), as the TV's (home/trailer.html): the title's YouTube trailer filling the
+  hero, cropped a little so YouTube's own title and logo fall off the edges, fading in over the title's picture (the
+  page is see-through until then). The app says play('id', muted), mute(muted) or stop(); this says back, through
+  CouchTV.say(), "ready" (once YouTube's player can be asked), "playing", "ended" or "error <code>".
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+  #stage { position: absolute; inset: 0; overflow: hidden; opacity: 0; transition: opacity 0.8s ease; }
+  #stage.on { opacity: 1; }
+  #player { position: absolute; border: 0; }
+  /* Over the video: YouTube never sees the finger, so it shows no pause sign or title on a tap. */
+  #shield { position: absolute; inset: 0; z-index: 2; }
+</style>
+</head>
+<body>
+<div id="stage"><div id="player"></div><div id="shield"></div></div>
+<script>
+  'use strict';
+  var player = null, ready = false, wanted = null, muted = false;
+  var stage = document.getElementById('stage');
+
+  function send(message) {
+    try { CouchTV.say(message); } catch (e) {}
+  }
+
+  function fit() {
+    var el = document.getElementById('player');
+    if (!el) return;
+    var w = window.innerWidth, h = window.innerHeight, vw = w, vh = w * 9 / 16;
+    if (vh < h) { vh = h; vw = h * 16 / 9; }
+    vw *= 1.2; vh *= 1.2;
+    el.style.width = vw + 'px';
+    el.style.height = vh + 'px';
+    el.style.left = (w - vw) / 2 + 'px';
+    el.style.top = (h - vh) / 2 + 'px';
+  }
+  window.addEventListener('resize', fit);
+
+  function sound() {
+    if (!player || !player.mute) return;
+    if (muted) player.mute(); else { player.unMute(); player.setVolume(100); }
+  }
+
+  function start() {
+    if (!wanted || !ready) return;
+    if (player && player.loadVideoById) {
+      player.loadVideoById(wanted);
+      sound();
+      return;
+    }
+    player = new YT.Player('player', {
+      videoId: wanted,
+      playerVars: { autoplay: 1, controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3, modestbranding: 1, playsinline: 1, rel: 0,
+                    mute: muted ? 1 : 0, origin: location.origin },
+      events: {
+        onReady: function (e) { fit(); sound(); e.target.playVideo(); },
+        onStateChange: function (e) {
+          if (e.data === 1 && wanted) { stage.className = 'on'; send('playing'); }
+          else if (e.data === 0) { stage.className = ''; send('ended'); }
+        },
+        onError: function (e) { stage.className = ''; send('error ' + e.data); }
+      }
+    });
+    fit();
+  }
+
+  function onYouTubeIframeAPIReady() { ready = true; send('ready'); start(); }
+
+  window.play = function (id, mute) {
+    wanted = id;
+    muted = !!mute;
+    stage.className = '';
+    start();
+  };
+
+  window.mute = function (m) {
+    muted = !!m;
+    sound();
+  };
+
+  window.stop = function () {
+    wanted = null;
+    stage.className = '';
+    try { if (player && player.stopVideo) player.stopVideo(); } catch (e) {}
+  };
+</script>
+<script src="https://www.youtube.com/iframe_api"></script>
+</body>
+</html>
