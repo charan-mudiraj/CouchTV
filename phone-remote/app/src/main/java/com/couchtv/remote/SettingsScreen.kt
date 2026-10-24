@@ -288,7 +288,7 @@ class SettingsScreen @JvmOverloads constructor(context: Context, attrs: Attribut
         "bluetooth" -> R.drawable.ic_bluetooth_off
         "mirror" -> R.drawable.ic_mirror
         "livetv" -> R.drawable.ic_tv
-        "hotstarads" -> R.drawable.ic_movie
+        "hotstarads", "primeads" -> R.drawable.ic_movie
         else -> R.drawable.ic_settings
     }
 
@@ -307,6 +307,7 @@ class SettingsScreen @JvmOverloads constructor(context: Context, attrs: Attribut
         "mirror" -> R.color.hotstar
         "livetv" -> R.color.power
         "hotstarads" -> R.color.hotstar
+        "primeads" -> R.color.prime
         else -> R.color.surface_pressed
     }
 

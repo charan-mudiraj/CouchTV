@@ -77,7 +77,8 @@ namespace CouchTV
                    ", \"netflixTidy\": " + (cfg.NetflixTidy ? "true" : "false") +
                    ", \"netflixPick\": " + (cfg.NetflixPickProfile && cfg.NetflixProfile.Length > 0 ? "true" : "false") +
                    ", \"netflixProfile\": " + new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(cfg.NetflixProfile) +
-                   ", \"hotstarAds\": " + (cfg.HotstarAds ? "true" : "false") + "}\n";
+                   ", \"hotstarAds\": " + (cfg.HotstarAds ? "true" : "false") +
+                   ", \"primeAds\": " + (cfg.PrimeAds ? "true" : "false") + "}\n";
         }
 
         /// <summary>Whether JioHotstar's ads are kept off its films and shows (HotstarAds), as last written.</summary>
@@ -86,15 +87,41 @@ namespace CouchTV
             get { string s = CurrentSettings; return s == null || s.Contains("\"hotstarAds\": true"); }
         }
 
-        /// <summary>
-        /// JioHotstar's ad servers, for Edge to refuse on its pages (PageScripts): from uBlock Origin's and EasyList
-        /// India's filters for the site.
-        /// </summary>
-        public static readonly string[] HotstarAdServers =
+        /// <summary>Whether Prime Video's are (PrimeAds).</summary>
+        public static bool BlockPrimeAds
         {
-            "*://hesads.akamaized.net/*", "*://videoads.hotstar.com/*", "*://*.hotstar.com/*preroll*", "*://*.hotstar.com/*midroll*",
-            "*://*.videoplaza.tv/proxy/distributor/*",
-        };
+            get { string s = CurrentSettings; return s == null || s.Contains("\"primeAds\": true"); }
+        }
+
+        /// <summary>The site whose ads are kept off (by its ad servers, PageScripts, and its page script): "hotstar", "prime", or null.</summary>
+        public static string AdSite(string url)
+        {
+            Uri uri;
+            if (url == null || !Uri.TryCreate(url, UriKind.Absolute, out uri)) return null;
+            string host = uri.Host.ToLowerInvariant();
+            if (host == "hotstar.com" || host.EndsWith(".hotstar.com")) return "hotstar";
+            if (host == "primevideo.com" || host.EndsWith(".primevideo.com")) return "prime";
+            return null;
+        }
+
+        public static bool BlockAds(string site) { return site == "hotstar" ? BlockHotstarAds : site == "prime" && BlockPrimeAds; }
+
+        /// <summary>
+        /// A site's ad servers, for Edge to refuse on its pages (PageScripts): from uBlock Origin's, AdGuard's and
+        /// EasyList India's filters for it.
+        /// </summary>
+        public static string[] AdServers(string site)
+        {
+            if (site == "hotstar")
+                return new[]
+                {
+                    "*://hesads.akamaized.net/*", "*://videoads.hotstar.com/*", "*://*.hotstar.com/*preroll*", "*://*.hotstar.com/*midroll*",
+                    "*://*.videoplaza.tv/proxy/distributor/*",
+                };
+            if (site == "prime")
+                return new[] { "*://*.primevideo.com/cdp/getVideoAds*", "*://*.videorolls.row.aiv-cdn.net/*", "*://*.primevideospot.com/*" };
+            return new string[0];
+        }
 
         /// <summary>
         /// The browser's command line for it: on one of CouchTV's own profiles (userDataDir), a DevTools port for
@@ -288,7 +315,9 @@ namespace CouchTV
             return "if (location.hostname === 'www.youtube.com' && location.pathname.indexOf('/tv') !== 0 && !window.__couchtvPage) {\n" +
                    "window.__couchtvPage = true;\n" + Text("youtube-page.js") + "\n}\n" +
                    (BlockHotstarAds ? "if (/(^|\\.)hotstar\\.com$/.test(location.hostname) && !window.__couchtvAds) {\n" +
-                                      "window.__couchtvAds = true;\n" + Text("hotstar-page.js") + "\n}\n" : "");
+                                      "window.__couchtvAds = true;\n" + Text("hotstar-page.js") + "\n}\n" : "") +
+                   (BlockPrimeAds ? "if (/(^|\\.)primevideo\\.com$/.test(location.hostname) && !window.__couchtvAds) {\n" +
+                                    "window.__couchtvAds = true;\n" + Text("primevideo-page.js") + "\n}\n" : "");
         }
 
         static void WriteIfChanged(string path, byte[] bytes)

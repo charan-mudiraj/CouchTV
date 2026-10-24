@@ -62,6 +62,7 @@ namespace CouchTV
         public int YouTubeRow;                                // YouTube's videos per row (0: YouTube's own choice)
         public bool NetflixTidy = true;                       // Netflix without its big trailer and games rows
         public bool HotstarAds = true;                        // JioHotstar's films and shows without their ads (Sites.cs)
+        public bool PrimeAds = true;                          // Prime Video's too
         public bool NetflixPickProfile = true;                // Netflix's "Who's watching?" answered by itself, with...
         public string NetflixProfile = "CouchTV";             // ...this profile
         public readonly List<string> Subscriptions = new List<string>();   // tile names you pay for; empty = don't filter
@@ -205,6 +206,7 @@ namespace CouchTV
             YouTubeRow = int.TryParse(Get(v, "YouTubeRow", "auto"), out row) && row >= 2 && row <= 6 ? row : 0;
             NetflixTidy = GetBool(v, "NetflixTidy", true);
             HotstarAds = GetBool(v, "HotstarAds", true);
+            PrimeAds = GetBool(v, "PrimeAds", true);
             NetflixPickProfile = GetBool(v, "NetflixPickProfile", true);
             NetflixProfile = (Get(v, "NetflixProfile", NetflixProfile) ?? "").Trim();
             // LiveTv = on|off, LiveTvLanguages = TEL, HIN, ENG. (A file from just before: LiveTv = TEL, HIN, ENG, meaning on.)

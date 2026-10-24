@@ -33,8 +33,8 @@ namespace CouchTV
             public readonly Dictionary<string, string> Sessions = new Dictionary<string, string>();   // session → its script's identifier
             public readonly HashSet<string> Targets = new HashSet<string>();
             public readonly Dictionary<string, string> TargetSessions = new Dictionary<string, string>();   // target → its session
-            public readonly HashSet<string> Watched = new HashSet<string>();                                // sessions whose requests are seen (YuppTV, JioHotstar)
-            public readonly HashSet<string> Hotstar = new HashSet<string>();                                // sessions on JioHotstar: its ad servers refused
+            public readonly HashSet<string> Watched = new HashSet<string>();                                // sessions whose requests are seen (YuppTV, ad sites)
+            public readonly Dictionary<string, string> AdSites = new Dictionary<string, string>();          // session → the site whose ad servers are refused there
             public readonly Dictionary<string, string> PageIds = new Dictionary<string, string>();          // session → its page script's identifier
             public readonly Dictionary<string, int> Refused = new Dictionary<string, int>();                // session → ad requests refused
         }
@@ -186,12 +186,13 @@ namespace CouchTV
                 if (session != null)
                 {
                     SiteRules(link, session, info["url"] as string);
-                    if (IsHost(info["url"] as string, "hotstar.com") && (info["url"] as string).Contains("/watch")) SayAds(link, session);
+                    string url = info["url"] as string, site = Sites.AdSite(url);
+                    if ((site == "hotstar" && url.Contains("/watch")) || (site == "prime" && url.Contains("/detail/"))) SayAds(link, session, site);
                 }
             }
             else if (method == "Network.loadingFailed" && p != null)
             {
-                // One of JioHotstar's ad servers refused (by setBlockedURLs): counted, for the log.
+                // One of an ad site's ad servers refused (by setBlockedURLs): counted, for the log.
                 string session = m.ContainsKey("sessionId") ? m["sessionId"] as string : null;
                 if (session != null && p.ContainsKey("blockedReason") && p["blockedReason"] as string == "inspector")
                     lock (link.Refused) { int n; link.Refused.TryGetValue(session, out n); link.Refused[session] = n + 1; }
@@ -216,7 +217,7 @@ namespace CouchTV
                 string gone = p["sessionId"] as string;
                 lock (link.Sessions) link.Sessions.Remove(gone);
                 lock (link.PageIds) link.PageIds.Remove(gone);
-                lock (link.Hotstar) link.Hotstar.Remove(gone);
+                lock (link.AdSites) link.AdSites.Remove(gone);
                 lock (link.Watched) link.Watched.Remove(gone);
                 lock (link.Refused) link.Refused.Remove(gone);
             }
@@ -229,18 +230,25 @@ namespace CouchTV
 
         /// <summary>
         /// What some sites' pages get. YuppTV's: their requests are seen (Network), for the session they send with
-        /// them. JioHotstar's: Edge refuses its ad servers (with HotstarAds on). Nothing else's requests are looked at.
+        /// them. JioHotstar's and Prime Video's: Edge refuses their ad servers (with HotstarAds, PrimeAds on). Nothing
+        /// else's requests are looked at.
         /// </summary>
         static void SiteRules(Link link, string session, string url)
         {
-            bool yupp = IsHost(url, "yupptv.com"), hotstar = IsHost(url, "hotstar.com");
-            if (!yupp && !hotstar) return;
+            bool yupp = IsHost(url, "yupptv.com");
+            string site = Sites.AdSite(url);
+            if (!yupp && site == null) return;
             bool first;
             lock (link.Watched) first = link.Watched.Add(session);
             if (first) Send(link, session, "Network.enable", new Dictionary<string, object>(), null);
-            if (!hotstar) return;
-            lock (link.Hotstar) { if (!link.Hotstar.Add(session)) return; }
-            BlockAds(link, session);
+            if (site == null) return;
+            lock (link.AdSites)
+            {
+                string was;
+                if (link.AdSites.TryGetValue(session, out was) && was == site) return;
+                link.AdSites[session] = site;
+            }
+            BlockAds(link, session, site);
         }
 
         static bool IsHost(string url, string site)
@@ -250,12 +258,12 @@ namespace CouchTV
         }
 
         /// <summary>
-        /// JioHotstar's ad servers refused on this page, or let through again (HotstarAds off). Edge's older way of
+        /// A site's ad servers refused on this page, or let through again (its setting off). Edge's older way of
         /// saying it first ("urls"), then its newer one ("urlPatterns") if it won't take that.
         /// </summary>
-        static void BlockAds(Link link, string session)
+        static void BlockAds(Link link, string session, string site)
         {
-            string[] servers = Sites.BlockHotstarAds ? Sites.HotstarAdServers : new string[0];
+            string[] servers = Sites.BlockAds(site) ? Sites.AdServers(site) : new string[0];
             Send(link, session, "Network.setBlockedURLs", new Dictionary<string, object> { { "urls", servers } }, result =>
             {
                 if (result != null) return;
@@ -265,8 +273,8 @@ namespace CouchTV
             });
         }
 
-        /// <summary>A JioHotstar film or show opened: in the log a while later, how many ad slots and ad requests were kept off it.</summary>
-        static void SayAds(Link link, string session)
+        /// <summary>A film or show opened on an ad site: in the log a while later, how many ads (slots, cue points) and ad requests were kept off it.</summary>
+        static void SayAds(Link link, string session, string site)
         {
             ThreadPool.QueueUserWorkItem(state =>
             {
@@ -279,8 +287,10 @@ namespace CouchTV
                     var value = result != null && result.ContainsKey("result") ? result["result"] as Dictionary<string, object> : null;
                     int refused;
                     lock (link.Refused) link.Refused.TryGetValue(session, out refused);
-                    Log.Info("Websites: JioHotstar: " + (Sites.BlockHotstarAds ? "ads kept off, " + (value != null ? value["value"] : "?") +
-                             " ad slots taken out of the player's data, " + refused + " ad requests refused" : "ads allowed (HotstarAds off)"));
+                    string name = site == "prime" ? "Prime Video" : "JioHotstar";
+                    Log.Info("Websites: " + name + ": " + (Sites.BlockAds(site) ? "ads kept off, " + (value != null ? value["value"] : "?") +
+                             " ad slots or cue points taken out of the player's data, " + refused + " ad requests refused"
+                             : "ads allowed (" + (site == "prime" ? "PrimeAds" : "HotstarAds") + " off)"));
                 });
             });
         }
@@ -359,9 +369,9 @@ namespace CouchTV
                     {
                         if (result != null) lock (link.PageIds) link.PageIds[session] = result["identifier"] as string;
                     });
-                    bool hotstar;
-                    lock (link.Hotstar) hotstar = link.Hotstar.Contains(session);
-                    if (hotstar) BlockAds(link, session);
+                    string adSite;
+                    lock (link.AdSites) link.AdSites.TryGetValue(session, out adSite);
+                    if (adSite != null) BlockAds(link, session, adSite);
                 }
             }
         }
