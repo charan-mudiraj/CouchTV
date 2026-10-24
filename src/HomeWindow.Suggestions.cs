@@ -19,7 +19,8 @@ namespace CouchTV
     /// </summary>
     internal sealed partial class HomeWindow
     {
-        const double PosterW = 200, PosterH = 300, CoverSize = 236, CardGap = 34, SuggestionTextH = 76;
+        // Big, for a sofa 7 or 8 feet from the TV: one row at a time under the hero, about six posters across.
+        const double PosterW = 236, PosterH = 354, CoverSize = 300, CardGap = 28, SuggestionTextH = 0, ChannelW = 480, ChannelH = 270;
 
         List<Suggestion> _suggestions = new List<Suggestion>();
         DateTime _suggestFetched = DateTime.MinValue, _suggestTried = DateTime.MinValue;   // UTC
@@ -63,6 +64,7 @@ namespace CouchTV
             List<Suggestion> shown = VisibleSuggestions();
             foreach (Suggestion s in shown)
             {
+                if (!InTab(s.Row)) continue;   // the chosen tab's rows only (the phones get All's, PhoneLines)
                 string key = s.Row ?? (s.Kind == SuggestionKind.Movie ? "films" : "songs");
                 ContentRow row = _content.Find(r => r.Key == key);
                 if (row == null)
@@ -82,9 +84,9 @@ namespace CouchTV
             if (_wifi != null) _wifi.SendToPhones(lines);
         }
 
-        static double CardWidth(SuggestionKind kind) { return kind == SuggestionKind.Movie ? PosterW : kind == SuggestionKind.Song ? CoverSize : TileW; }
+        static double CardWidth(SuggestionKind kind) { return kind == SuggestionKind.Movie ? PosterW : kind == SuggestionKind.Song ? CoverSize : ChannelW; }
 
-        static double CardHeight(SuggestionKind kind) { return kind == SuggestionKind.Movie ? PosterH : kind == SuggestionKind.Song ? CoverSize : TileH; }
+        static double CardHeight(SuggestionKind kind) { return kind == SuggestionKind.Movie ? PosterH : kind == SuggestionKind.Song ? CoverSize : ChannelH; }
 
         ContentRow NewContentRow(string key, double w, double h)
         {
@@ -119,11 +121,12 @@ namespace CouchTV
             var picture = channel ? new Image { Stretch = Stretch.Uniform, Margin = new Thickness(46, 30, 46, 30) } : new Image { Stretch = Stretch.UniformToFill };
             face.Children.Add(picture);
             LoadPicture(picture, s.ImageFile, (int)(1.25 * w));   // a little over its size: many rows of them now
-            face.Children.Add(new Border
+            // No app on posters (what to watch matters, not where: the hero says); a live channel says it's live.
+            if (channel) face.Children.Add(new Border
             {
-                CornerRadius = new CornerRadius(8), Background = channel ? Theme.Brush(Color.FromRgb(0xE5, 0x48, 0x4D)) : Theme.Brush(app.Background),
+                CornerRadius = new CornerRadius(8), Background = Theme.Brush(Color.FromRgb(0xE5, 0x48, 0x4D)),
                 Padding = new Thickness(10, 3, 10, 5), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(10),
-                Child = channel ? Theme.Text("● LIVE", 15, Colors.White, FontWeights.Bold) : Theme.Text("▶ " + app.Label, 16, app.Foreground, FontWeights.Bold),
+                Child = Theme.Text("● LIVE", 15, Colors.White, FontWeights.Bold),
             });
             if (channel && s.End > s.Start)
             {
@@ -145,7 +148,7 @@ namespace CouchTV
                 CornerRadius = new CornerRadius(14 + RingPad), BorderBrush = Brushes.White, BorderThickness = new Thickness(4),
                 Opacity = 0, IsHitTestVisible = false,
             };
-            var host = new Grid { Width = w + 2 * RingPad, Height = h + 2 * RingPad, RenderTransformOrigin = new Point(0.5, 0.5) };
+            var host = new Grid { Width = w + 2 * RingPad, Height = h + 2 * RingPad, RenderTransformOrigin = new Point(0.5, 1) };
             host.Children.Add(v.Card);
             host.Children.Add(v.Ring);
             v.Scale = new ScaleTransform(1, 1);
@@ -162,29 +165,35 @@ namespace CouchTV
             {
                 Width = w + 2 * RingPad, Margin = new Thickness(0, 0, CardGap - 2 * RingPad, 0), Background = Brushes.Transparent, Cursor = Cursors.Hand,
             };
-            item.Children.Add(host);
-            item.Children.Add(title);
-            item.Children.Add(details);
+            item.Children.Add(host);   // its name and details are in the hero, while it has the highlight
             v.Root = item;
             HookMouse(v);
             return v;
         }
 
         /// <summary>Shows a downloaded picture, decoded off the UI thread (at once for screenshots).</summary>
-        void LoadPicture(Image image, string file, int width)
+        void LoadPicture(Image image, string file, int width) { LoadPicture(image, file, width, null); }
+
+        /// <summary>The same, then [loaded] once it's there.</summary>
+        void LoadPicture(Image image, string file, int width, Action loaded)
         {
             if (string.IsNullOrEmpty(file)) return;
             string path = Path.Combine(Suggestions.Folder, file);
             if (_opt.Preview)
             {
                 if (File.Exists(path)) image.Source = LoadBitmap(path, width);
+                if (image.Source != null && loaded != null) loaded();
                 return;
             }
             ThreadPool.QueueUserWorkItem(state =>
             {
                 if (!File.Exists(path)) return;
                 BitmapImage bitmap = LoadBitmap(path, width);   // frozen, so the UI thread can use it
-                if (bitmap != null) Dispatcher.BeginInvoke(new Action(() => image.Source = bitmap));
+                if (bitmap != null) Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    image.Source = bitmap;
+                    if (loaded != null) loaded();
+                }));
             });
         }
 

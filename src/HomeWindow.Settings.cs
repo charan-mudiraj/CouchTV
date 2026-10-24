@@ -51,6 +51,13 @@ namespace CouchTV
                 BackgroundSetting(),
                 new TvSetting
                 {
+                    Key = "trailers", Label = "Trailers", Note = "The highlighted film's or series' trailer, at the top of the home screen",
+                    Values = new[] { "sound", "muted", "off" }, Names = new[] { "With sound", "Muted", "Off" },
+                    Get = () => _cfg.Trailers,
+                    Set = v => { _cfg.Trailers = v; SaveSetting("Trailers", v); if (v == "off") StopTrailer(); },
+                },
+                new TvSetting
+                {
                     Key = "clock", Label = "Clock", Note = "On the home screen",
                     Values = new[] { "12", "24" }, Names = new[] { "12-hour (11:30 PM)", "24-hour (23:30)" },
                     Get = () => _cfg.Clock24 ? "24" : "12",

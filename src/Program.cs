@@ -16,6 +16,7 @@ namespace CouchTV
             // before WPF starts (.NET 4.7 and later).
             AppContext.SetSwitch("Switch.System.Windows.Input.Stylus.EnablePointerSupport", true);
             Log.Init();
+            TrailerPlayer.Prepare();   // WebView2's assemblies come from inside CouchTV.exe (the home screen's trailers)
             try
             {
                 string shot = Arg(args, "--screenshot");
@@ -53,6 +54,8 @@ namespace CouchTV
                 if (brightnessTest != null) return Diagnostics.BrightnessTest(brightnessTest);
                 int tv = Array.IndexOf(args, "--tv");
                 if (tv >= 0 && tv + 1 < args.Length) return TvLink.Run(args, tv + 1);
+                string trailerTest = Arg(args, "--trailertest");
+                if (trailerTest != null) return Diagnostics.TrailerTest(trailerTest);
                 string dragTest = Arg(args, "--dragtest");
                 if (dragTest != null) return Diagnostics.DragTest(dragTest);
                 string touchTest = Arg(args, "--touchtest");

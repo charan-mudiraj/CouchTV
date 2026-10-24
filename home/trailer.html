@@ -1,0 +1,98 @@
+<!doctype html>
+<!--
+  The home screen hero's trailer (TrailerPlayer.cs): its YouTube trailer fading in, cropped to fill the hero and
+  fading out at the left and bottom edges. The page is see-through (WebView2's background is transparent), so the
+  home screen's backdrop picture shows until the video fades in (CouchTV fades the picture out meanwhile), and its
+  background through those edges. CouchTV says play('id',
+  muted) or stop(); this says back "ready" (once YouTube's player can be asked), "playing", "ended", "error" or
+  "stopped". {{BASE}}, the screen's own background colour, is unused while the page is see-through.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+  .layer {
+    position: absolute; inset: 0; overflow: hidden; opacity: 0;
+    -webkit-mask-image: linear-gradient(to right, transparent 0, #000 30%), linear-gradient(to bottom, #000 74%, transparent 100%);
+    mask-image: linear-gradient(to right, transparent 0, #000 30%), linear-gradient(to bottom, #000 74%, transparent 100%);
+    -webkit-mask-composite: source-in; mask-composite: intersect;
+  }
+  #stage { transition: opacity 0.8s ease; }
+  #stage.on { opacity: 1; }
+  #player { position: absolute; border: 0; }
+  /* Over the video: YouTube never sees the mouse, so it shows no pause sign or title on hover. */
+  #shield { position: absolute; inset: 0; z-index: 2; }
+</style>
+</head>
+<body>
+<div id="stage" class="layer"><div id="player"></div><div id="shield"></div></div>
+<script>
+  'use strict';
+  var player = null, ready = false, wanted = null, muted = false;
+  var stage = document.getElementById('stage');
+
+  function send(message) {
+    try { window.chrome.webview.postMessage(message); } catch (e) {}
+  }
+
+  // The video covers the stage (16:9, cropped), a little larger still, so YouTube's own title and logo fall off the edges.
+  function fit() {
+    var el = document.getElementById('player');
+    if (!el) return;
+    var w = window.innerWidth, h = window.innerHeight, vw = w, vh = w * 9 / 16;
+    if (vh < h) { vh = h; vw = h * 16 / 9; }
+    vw *= 1.18; vh *= 1.18;
+    el.style.width = vw + 'px';
+    el.style.height = vh + 'px';
+    el.style.left = (w - vw) / 2 + 'px';
+    el.style.top = (h - vh) / 2 + 'px';
+  }
+  window.addEventListener('resize', fit);
+
+  function start() {
+    if (!wanted || !ready) return;
+    if (player && player.loadVideoById) {
+      if (muted) player.mute(); else { player.unMute(); player.setVolume(70); }
+      player.loadVideoById(wanted);
+      return;
+    }
+    player = new YT.Player('player', {
+      videoId: wanted,
+      playerVars: { autoplay: 1, controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3, modestbranding: 1, playsinline: 1, rel: 0,
+                    mute: muted ? 1 : 0, origin: location.origin },
+      events: {
+        onReady: function (e) {
+          fit();
+          if (muted) e.target.mute(); else { e.target.unMute(); e.target.setVolume(70); }
+          e.target.playVideo();
+        },
+        onStateChange: function (e) {
+          if (e.data === 1 && wanted) { stage.className = 'layer on'; send('playing'); }
+          else if (e.data === 0) { stage.className = 'layer'; send('ended'); }
+        },
+        onError: function (e) { stage.className = 'layer'; send('error ' + e.data); }
+      }
+    });
+    fit();
+  }
+
+  function onYouTubeIframeAPIReady() { ready = true; send('ready'); start(); }
+
+  window.play = function (id, mute) {
+    wanted = id;
+    muted = !!mute;
+    stage.className = 'layer';
+    start();
+  };
+
+  window.stop = function () {
+    wanted = null;
+    stage.className = 'layer';
+    try { if (player && player.stopVideo) player.stopVideo(); } catch (e) {}
+    send('stopped');
+  };
+</script>
+<script src="https://www.youtube.com/iframe_api"></script>
+</body>
+</html>

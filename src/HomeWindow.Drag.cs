@@ -11,7 +11,8 @@ namespace CouchTV
 {
     /// <summary>
     /// Sliding the home screen with a finger (the phone's screen mirror sends real touches) or by dragging the mouse:
-    /// sideways along a row slides the row, up and down slides the page, and a flick glides on and settles on a card.
+    /// sideways along a row slides the row, up and down goes to the next row or back (they take turns under the hero),
+    /// and a flick glides on and settles on a card.
     /// A press that moves less than DragSlop is still a tap, and opens what's under it; a drag never opens anything.
     /// The wheel scrolls too: the page up and down, or sideways along the row under the pointer (a tilting wheel,
     /// Shift and the wheel, or the mirror's fingers when they work as the mouse).
@@ -157,8 +158,9 @@ namespace CouchTV
                     _axis = DragAxis.Row;
                     _dragFrom = -Shift(_dragRow).X;
                 }
-                else if (PageLimit() > 0)
+                else
                 {
+                    // Up or down: the page gives a little as the finger goes, and the next row (or the last) comes on letting go.
                     _axis = DragAxis.Page;
                     _dragFrom = -_pageShift.Y;
                 }
@@ -179,6 +181,15 @@ namespace CouchTV
             if (!_pressed) return false;
             _pressed = false;
             if (IsMouseCaptured) ReleaseMouseCapture();
+            if (_axis == DragAxis.Page && PageLimit() <= 0)
+            {
+                // Swiped up (the page pulled up): the next row; down: the one before.
+                double pulled = -_pageShift.Y;
+                SetSlide(0, 260);
+                _axis = DragAxis.None;
+                if (Math.Abs(pulled) > 30) Move(pulled > 0 ? 1 : -1, 0);
+                return _dragged;
+            }
             if (_axis != DragAxis.None)
             {
                 double limit = _axis == DragAxis.Row ? RowLimit(_dragRow) : PageLimit();
@@ -202,7 +213,15 @@ namespace CouchTV
                 double distance = Math.Abs(target - now);
                 double glide = Math.Abs(speed) > 200 ? distance / Math.Abs(speed) * 1000 * 2.4 : 260 + distance * 0.5;
                 SetSlide(target, Math.Max(260, Math.Min(900, glide)));
-                if (_axis == DragAxis.Row) _scroll[_dragRow] = target;
+                if (_axis == DragAxis.Row)
+                {
+                    // The highlight follows: the first card where the row settled (the hero shows it, if it's this row).
+                    _scroll[_dragRow] = target;
+                    double pitch, item;
+                    RowMetrics(_dragRow, out pitch, out item);
+                    _col[_dragRow] = Math.Max(0, Math.Min(Row(_dragRow).Count - 1, (int)Math.Round(target / pitch)));
+                    if (_dragRow == _row) RefreshFocus(true);
+                }
             }
             _axis = DragAxis.None;
             return _dragged;
@@ -267,8 +286,16 @@ namespace CouchTV
             TranslateTransform shift = row >= 0 ? Shift(row) : _pageShift;
             DependencyProperty property = row >= 0 ? TranslateTransform.XProperty : TranslateTransform.YProperty;
             double limit = row >= 0 ? RowLimit(row) : PageLimit();
-            if (limit <= 0) return;
             int now = Environment.TickCount;
+            if (row < 0 && limit <= 0)
+            {
+                // The wheel up and down: a row a notch (the mirror's many small turns add up to one).
+                if (unchecked(now - _wheelAt) < 350) return;
+                _wheelAt = now;
+                Move(delta > 0 ? 1 : -1, 0);
+                return;
+            }
+            if (limit <= 0) return;
             double from = row == _wheelRow && unchecked(now - _wheelAt) < 250 ? _wheelTarget : -(double)shift.GetValue(property);
             double to = Math.Max(0, Math.Min(limit, from + delta * 1.3));
             _wheelRow = row;
@@ -313,6 +340,7 @@ namespace CouchTV
         // ---------------------------------------------------------------- for the self-test (Diagnostics.DragTest)
 
         internal static int MoviesRow { get { return 1; } }   // the first suggestion row: the films
+        internal int FocusedRow { get { return _row; } }
         internal double Slid(int row) { return row >= 0 ? -Shift(row).X : -_pageShift.Y; }
         internal double SlideLimit(int row) { return row >= 0 ? RowLimit(row) : PageLimit(); }
 

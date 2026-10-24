@@ -27,6 +27,7 @@ namespace CouchTV
         public int ExitAfterSeconds;  // close by itself, for smoke tests
         public string StartupMessage; // shown once the home screen is up (e.g. after an update)
         public Action<string> Opened; // the drag self-test: what a tap would open, instead of opening it
+        public bool IgnoreMedia;      // the trailer self-test: what the laptop itself plays doesn't hold the trailer back
     }
 
     /// <summary>One tile on the home screen plus the visuals that change with focus.</summary>
@@ -34,18 +35,18 @@ namespace CouchTV
     {
         public Tile Tile;               // a suggestion's: the app it plays in
         public Suggestion Suggestion;   // a film or song from the suggestion rows (see HomeWindow.Suggestions.cs)
-        public bool IsSystem, Focused, Styled;
+        public bool IsSystem, IsTab, Focused, Styled;
         public FrameworkElement Root;
         public ScaleTransform Scale;
-        public Border Card, Ring;       // app tiles
+        public Border Card, Ring;       // posters, and the tabs
         public Ellipse Disc, Badge;     // settings & power tiles
-        public TextBlock Glyph, Caption;
+        public TextBlock Glyph, Caption, Label;   // a tab's name: Label
     }
 
     /// <summary>
-    /// The full-screen TV home screen. Designed on a 1920x1080 canvas and scaled to any screen. Its rows: apps, then
-    /// the suggestions (films, songs) when there are any, then settings &amp; power; the page slides up to show the
-    /// row being chosen.
+    /// The full-screen TV home screen. Designed on a 1920x1080 canvas and scaled to any screen. Content first: tabs
+    /// along the top (All, then each app), the hero (the highlighted title's backdrop and trailer, HomeWindow.Hero.cs),
+    /// and under it one row at a time: the chosen tab's rows of posters, then settings &amp; power.
     /// </summary>
     internal sealed partial class HomeWindow : Window
     {
@@ -69,14 +70,14 @@ namespace CouchTV
         Grid _layers;
         Canvas _stage;
         StackPanel _appsRow, _sysRow;
-        FrameworkElement _sysHeading, _sysHost, _hints;
+        FrameworkElement _sysHeading, _sysHost;
         readonly TranslateTransform _appsShift = new TranslateTransform(), _sysShift = new TranslateTransform();
         readonly double[] _scroll = new double[MostRows], _rowTop = new double[MostRows];
         readonly TranslateTransform _pageShift = new TranslateTransform();
         double _pageBottom = DesignH;
-        TextBlock _greeting, _time, _ampm, _date, _net, _focusTitle, _focusHint, _launchText, _toastText, _confirmTitle, _confirmText;
+        TextBlock _greeting, _time, _ampm, _date, _net, _launchText, _toastText, _confirmTitle, _confirmText;
         Ellipse _netDot;
-        FrameworkElement _focusInfo, _launch, _confirm, _toast, _empty;
+        FrameworkElement _launch, _confirm, _toast, _empty;
         Border _confirmYes, _confirmNo;
         readonly RotateTransform _spin = new RotateTransform();
 
@@ -117,7 +118,8 @@ namespace CouchTV
             _suggestions = Suggestions.Load(out _suggestFetched);
             Content = BuildRoot();
             BuildTiles();
-            _row = FirstRow();
+            int firstPosters = FirstContentRow();
+            _row = firstPosters > 0 ? firstPosters : FirstRow();   // straight onto the posters: it's about what to watch
             RefreshFocus(false);
             UpdateClock();
             UpdateNetwork();
@@ -141,8 +143,17 @@ namespace CouchTV
                 Keyboard.Focus(this);
                 if (_opt.StartupMessage != null) Toast(_opt.StartupMessage);
             };
-            Activated += (s, e) => { UpdateNetwork(); Keyboard.Focus(this); };
-            Deactivated += (s, e) => HideLaunch();      // the app is in front now
+            Activated += (s, e) =>
+            {
+                UpdateNetwork();
+                Keyboard.Focus(this);
+                if (_trailerTimer != null && _heroShown != null && _heroShown.Trailer != null) _trailerTimer.Start();   // back home: its trailer again
+            };
+            Deactivated += (s, e) =>
+            {
+                HideLaunch();      // the app is in front now
+                StopTrailer();
+            };
             SystemEvents.DisplaySettingsChanged += OnDisplayChanged;
             SystemEvents.PowerModeChanged += OnPowerChanged;
             NetworkChange.NetworkAvailabilityChanged += OnNetworkChanged;
@@ -204,99 +215,103 @@ namespace CouchTV
 
         void BuildHeader()
         {
+            // The top strip's right end: an update waiting, the network (a dot, its word only when it's not right),
+            // and the time. (The greeting and the date are kept up to date, not shown.)
             _greeting = Theme.Text("", 30, Theme.Muted, FontWeights.Normal);
-            Place(_greeting, Side, 72);
-
-            var clock = new StackPanel { Orientation = Orientation.Horizontal };
-            _time = Theme.Text("", 128, Theme.Ink, FontWeights.Light, Theme.Display);
-            _ampm = Theme.Text("", 38, Theme.Muted, FontWeights.Normal, Theme.Display);
-            _ampm.VerticalAlignment = VerticalAlignment.Bottom;
-            _ampm.Margin = new Thickness(14, 0, 0, 30);
-            clock.Children.Add(_time);
-            clock.Children.Add(_ampm);
-            Place(clock, Side - 6, 104);
-
-            var right = new StackPanel();
-            _date = Theme.Text("", 30, Theme.Hex("#D6DBE4"), FontWeights.Normal);
-            _date.HorizontalAlignment = HorizontalAlignment.Right;
-            var pill = new Border
-            {
-                CornerRadius = new CornerRadius(22), Padding = new Thickness(18, 8, 20, 9), Margin = new Thickness(0, 18, 0, 0),
-                Background = Theme.Brush(Color.FromArgb(0x1F, 255, 255, 255)), HorizontalAlignment = HorizontalAlignment.Right,
-            };
-            var pillRow = new StackPanel { Orientation = Orientation.Horizontal };
-            _netDot = new Ellipse { Width = 12, Height = 12, Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center };
-            _net = Theme.Text("", 22, Theme.Ink, FontWeights.Normal);
-            pillRow.Children.Add(_netDot);
-            pillRow.Children.Add(_net);
-            pill.Child = pillRow;
-            pill.Margin = new Thickness(0);
-            var pills = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 18, 0, 0) };
-            pills.Children.Add(_updatePill = BuildUpdatePill());
-            pills.Children.Add(pill);
-            right.Children.Add(_date);
-            right.Children.Add(pills);
+            _date = Theme.Text("", 24, Theme.Muted, FontWeights.Normal);
+            var right = new StackPanel { Orientation = Orientation.Horizontal };
+            right.Children.Add(_updatePill = BuildUpdatePill());
+            _netDot = new Ellipse { Width = 12, Height = 12, Margin = new Thickness(22, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center };
+            _net = Theme.Text("", 22, Theme.Muted, FontWeights.Normal);
+            _net.VerticalAlignment = VerticalAlignment.Center;
+            right.Children.Add(_netDot);
+            right.Children.Add(_net);
+            _time = Theme.Text("", 40, Theme.Ink, FontWeights.Normal, Theme.Display);
+            _time.Margin = new Thickness(24, 0, 0, 0);
+            _time.VerticalAlignment = VerticalAlignment.Center;
+            _ampm = Theme.Text("", 22, Theme.Muted, FontWeights.Normal, Theme.Display);
+            _ampm.Margin = new Thickness(8, 8, 0, 0);
+            _ampm.VerticalAlignment = VerticalAlignment.Center;
+            right.Children.Add(_time);
+            right.Children.Add(_ampm);
             Canvas.SetRight(right, Side);
-            Canvas.SetTop(right, 86);
+            Canvas.SetTop(right, StripTop + 10);
             _stage.Children.Add(right);
 
-            BuildMediaCard();   // what's playing behind the home screen, between the clock and the date
+            BuildHero();
+            BuildMediaCard();   // what's playing behind the home screen, at the hero's right (no trailer meanwhile)
         }
 
         void BuildRows()
         {
-            Place(SectionLabel("Apps"), Side, 352);
-            var appsHost = new Canvas { Width = DesignW - 2 * Side + 2 * RingPad, Height = TileH + 2 * RingPad };
+            // The tabs along the top (row 0): All, then the apps (BuildTiles). Room is left for the time at the right.
+            var appsHost = new Canvas { Width = DesignW - 2 * Side - 380 + 2 * RingPad, Height = TabH + 2 * RingPad };
             _appsHost = appsHost;
             _appsRow = new StackPanel { Orientation = Orientation.Horizontal, RenderTransform = _appsShift };
             appsHost.Children.Add(_appsRow);
-            Place(appsHost, Side - RingPad, 400);
+            Place(appsHost, Side - 2 * RingPad, StripTop - RingPad);
 
             _empty = Theme.Text("No apps yet. Add some to couchtv.ini, then press F5.", 28, Theme.Muted, FontWeights.Normal);
-            Place(_empty, Side, 470);
+            Place(_empty, Side, RowsTop + 70);
 
-            var info = new StackPanel();
-            _focusTitle = Theme.Text("", 34, Theme.Ink, FontWeights.SemiBold);
-            _focusHint = Theme.Text("", 22, Theme.Muted, FontWeights.Normal);
-            _focusHint.Margin = new Thickness(0, 4, 0, 0);
-            info.Children.Add(_focusTitle);
-            info.Children.Add(_focusHint);
-            _focusInfo = info;
-            Place(info, Side, 618);
+            // The rows of posters come and go with the list and the tab (BuildSuggestionRows); LayoutRows shows one.
 
-            // The suggestion rows come and go with the list (BuildSuggestionRows); LayoutRows places them.
-
-            Place(_sysHeading = SectionLabel("Settings & power"), Side, 734);
+            Place(_sysHeading = SectionLabel("Settings & power"), Side, RowsTop);
             var sysHost = new Canvas { Width = DesignW - 2 * Side + (SysW - DiscSize), Height = 180 };
             _sysRow = new StackPanel { Orientation = Orientation.Horizontal, RenderTransform = _sysShift };
             sysHost.Children.Add(_sysRow);
-            Place(_sysHost = sysHost, Side - (SysW - DiscSize) / 2, 782);
-
-            var hints = new StackPanel { Orientation = Orientation.Horizontal };
-            hints.Children.Add(KeyHint("OK", "Open"));
-            hints.Children.Add(KeyHint("Home", "Come back here (or hold Back)"));
-            hints.Children.Add(KeyHint("← ↑ → ↓", "Move"));
-            Place(_hints = hints, Side, 996);
+            Place(_sysHost = sysHost, Side - (SysW - DiscSize) / 2, RowsTop + RowHeadH + 8);
         }
 
-        /// <summary>
-        /// Puts the rows under the apps one after another: the suggestion rows that have anything, then settings &amp;
-        /// power. Without suggestions the screen is as it always was, key hints and all.
-        /// </summary>
+        /// <summary>The rows under the hero, all in the one place: only the row being chosen shows (LayoutRows, ShowRows).</summary>
         void LayoutRows()
         {
-            _rowTop[RowApps] = 352;
-            double y = 734;
-            bool any = false;
+            _rowTop[RowApps] = StripTop;
             for (int i = 0; i < _content.Count; i++)
             {
                 ContentRow row = _content[i];
-                y = PlaceRow(i + 1, row.Heading, row.Host, row.Tiles.Count > 0, y, row.H + 2 * RingPad + SuggestionTextH);
-                any |= row.Tiles.Count > 0;
+                _rowTop[i + 1] = RowsTop;
+                Canvas.SetTop(row.Heading, RowsTop);
+                Canvas.SetTop(row.Host, RowsTop + RowHeadH);
             }
-            PlaceRow(RowSystem, _sysHeading, _sysHost, true, y, 180);
-            _pageBottom = Math.Max(DesignH, y + HeadingGap + 200);
-            _hints.Visibility = any ? Visibility.Collapsed : Visibility.Visible;
+            _rowTop[RowSystem] = RowsTop;
+            _pageBottom = DesignH;
+            ShowRows(false);
+        }
+
+        int _rowShown = -1;
+
+        /// <summary>
+        /// The row being chosen shows under the hero (from the tabs, the tab's first row); a new one rises in as the
+        /// last goes.
+        /// </summary>
+        void ShowRows(bool animate)
+        {
+            int shown = _row > RowApps ? _row : FirstContentRow();
+            bool changed = shown != _rowShown;
+            _rowShown = shown;
+            for (int r = RowApps + 1; r <= RowSystem; r++)
+            {
+                FrameworkElement heading = r == RowSystem ? _sysHeading : _content[r - 1].Heading, host = r == RowSystem ? _sysHost : _content[r - 1].Host;
+                bool on = r == shown;
+                heading.Visibility = host.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+                if (!on || !changed) continue;
+                var rise = host.RenderTransform as TranslateTransform;
+                if (rise == null) host.RenderTransform = rise = new TranslateTransform();
+                if (animate)
+                {
+                    host.Opacity = heading.Opacity = 0;
+                    rise.Y = 40;
+                    Theme.AnimateTo(host, OpacityProperty, 1, true);
+                    Theme.AnimateTo(heading, OpacityProperty, 1, true);
+                    Theme.AnimateTo(rise, TranslateTransform.YProperty, 0, true);
+                }
+                else
+                {
+                    host.Opacity = heading.Opacity = 1;
+                    rise.Y = 0;
+                }
+            }
         }
 
         double PlaceRow(int row, FrameworkElement heading, FrameworkElement host, bool shown, double y, double height)
@@ -345,9 +360,10 @@ namespace CouchTV
             _toastText = Theme.Text("", 24, Theme.Ink, FontWeights.Normal);
             return new Border
             {
-                CornerRadius = new CornerRadius(18), Padding = new Thickness(28, 14, 28, 16), Margin = new Thickness(0, 74, 0, 0),
+                CornerRadius = new CornerRadius(18), Padding = new Thickness(28, 14, 28, 16), Margin = new Thickness(0, 0, 0, 56),
                 Background = Theme.Brush(Theme.Alpha(Theme.Panel, 0xF2)), BorderBrush = Theme.Brush(Color.FromArgb(0x26, 255, 255, 255)),
-                BorderThickness = new Thickness(1), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top,
+                // At the bottom, over the posters: the hero's trailer is a window of its own, which would hide it.
+                BorderThickness = new Thickness(1), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom,
                 MaxWidth = 1000,
                 Child = _toastText, Opacity = 0, IsHitTestVisible = false,
             };
@@ -429,12 +445,17 @@ namespace CouchTV
             _sys.Clear();
             _appsRow.Children.Clear();
             _sysRow.Children.Clear();
-            foreach (Tile t in _cfg.AppTiles)
+            // The tabs: All, then each app (still the way to open one: OK on its tab).
+            var tabs = new List<Tile> { AllTab };
+            tabs.AddRange(_cfg.AppTiles);
+            foreach (Tile t in tabs)
             {
-                TileView v = MakeAppTile(t);
+                TileView v = MakeTabTile(t);
                 _apps.Add(v);
                 _appsRow.Children.Add(v.Root);
             }
+            _tabIndex = Math.Max(0, tabs.FindIndex(t => t.Name == _tabName));
+            _tabName = tabs[_tabIndex].Name;
             if (_appUpdate != null)
             {
                 TileView update = MakeSystemTile(UpdateTile);
@@ -454,7 +475,7 @@ namespace CouchTV
                 BuildSuggestionRows();
                 LayoutRows();
             });
-            _empty.Visibility = _apps.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            _empty.Visibility = _apps.Count <= 1 ? Visibility.Visible : Visibility.Collapsed;
             UpdateBadges();
             UpdateSleepCaption();
         }
@@ -587,9 +608,19 @@ namespace CouchTV
             };
         }
 
-        /// <summary>OK on a tile: open its app, or play the film or song.</summary>
+        /// <summary>OK on a tile: open its app (its tab), or play the film or song; on All, down to the posters.</summary>
         void OpenView(TileView v)
         {
+            if (v.Tile == AllTab)
+            {
+                int first = FirstContentRow();
+                if (first > 0)
+                {
+                    _row = first;
+                    RefreshFocus(true);
+                }
+                return;
+            }
             if (_opt.Opened != null)
             {
                 _opt.Opened(v.Suggestion != null ? v.Suggestion.Title : v.Tile.Label);
@@ -679,6 +710,7 @@ namespace CouchTV
                 int next = _col[_row] + dCol;
                 if (next < 0 || next >= Row(_row).Count) return;
                 _col[_row] = next;
+                if (_row == RowApps) TabChosen();   // along the tabs: that tab's rows
             }
             RefreshFocus(true);
         }
@@ -690,27 +722,23 @@ namespace CouchTV
             if (c < 0 || (_row == r && _col[r] == c)) return;
             _row = r;
             _col[r] = c;
+            if (r == RowApps) TabChosen();
             RefreshFocus(true);
         }
 
         void RefreshFocus(bool animate)
         {
-            for (int r = 0; r < RowCount; r++)
+            for (int r = RowApps + 1; r < RowCount; r++)
             {
                 List<TileView> row = Row(r);
                 for (int c = 0; c < row.Count; c++) ApplyFocusStyle(row[c], !_mediaFocused && r == _row && c == _col[r], animate);
                 ScrollRow(r, animate);
             }
+            StyleTabs(animate);
+            ShowRows(animate);
             ScrollPage(animate);
             StyleMediaCard(animate);
-            TileView f = Focused;
-            bool showInfo = f != null && _row == RowApps && !_mediaFocused;
-            if (showInfo)
-            {
-                _focusTitle.Text = f.Tile.Label;
-                _focusHint.Text = HintFor(f.Tile);
-            }
-            Theme.AnimateTo(_focusInfo, OpacityProperty, showInfo ? 1 : 0, animate);
+            UpdateHero(animate);
         }
 
         void ApplyFocusStyle(TileView v, bool on, bool animate)
@@ -718,7 +746,7 @@ namespace CouchTV
             if (v.Styled && v.Focused == on) return;
             v.Styled = true;
             v.Focused = on;
-            double scale = on ? 1.1 : 1.0;
+            double scale = on ? (v.Suggestion != null ? 1.05 : 1.1) : 1.0;   // a poster grows up from its foot, not off the screen
             Theme.AnimateTo(v.Scale, ScaleTransform.ScaleXProperty, scale, animate);
             Theme.AnimateTo(v.Scale, ScaleTransform.ScaleYProperty, scale, animate);
             Panel.SetZIndex(v.Root, on ? 1 : 0);
@@ -740,7 +768,7 @@ namespace CouchTV
         /// <summary>Slides a row sideways so the focused tile is always fully on screen.</summary>
         void ScrollRow(int r, bool animate)
         {
-            if (Row(r).Count == 0) return;
+            if (r == RowApps || Row(r).Count == 0) return;   // the tabs all fit
             double pitch, item;
             double limit = RowMetrics(r, out pitch, out item);
             double view = RowView(r);
@@ -757,7 +785,12 @@ namespace CouchTV
         double RowMetrics(int r, out double pitch, out double item)
         {
             bool suggestions = r > RowApps && r < RowSystem;
-            double width = r == RowApps ? TileW : suggestions ? _content[r - 1].W : 0;
+            if (r == RowApps)
+            {
+                pitch = item = 200;   // the tabs don't slide: they all fit
+                return 0;
+            }
+            double width = suggestions ? _content[r - 1].W : 0;
             pitch = r == RowApps ? TileW + TileGap : r == RowSystem ? SysW + SysGap : width + CardGap;
             item = r == RowSystem ? SysW : width + 2 * RingPad;
             double total = (Row(r).Count - 1) * pitch + item;
@@ -773,9 +806,7 @@ namespace CouchTV
         /// </summary>
         void ScrollPage(bool animate)
         {
-            double offset = _row == RowApps ? 0 : _rowTop[_row] - 110;
-            offset = Math.Max(0, Math.Min(offset, _pageBottom - DesignH));
-            Theme.AnimateTo(_pageShift, TranslateTransform.YProperty, -offset, animate);
+            Theme.AnimateTo(_pageShift, TranslateTransform.YProperty, 0, animate);   // it fits: the rows take turns under the hero
         }
 
         static string HintFor(Tile t)
@@ -798,6 +829,7 @@ namespace CouchTV
         {
             Key key = e.Key == Key.System ? e.SystemKey : e.Key;
             if (key == Key.F4 && (Keyboard.Modifiers & ModifierKeys.Alt) != 0) return;   // let Alt+F4 reach OnClosing
+            Dispatcher.BeginInvoke(new Action(TrailerTick));   // after the key: a screen it opened stops the trailer
             UsingKeys();
             if (_updating)
             {
@@ -1235,6 +1267,7 @@ namespace CouchTV
 
         void ShowLaunch(Tile t)
         {
+            StopTrailer();
             _launchText.Text = "Opening " + t.Label + "…";
             _launchHint.Text = LaunchHintText;
             _launch.Visibility = Visibility.Visible;
@@ -1293,6 +1326,7 @@ namespace CouchTV
         void OnTick(object sender, EventArgs e)
         {
             _ticks++;
+            TrailerTick();
             DateTime now = DateTime.Now;
             UpdateClock();
             if (_ticks % 5 == 0)
@@ -1338,7 +1372,7 @@ namespace CouchTV
             bool? internet = linked ? InternetConnected() : false;
             string text = internet == false ? (linked ? "No internet" : "Offline") : "Online";
             Color dot = internet == false ? (linked ? Theme.Warn : Theme.Bad) : Theme.Good;
-            SetText(_net, text);
+            SetText(_net, internet == false ? text : "");   // just the dot while all's well
             _netDot.Fill = Theme.Brush(dot);
         }
 
@@ -1693,6 +1727,7 @@ namespace CouchTV
             if (row < 0 || row >= RowCount || Row(row).Count == 0) row = FirstRow();
             _row = row;
             _col[row] = Math.Max(0, Math.Min(col, Row(row).Count - 1));
+            if (row == RowApps) TabChosen();   // a tab: its rows below
             RefreshFocus(false);
             if (state.Contains("update")) ShowUpdateBadge(true);
             if (state.Contains("sleep"))

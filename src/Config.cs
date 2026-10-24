@@ -63,6 +63,7 @@ namespace CouchTV
         public bool NetflixTidy = true;                       // Netflix without its big trailer and games rows
         public bool HotstarAds = true;                        // JioHotstar's films and shows without their ads (Sites.cs)
         public bool PrimeAds = true;                          // Prime Video's too
+        public string Trailers = "sound";                     // the home screen hero's trailers: sound, muted or off
         public bool NetflixPickProfile = true;                // Netflix's "Who's watching?" answered by itself, with...
         public string NetflixProfile = "CouchTV";             // ...this profile
         public readonly List<string> Subscriptions = new List<string>();   // tile names you pay for; empty = don't filter
@@ -207,6 +208,8 @@ namespace CouchTV
             NetflixTidy = GetBool(v, "NetflixTidy", true);
             HotstarAds = GetBool(v, "HotstarAds", true);
             PrimeAds = GetBool(v, "PrimeAds", true);
+            string trailers = Get(v, "Trailers", "sound").Trim().ToLowerInvariant();
+            Trailers = trailers == "muted" || trailers == "off" ? trailers : "sound";
             NetflixPickProfile = GetBool(v, "NetflixPickProfile", true);
             NetflixProfile = (Get(v, "NetflixProfile", NetflixProfile) ?? "").Trim();
             // LiveTv = on|off, LiveTvLanguages = TEL, HIN, ENG. (A file from just before: LiveTv = TEL, HIN, ENG, meaning on.)

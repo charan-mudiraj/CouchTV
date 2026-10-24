@@ -1524,6 +1524,70 @@ namespace CouchTV
         /// on a film opens it, a swipe along the row slides the row (settling on a card) and opens nothing, a swipe up
         /// slides the page. Nothing really opens. Needs suggestions (run the TV, or --suggesttest, once).
         /// </summary>
+        /// <summary>
+        /// CouchTV.exe --trailertest report.txt: the home screen in a window for a few seconds (muted), waiting for the
+        /// hero's trailer to play in its WebView2; the screen there is saved beside the report (report.png).
+        /// </summary>
+        public static int TrailerTest(string path)
+        {
+            var report = new StringBuilder();
+            bool played = false;
+            string whyNot = "";
+            var app = new Application();
+            Config cfg = Config.Load();
+            cfg.Trailers = "muted";
+            var home = new HomeWindow(cfg, new HomeOptions { Windowed = true, IgnoreMedia = true });
+            home.Topmost = true;
+            DateTime started = DateTime.Now;
+            home.ContentRendered += (s, e) =>
+            {
+                home.Activate();   // a windowed home screen opens without the focus; trailers play only when it's in front
+                var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+                timer.Tick += (s2, e2) =>
+                {
+                    double waited = (DateTime.Now - started).TotalSeconds;
+                    if (home.TrailerPlaying && waited > 3)
+                    {
+                        // A moment more, so it's faded in, then the screen where the window is.
+                        played = true;
+                        timer.Stop();
+                        home.ProbeTrailer(said => { lock (report) report.AppendLine("  frame: " + said); });
+                        var later = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2.5) };
+                        later.Tick += (s3, e3) =>
+                        {
+                            later.Stop();
+                            try
+                            {
+                                Matrix device = PresentationSource.FromVisual(home).CompositionTarget.TransformToDevice;
+                                int x = (int)(home.Left * device.M11), y = (int)(home.Top * device.M22), w = (int)(home.ActualWidth * device.M11), h = (int)(home.ActualHeight * device.M22);
+                                using (var bitmap = new System.Drawing.Bitmap(w, h))
+                                {
+                                    using (var g = System.Drawing.Graphics.FromImage(bitmap)) g.CopyFromScreen(x, y, 0, 0, new System.Drawing.Size(w, h));
+                                    bitmap.Save(Path.ChangeExtension(path, ".png"), System.Drawing.Imaging.ImageFormat.Png);
+                                }
+                            }
+                            catch (Exception ex) { report.AppendLine("screen: " + ex.Message); }
+                            app.Shutdown();
+                        };
+                        later.Start();
+                    }
+                    else if (waited > 25)
+                    {
+                        whyNot = home.TrailerWhyNot();
+                        timer.Stop();
+                        app.Shutdown();
+                    }
+                };
+                timer.Start();
+            };
+            app.Run(home);
+            report.AppendLine((played ? "PASS  " : "FAIL  ") + "the hero's trailer played (" + (home.HeroTitle ?? "no title") + ")" +
+                              (played ? "" : "; held back by: " + whyNot));
+            foreach (string line in Log.Tail(60).FindAll(l => l.Contains("Trailers:"))) report.AppendLine("  log: " + line);
+            File.WriteAllText(path, report.ToString());
+            return played ? 0 : 1;
+        }
+
         public static int DragTest(string path)
         {
             var report = new StringBuilder();
@@ -1573,7 +1637,7 @@ namespace CouchTV
                     lock (opened) count = opened.Count;
                     if (step == 1)
                     {
-                        if (home.SlideLimit(row) <= 0 || home.SlideLimit(-1) <= 0)
+                        if (home.SlideLimit(row) <= 0)
                         {
                             report.AppendLine("SKIP  no suggestions to slide (run --suggesttest first)");
                             timer.Stop();
@@ -1603,7 +1667,7 @@ namespace CouchTV
                     }
                     else if (step == 4)
                     {
-                        check("a swipe up slides the page (" + Math.Round(home.Slid(-1)) + ")", home.Slid(-1) > 100);
+                        check("a swipe up goes to the next row (" + home.FocusedRow + ")", home.FocusedRow == row + 1);
                         check("...not the films along (" + Math.Round(home.Slid(row)) + ")", Math.Abs(home.Slid(row) - slidRow) < 1);
                         check("...and opens nothing", count == 1);
                         timer.Stop();

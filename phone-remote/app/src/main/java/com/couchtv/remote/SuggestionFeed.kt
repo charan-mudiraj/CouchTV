@@ -15,8 +15,7 @@ import java.util.concurrent.Executors
 /**
  * The first page's list, there with the TV off too, so you can choose before turning it on. With the TV connected
  * it's the TV's own list ([fromTv]); otherwise the phone fetches the same rows itself, from the same places as the TV
- * (JustWatch's films and series popular in India, and on each app you pay for once there are two; Apple Music's
- * most-played songs in India), picked for the TV's apps and subscriptions as the TV last told this phone ([setSetup]).
+ * (JustWatch's films and series popular in India; Apple Music's most-played songs in India), picked for the TV's apps and subscriptions as the TV last told this phone ([setSetup]).
  * Kept between runs; fetched again once 3 hours old.
  */
 class SuggestionFeed(context: Context) {
@@ -24,7 +23,6 @@ class SuggestionFeed(context: Context) {
         private const val TAG = "CouchTV"
         private const val STALE_MS = 3 * 3600 * 1000L
         private const val MOST = 20
-        private const val MOST_PER_APP = 15
         private const val JUSTWATCH = "https://apis.justwatch.com/graphql"
         private const val JUSTWATCH_IMAGES = "https://images.justwatch.com"
         private const val APPLE_CHART = "https://rss.applemarketingtools.com/api/v2/in/music/most-played/50/songs.json"
@@ -142,9 +140,9 @@ class SuggestionFeed(context: Context) {
     // ---------------------------------------------------------------- fetching, as the TV does (Suggestions.cs)
 
     /**
-     * The films-and-series rows, as the TV makes them (Suggestions.Titles): popular films (this year's and last),
-     * popular series, and once you pay for two apps or more, what's popular on each. A title once, in the first row
-     * it's in; a row that couldn't be fetched keeps what it had ([before]), and if none could be, this throws.
+     * The films-and-series rows, as the TV makes them for its All tab (Suggestions.Titles): popular films (this
+     * year's and last) and popular series. A title once, in the first row it's in; a row that couldn't be fetched
+     * keeps what it had ([before]), and if none could be, this throws.
      */
     private fun titles(setup: Setup, before: List<Suggestion>): List<Suggestion> {
         val apps = setup.apps.filter { it.key != "youtube" }.associateBy { it.key }
@@ -171,11 +169,6 @@ class SuggestionFeed(context: Context) {
         }
         row("films", app.getString(R.string.suggestions_movies), apps, listOf("MOVIE"), true, MOST)
         row("series", app.getString(R.string.row_series), apps, listOf("SHOW"), false, MOST)
-        val yours = setup.apps.filter { it.yours && it.key in apps }.map { it.key }.distinct()
-        if (yours.size >= 2) for (key in yours) {
-            val one = apps.getValue(key)
-            row("app:$key", app.getString(R.string.row_app, one.label), mapOf(key to one), listOf("MOVIE", "SHOW"), false, MOST_PER_APP)
-        }
         if (failures == tried) throw error ?: IOException("nothing fetched")
         return list
     }

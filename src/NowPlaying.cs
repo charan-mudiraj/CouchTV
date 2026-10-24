@@ -147,6 +147,13 @@ namespace CouchTV
             }
         }
 
+        /// <summary>The home screen's own trailers (a WebView2 in CouchTV): never "what's playing".</summary>
+        static bool Ours(GlobalSystemMediaTransportControlsSession s)
+        {
+            string id = s.SourceAppUserModelId ?? "";
+            return id.IndexOf("WebView2", StringComparison.OrdinalIgnoreCase) >= 0 || id.IndexOf("CouchTV", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
         /// <summary>The one to show: whatever's playing, else what Windows calls current, else anything paused.</summary>
         static GlobalSystemMediaTransportControlsSession Pick(GlobalSystemMediaTransportControlsSessionManager manager)
         {
@@ -158,12 +165,13 @@ namespace CouchTV
                     if (s.SourceAppUserModelId == prefer && Active(s.GetPlaybackInfo().PlaybackStatus)) return s;
             foreach (GlobalSystemMediaTransportControlsSession s in sessions)
             {
+                if (Ours(s)) continue;
                 GlobalSystemMediaTransportControlsSessionPlaybackStatus status = s.GetPlaybackInfo().PlaybackStatus;
                 if (status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing) return s;
                 if (paused == null && Active(status)) paused = s;
             }
             GlobalSystemMediaTransportControlsSession current = manager.GetCurrentSession();
-            if (current != null && Active(current.GetPlaybackInfo().PlaybackStatus)) return current;
+            if (current != null && !Ours(current) && Active(current.GetPlaybackInfo().PlaybackStatus)) return current;
             return paused;
         }
 
@@ -175,7 +183,7 @@ namespace CouchTV
             if (prefer != null)
                 foreach (GlobalSystemMediaTransportControlsSession s in manager.GetSessions())
                 {
-                    if (s.SourceAppUserModelId == prefer || s.GetPlaybackInfo().PlaybackStatus != GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing) continue;
+                    if (s.SourceAppUserModelId == prefer || Ours(s) || s.GetPlaybackInfo().PlaybackStatus != GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing) continue;
                     GlobalSystemMediaTransportControlsSessionTimelineProperties timeline = s.GetTimelineProperties();
                     if (IsFilm((long)(timeline.EndTime - timeline.StartTime).TotalMilliseconds))
                     {

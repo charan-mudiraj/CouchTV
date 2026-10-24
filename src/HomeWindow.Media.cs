@@ -456,10 +456,10 @@ namespace CouchTV
             };
             _cardRing = ring;
             _card = host;
-            Place(host, (DesignW - CardW) / 2, CardTop);
+            Place(host, DesignW - Side - CardW, HeroTop + 24);   // over the hero's picture, at its right (no trailer while something plays)
 
             _cardHints = new Grid { Width = 1200, Opacity = 0, IsHitTestVisible = false };
-            Place(_cardHints, DesignW / 2 - 600, CardTop + CardH + 20);
+            Place(_cardHints, DesignW - Side - CardW / 2 - 600, HeroTop + 24 + CardH + 20);
             _titleShown = null;
             _artShown = "";
             _cardShown = false;
