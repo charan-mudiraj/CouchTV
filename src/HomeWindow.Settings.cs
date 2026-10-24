@@ -62,10 +62,13 @@ namespace CouchTV
                     Values = OnOffValues, Names = OnOffNames, Get = () => OnOff(_cfg.SuggestMovies),
                     Set = v => { _cfg.SuggestMovies = v == "on"; SuggestionChoiceChanged(); },
                 },
-                LiveSetting("TEL"),
-                LiveSetting("HIN"),
-                LiveSetting("ENG"),
-                LiveSetting("TAM"),
+                new TvSetting
+                {
+                    Key = "livetv", Label = "Live TV channels",
+                    Note = "Rows of YuppTV's channels under the apps, with what's on now (LiveTvLanguages in couchtv.ini: which)",
+                    Values = OnOffValues, Names = OnOffNames, Get = () => OnOff(_cfg.LiveTvOn),
+                    Set = v => { _cfg.LiveTvOn = v == "on"; LiveChoiceChanged(); },
+                },
                 new TvSetting
                 {
                     Key = "songs", Label = "Top songs", Note = "Under the films, played on YouTube",
@@ -136,31 +139,6 @@ namespace CouchTV
                     Key = "updates", Label = "Check for updates", Note = "Every 10 minutes; the Update tile installs one",
                     Values = OnOffValues, Names = OnOffNames, Get = () => OnOff(_cfg.Updates),
                     Set = v => { _cfg.Updates = v == "on"; SaveSetting("Updates", v); },
-                },
-            };
-        }
-
-        /// <summary>A Live TV row for one of YuppTV's languages, on or off.</summary>
-        TvSetting LiveSetting(string code)
-        {
-            return new TvSetting
-            {
-                Key = "live" + code.ToLowerInvariant(), Label = "Live TV: " + LiveTv.LanguageName(code),
-                Note = code == "TEL" ? "A row of YuppTV's channels in each language chosen, with what's on now" : null,
-                Values = OnOffValues, Names = OnOffNames, Get = () => OnOff(_cfg.LiveTv.Contains(code)),
-                Set = v =>
-                {
-                    _cfg.LiveTv.Remove(code);
-                    if (v == "on")
-                    {
-                        // In YuppTV's order of languages, so the rows always come the same way round.
-                        var order = new List<string>();
-                        foreach (string[] l in LiveTv.Languages) if (l[0] == code || _cfg.LiveTv.Contains(l[0])) order.Add(l[0]);
-                        foreach (string c in _cfg.LiveTv) if (!order.Contains(c)) order.Add(c);
-                        _cfg.LiveTv.Clear();
-                        _cfg.LiveTv.AddRange(order);
-                    }
-                    LiveChoiceChanged();
                 },
             };
         }

@@ -65,7 +65,8 @@ namespace CouchTV
         public bool NetflixPickProfile = true;                // Netflix's "Who's watching?" answered by itself, with...
         public string NetflixProfile = "CouchTV";             // ...this profile
         public readonly List<string> Subscriptions = new List<string>();   // tile names you pay for; empty = don't filter
-        public readonly List<string> LiveTv = new List<string>();          // YuppTV's languages for the Live TV rows (TEL, HIN…); empty = none
+        public bool LiveTvOn;                                               // the Live TV rows under the apps (off: the user doesn't watch channels)
+        public readonly List<string> LiveTvLanguages = new List<string>(); // ...in YuppTV's languages (TEL, HIN…), a row each
         public string Source;
 
         public static string AppDir { get { return AppDomain.CurrentDomain.BaseDirectory; } }
@@ -206,10 +207,14 @@ namespace CouchTV
             HotstarAds = GetBool(v, "HotstarAds", true);
             NetflixPickProfile = GetBool(v, "NetflixPickProfile", true);
             NetflixProfile = (Get(v, "NetflixProfile", NetflixProfile) ?? "").Trim();
-            foreach (string code in Get(v, "LiveTv", "off").Split(','))
+            // LiveTv = on|off, LiveTvLanguages = TEL, HIN, ENG. (A file from just before: LiveTv = TEL, HIN, ENG, meaning on.)
+            string live = Get(v, "LiveTv", "off").Trim();
+            bool listed = !live.Equals("on", StringComparison.OrdinalIgnoreCase) && !live.Equals("off", StringComparison.OrdinalIgnoreCase) && live.Length > 0;
+            LiveTvOn = live.Equals("on", StringComparison.OrdinalIgnoreCase) || listed;
+            foreach (string code in (listed ? live : Get(v, "LiveTvLanguages", "TEL, HIN, ENG")).Split(','))
             {
                 string c = code.Trim().ToUpperInvariant();
-                if (c.Length == 3 && !LiveTv.Contains(c) && CouchTV.LiveTv.LanguageName(c) != c) LiveTv.Add(c);
+                if (c.Length == 3 && !LiveTvLanguages.Contains(c) && CouchTV.LiveTv.LanguageName(c) != c) LiveTvLanguages.Add(c);
             }
             string subscriptions = Get(v, "Subscriptions", null);
             if (subscriptions != null)

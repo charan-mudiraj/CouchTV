@@ -11,7 +11,7 @@ namespace CouchTV
     /// </summary>
     internal static class ConfigUpgrade
     {
-        public const int Latest = 4;
+        public const int Latest = 5;
 
         /// <summary>The file's text with any pending changes applied; changes lists what was done.</summary>
         public static string Apply(string text, List<string> changes)
@@ -78,6 +78,26 @@ namespace CouchTV
                 text = Set(text, "CouchTV", "Subscriptions", "Netflix, Prime Video, JioHotstar, ZEE5, Sun NXT, ETV Win, YuppTV", true);
                 text = Set(text, "CouchTV", "LiveTv", "TEL, HIN, ENG", true);
                 changes.Add("ZEE5, Sun NXT, ETV Win and YuppTV tiles, all of ACT's bundle as subscriptions, Live TV in Telugu, Hindi and English");
+            }
+            if (version < 5)
+            {
+                // October 2026: ZEE5, Sun NXT, ETV Win and YuppTV in Brave, on CouchTV's own Brave profile: its Shields
+                // hide their banners and clutter (the picture's capped at 720p there, close to the TV's own 1366x768).
+                // Netflix, Prime Video and JioHotstar stay in Edge. And Live TV off (the user doesn't watch channels):
+                // one switch now, LiveTv = on|off, the languages kept in LiveTvLanguages for if it's switched on.
+                var moved = new List<string>();
+                foreach (string name in new[] { "ZEE5", "Sun NXT", "ETV Win", "YuppTV" })
+                {
+                    if (!string.Equals(Get(text, name, "Browser"), "edge", StringComparison.OrdinalIgnoreCase)) continue;
+                    text = Set(text, name, "Browser", "brave", false);
+                    moved.Add(name);
+                }
+                if (moved.Count > 0) changes.Add(string.Join(", ", moved) + " open in Brave");
+                string live = Get(text, "CouchTV", "LiveTv");
+                if (live != null && !live.Equals("on", StringComparison.OrdinalIgnoreCase) && !live.Equals("off", StringComparison.OrdinalIgnoreCase) && live.Length > 0)
+                    text = Set(text, "CouchTV", "LiveTvLanguages", live, true);
+                text = Set(text, "CouchTV", "LiveTv", "off", true);
+                changes.Add("Live TV rows off");
             }
             return Set(text, "CouchTV", "ConfigVersion", Latest.ToString(), true);
         }

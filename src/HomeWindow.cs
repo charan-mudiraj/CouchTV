@@ -1704,7 +1704,8 @@ namespace CouchTV
             if (state.Contains("live"))
             {
                 // The Live TV rows, fetched now (a preview doesn't fetch by itself), with the highlight on them.
-                try { _live = LiveTv.Fetch(_cfg.LiveTv.Count > 0 ? _cfg.LiveTv : new List<string> { "TEL" }, SmartSearch.FindHost(_cfg.AppTiles, "yupptv.com"), _cfg.Clock24, null); }
+                _cfg.LiveTvOn = true;
+                try { _live = LiveTv.Fetch(_cfg.LiveTvLanguages.Count > 0 ? _cfg.LiveTvLanguages : new List<string> { "TEL" }, SmartSearch.FindHost(_cfg.AppTiles, "yupptv.com"), _cfg.Clock24, null); }
                 catch (Exception ex) { Log.Info("Preview: Live TV: " + ex.Message); }
                 RebuildSuggestions();
                 _row = Math.Min(row, RowCount - 1);

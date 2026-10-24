@@ -537,7 +537,7 @@ namespace CouchTV
             check("no subscriptions and nothing known: the plain app row", watch(unsubscribed, new KeyValuePair<Tile, string>[0]) == "");
 
             // ----- one-time settings changes on an installed couchtv.ini from before them
-            string oldIni = System.Text.RegularExpressions.Regex.Replace(Config.DefaultText(), @"(?m)^(Subscriptions = [^\r\n]*|LiveTv = [^\r\n]*|ConfigVersion = \d+|Enabled = false\r?\n(?=Type = app\r?\nExe = %ProgramFiles%\\VideoLAN))\r?\n?", "");
+            string oldIni = System.Text.RegularExpressions.Regex.Replace(Config.DefaultText(), @"(?m)^(Subscriptions = [^\r\n]*|LiveTv = [^\r\n]*|LiveTvLanguages = [^\r\n]*|ConfigVersion = \d+|Enabled = false\r?\n(?=Type = app\r?\nExe = %ProgramFiles%\\VideoLAN))\r?\n?", "");
             // ...without the bundle's tiles, and ZEE5 as it was: hidden, after Web...
             oldIni = System.Text.RegularExpressions.Regex.Replace(oldIni, @"\[(ZEE5|Sun NXT|ETV Win|YuppTV)\](\r?\n[^\r\n]+)*\r?\n\r?\n", "");
             oldIni = oldIni.Replace("[Spotify]", "[ZEE5]\nEnabled = false\nType = web\nUrl = https://www.zee5.com\nBrowser = edge\nBackground = #8230C6\nForeground = #FFFFFF\n\n[Spotify]");
@@ -556,7 +556,13 @@ namespace CouchTV
             check("upgrade: the bundle's tiles, ZEE5 shown and moved up, before Web (" + string.Join(", ", after.AppTiles.ConvertAll(t => t.Name)) + ")",
                 ConfigUpgrade.Get(oldIni, "Sun NXT", "Type") == null && string.Join(", ", after.AppTiles.ConvertAll(t => t.Name)) ==
                 "Netflix, YouTube, Prime Video, JioHotstar, ZEE5, Sun NXT, ETV Win, YuppTV, Web");
-            check("upgrade: Live TV in Telugu, Hindi and English", string.Join(", ", after.LiveTv) == "TEL, HIN, ENG");
+            check("upgrade: Live TV off, its languages kept (Telugu, Hindi, English)", !after.LiveTvOn && string.Join(", ", after.LiveTvLanguages) == "TEL, HIN, ENG");
+            check("upgrade: ZEE5, Sun NXT, ETV Win and YuppTV in Brave; Netflix, Prime Video and JioHotstar in Edge (" +
+                  string.Join(", ", after.AppTiles.ConvertAll(t => t.Name + ":" + t.Browser)) + ")",
+                after.AppTiles.FindAll(t => t.Browser == "brave" && Array.IndexOf(new[] { "ZEE5", "Sun NXT", "ETV Win", "YuppTV" }, t.Name) >= 0).Count == 4 &&
+                after.AppTiles.FindAll(t => t.Browser == "edge" && Array.IndexOf(new[] { "Netflix", "Prime Video", "JioHotstar" }, t.Name) >= 0).Count == 3);
+            Config justBefore = Config.Parse("[CouchTV]\nLiveTv = TEL, HIN\n", "test");
+            check("a file from just before (LiveTv = TEL, HIN) means on, in those languages", justBefore.LiveTvOn && string.Join(", ", justBefore.LiveTvLanguages) == "TEL, HIN");
             Tile bluetoothTile = after.SystemTiles.Find(t => t.Name == "Bluetooth");
             check("upgrade: the Bluetooth tile opens CouchTV's Bluetooth screen, not Windows' wizard",
                 ConfigUpgrade.Get(oldIni, "Bluetooth", "Exe") != null && bluetoothTile != null && bluetoothTile.Kind == TileKind.Action && bluetoothTile.Action == "bluetooth");
@@ -689,11 +695,11 @@ namespace CouchTV
             // The Live TV rows, from YuppTV's guide (yours, with a session kept from its page; else its free channels).
             report.AppendLine();
             report.AppendLine("Live TV (" + (LiveTv.HaveSession ? "YuppTV session from its page" : "as a guest") + "), languages: " +
-                              (cfg.LiveTv.Count == 0 ? "none set, trying TEL" : string.Join(", ", cfg.LiveTv)));
+                              string.Join(", ", cfg.LiveTvLanguages) + (cfg.LiveTvOn ? "" : " (the rows are off; fetched anyway for the test)"));
             try
             {
                 var liveNotes = new StringBuilder();
-                List<Suggestion> live = LiveTv.Fetch(cfg.LiveTv.Count == 0 ? new List<string> { "TEL" } : cfg.LiveTv, yuppTile, cfg.Clock24, liveNotes);
+                List<Suggestion> live = LiveTv.Fetch(cfg.LiveTvLanguages.Count == 0 ? new List<string> { "TEL" } : cfg.LiveTvLanguages, yuppTile, cfg.Clock24, liveNotes);
                 report.AppendLine(live.Count + " channels. " + liveNotes.ToString().Trim());
                 foreach (Suggestion c in live)
                     report.AppendLine("  " + c.Row.PadRight(9) + " " + c.Title + "  |  " + c.Subtitle + "  |  " + c.PlayUrl + "  |  " + (c.ImageFile != null ? Path.GetFileName(c.ImageFile) : "no logo"));

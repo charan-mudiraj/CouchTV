@@ -287,7 +287,7 @@ class SettingsScreen @JvmOverloads constructor(context: Context, attrs: Attribut
         "vibration" -> R.drawable.ic_vibration
         "bluetooth" -> R.drawable.ic_bluetooth_off
         "mirror" -> R.drawable.ic_mirror
-        "livetel", "livehin", "liveeng", "livetam" -> R.drawable.ic_tv
+        "livetv" -> R.drawable.ic_tv
         "hotstarads" -> R.drawable.ic_movie
         else -> R.drawable.ic_settings
     }
@@ -305,7 +305,7 @@ class SettingsScreen @JvmOverloads constructor(context: Context, attrs: Attribut
         "vibration" -> R.color.prime
         "bluetooth" -> R.color.voice_bottom
         "mirror" -> R.color.hotstar
-        "livetel", "livehin", "liveeng", "livetam" -> R.color.power
+        "livetv" -> R.color.power
         "hotstarads" -> R.color.hotstar
         else -> R.color.surface_pressed
     }

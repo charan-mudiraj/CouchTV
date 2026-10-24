@@ -33,7 +33,7 @@ namespace CouchTV
         /// <summary>The suggestions the settings ask for, whose app is on the TV: the live channels first.</summary>
         List<Suggestion> VisibleSuggestions()
         {
-            var shown = _live.FindAll(s => _cfg.LiveTv.Contains(s.Row.Substring(5)) && FindTile(s.App) != null);
+            var shown = _live.FindAll(s => _cfg.LiveTvOn && _cfg.LiveTvLanguages.Contains(s.Row.Substring(5)) && FindTile(s.App) != null);
             shown.AddRange(_suggestions.FindAll(s => (s.Kind == SuggestionKind.Movie ? _cfg.SuggestMovies : _cfg.SuggestSongs) && FindTile(s.App) != null));
             return shown;
         }
@@ -258,14 +258,14 @@ namespace CouchTV
         /// </summary>
         void RefreshLiveIfStale()
         {
-            if (_opt.Preview || _liveFetching || _cfg.LiveTv.Count == 0) return;
+            if (_opt.Preview || _liveFetching || !_cfg.LiveTvOn || _cfg.LiveTvLanguages.Count == 0) return;
             Tile yupp = SmartSearch.FindHost(_cfg.AppTiles, "yupptv.com");
             if (yupp == null) return;
             DateTime now = DateTime.UtcNow;
             if (now - _liveFetched < LiveTv.FreshFor || now - _liveTried < TimeSpan.FromMinutes(1)) return;
             _liveFetching = true;
             _liveTried = now;
-            var languages = new List<string>(_cfg.LiveTv);
+            var languages = new List<string>(_cfg.LiveTvLanguages);
             bool clock24 = _cfg.Clock24;
             ThreadPool.QueueUserWorkItem(state =>
             {
@@ -286,10 +286,10 @@ namespace CouchTV
             });
         }
 
-        /// <summary>The Live TV languages changed (Settings): the rows at once, fetched afresh.</summary>
+        /// <summary>Live TV switched on or off (Settings): the rows go at once, or come once fetched.</summary>
         void LiveChoiceChanged()
         {
-            SaveSetting("LiveTv", _cfg.LiveTv.Count == 0 ? "off" : string.Join(", ", _cfg.LiveTv));
+            SaveSetting("LiveTv", _cfg.LiveTvOn ? "on" : "off");
             RebuildSuggestions();
             _liveFetched = _liveTried = DateTime.MinValue;
             RefreshLiveIfStale();
