@@ -79,6 +79,23 @@ class MainActivity : Activity() {
 
     private val startTrailer = Runnable { playTrailer() }
 
+    // From a PC over adb (TestHooks): taps and swipes, and "tab <key>", "pick <n>" (the nth title of the tab), "watch",
+    // "play <url>" (an address in the player).
+    private val tests = TestHooks(this) { command ->
+        val p = command.split(" ").filter { it.isNotEmpty() }
+        when (p.firstOrNull()) {
+            "tab" -> p.size >= 2 && run { pickTab(p[1]); true }
+            "pick" -> p.size >= 2 && run {
+                val t = rowsFor(tab).flatMap { it.items }.getOrNull(p[1].toIntOrNull() ?: -1)
+                if (t != null) choose(t, scrollUp = true)
+                t != null
+            }
+            "watch" -> run { watch(); true }
+            "play" -> p.size >= 2 && run { PlayerActivity.open(this, p[1]); true }
+            else -> false
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // The lists first: the screen's search page asks them.
@@ -101,6 +118,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         resumed = true
+        tests.start()
         catalog.refresh(apps, force = false)
         scheduleTrailer()
         checkForUpdate(manual = false)
@@ -109,6 +127,7 @@ class MainActivity : Activity() {
     override fun onPause() {
         super.onPause()
         resumed = false
+        tests.stop()
         stopTrailer()
     }
 
@@ -521,25 +540,33 @@ class MainActivity : Activity() {
 
     // ---------------------------------------------------------------- watching
 
-    /** Watch: the title in its app on this phone (a song on YouTube); on an empty app tab, the app itself. */
+    /**
+     * Watch: the title here, in its website's player (YouTube, JioHotstar, ZEE5, Sun NXT, ETV Win), else in its own app
+     * on this phone (Netflix and Prime Video play only there); on an empty app tab, the app itself.
+     */
     private fun watch() {
         val t = hero
         if (t == null) {
             val app = Apps.find(tab) ?: return
-            if (!Opener.open(this, app.home)) toast("${app.label} isn't on this phone, so its website opened")
+            show(app.key, app.home, app.label)
             return
         }
         stopTrailer()
         if (t.kind == Kind.SONG) {
             withVideo(t) { video ->
-                Opener.open(this, if (video != null) "https://www.youtube.com/watch?v=$video"
-                                  else "https://www.youtube.com/results?search_query=" + Uri.encode(t.query ?: t.title))
+                show("youtube", if (video != null) "https://m.youtube.com/watch?v=$video"
+                                else "https://m.youtube.com/results?search_query=" + Uri.encode(t.query ?: t.title), "YouTube")
             }
             return
         }
         val link = t.link ?: return
-        val app = Apps.find(t.appKey)
-        if (!Opener.open(this, link)) toast(if (app != null) "${app.label} isn't on this phone, so its website opened" else "Opened in the browser")
+        show(t.appKey, link, Apps.find(t.appKey)?.label)
+    }
+
+    /** An address of an app's: in the player here when its website plays here, else in the app (or, without it, the browser). */
+    private fun show(appKey: String, url: String, label: String?) {
+        if (PlayerActivity.plays(this, appKey)) return PlayerActivity.open(this, url)
+        if (!Opener.open(this, url)) toast(if (label != null) "$label isn't on this phone, so its website opened" else "Opened in the browser")
     }
 
     /** Play on TV, through CouchTV Remote: a song with its video (else the TV looks for it). */

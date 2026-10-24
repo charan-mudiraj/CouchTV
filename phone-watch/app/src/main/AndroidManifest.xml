@@ -34,6 +34,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- A title playing inside the app, in its website's player: turns with the phone, without starting again. -->
+        <activity
+            android:name=".PlayerActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|navigation|uiMode"
+            android:exported="false"
+            android:screenOrientation="fullUser"
+            android:theme="@style/Theme.CouchWatch.Player"
+            android:windowSoftInputMode="adjustResize" />
         <receiver
             android:name=".InstallReceiver"
             android:exported="false" />

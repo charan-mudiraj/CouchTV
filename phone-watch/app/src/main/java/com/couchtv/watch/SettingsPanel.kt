@@ -3,20 +3,26 @@ package com.couchtv.watch
 import android.content.Context
 import android.content.res.ColorStateList
 import android.view.Gravity
+import android.view.View
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
 
-/** Settings, over the home: which apps you have (their tabs and rows), and the version, to check for an update. */
+/**
+ * Settings, over the home: which apps you have (their tabs and rows), whether titles play inside this app, and the
+ * version, to check for an update.
+ */
 class SettingsPanel(context: Context) : LinearLayout(context) {
     var onAppsChanged: (() -> Unit)? = null
     var onCheckUpdate: (() -> Unit)? = null
     var onClose: (() -> Unit)? = null
 
     private val switches = ArrayList<Pair<StreamApp, Switch>>()
+    private val inApp: Switch
     private val version: TextView
+    private var quiet = false   // the switches being set to how things are: not a change
 
     init {
         orientation = VERTICAL
@@ -45,31 +51,21 @@ class SettingsPanel(context: Context) : LinearLayout(context) {
             setPadding(context.dp(20), 0, context.dp(20), context.dp(24))
         }
         list.addView(section("Your apps"))
-        list.addView(context.label(14f, Look.FAINT).apply {
-            text = "Each has a tab, and its films and series in the rows. A title opens in its app on this phone."
-            setPadding(0, 0, 0, context.dp(8))
-        })
+        list.addView(note("Each has a tab, and its films and series in the rows."))
         for (app in Apps.ALL) {
-            val row = LinearLayout(context).apply {
-                orientation = HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                minimumHeight = context.dp(52)
+            val toggle = toggle(app.label) { on ->
+                Apps.setYours(context, app.key, on)
+                onAppsChanged?.invoke()
             }
-            row.addView(context.label(16f, Look.INK).apply { text = app.label }, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
-            val toggle = Switch(context).apply {
-                thumbTintList = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()), intArrayOf(Look.GOOD, Look.MUTED))
-                trackTintList = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()), intArrayOf(0x663DDC84, Look.RAISED))
-                contentDescription = app.label
-                setOnCheckedChangeListener { _, on ->
-                    Apps.setYours(context, app.key, on)
-                    onAppsChanged?.invoke()
-                }
-            }
-            row.addView(toggle)
-            row.setOnClickListener { toggle.toggle() }
-            list.addView(row, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+            list.addView(row(app.label, null, toggle), LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
             switches.add(app to toggle)
         }
+
+        list.addView(section("Playing"))
+        inApp = toggle("Play here") { on -> PlayerActivity.setInApp(context, on) }
+        list.addView(row("Play here", "YouTube, JioHotstar, ZEE5, Sun NXT and ETV Win play inside this app (log in once in each). " +
+            "Netflix and Prime Video play only in their own apps on a phone. Off: everything opens in its own app.", inApp),
+            LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
 
         list.addView(section("About"))
         val about = LinearLayout(context).apply {
@@ -95,15 +91,42 @@ class SettingsPanel(context: Context) : LinearLayout(context) {
         setPadding(0, context.dp(24), 0, context.dp(8))
     }
 
-    fun open() {
-        // As they are now (without telling anyone: only a change from here does).
-        val yours = Apps.yours(context).map { it.key }.toSet()
-        for ((app, toggle) in switches) {
-            val listener = onAppsChanged
-            onAppsChanged = null
-            toggle.isChecked = app.key in yours
-            onAppsChanged = listener
+    private fun note(text: String) = context.label(13f, Look.FAINT).apply {
+        this.text = text
+        setPadding(0, 0, 0, context.dp(8))
+    }
+
+    /** A switch in CouchTV's green; [changed] for changes made with it (not when it's set to how things are). */
+    private fun toggle(description: String, changed: (Boolean) -> Unit) = Switch(context).apply {
+        thumbTintList = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()), intArrayOf(Look.GOOD, Look.MUTED))
+        trackTintList = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()), intArrayOf(0x663DDC84, Look.RAISED))
+        contentDescription = description
+        setOnCheckedChangeListener { _, on -> if (!quiet) changed(on) }
+    }
+
+    /** A row: its name (and a line about it), and its switch at the end; a tap anywhere on it flips the switch. */
+    private fun row(name: String, about: String?, toggle: Switch): View {
+        val row = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = context.dp(52)
+            setPadding(0, context.dp(6), 0, context.dp(6))
+            setOnClickListener { toggle.toggle() }
         }
+        val words = LinearLayout(context).apply { orientation = VERTICAL }
+        words.addView(context.label(16f, Look.INK).apply { text = name })
+        if (about != null) words.addView(context.label(13f, Look.FAINT).apply { text = about })
+        row.addView(words, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = context.dp(12) })
+        row.addView(toggle)
+        return row
+    }
+
+    fun open() {
+        quiet = true
+        val yours = Apps.yours(context).map { it.key }.toSet()
+        for ((app, toggle) in switches) toggle.isChecked = app.key in yours
+        inApp.isChecked = PlayerActivity.inApp(context)
+        quiet = false
         visibility = VISIBLE
     }
 
