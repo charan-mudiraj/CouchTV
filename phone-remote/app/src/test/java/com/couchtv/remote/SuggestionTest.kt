@@ -42,6 +42,18 @@ class SuggestionTest {
     }
 
     @Test
+    fun readsALiveChannel() {
+        val line = "C c3941 ${b64("Wion")} ${b64("World DNA · 8:00–8:30 AM")} ${b64("YuppTV")} ${b64("https://pictures.example/logo.png")} 2B2B2B FFD400 - " +
+            "${b64("https://www.yupptv.com/fast-tv/wion/live")} - live:ENG ${b64("Live TV · English")}"
+        val s = Suggestion.parse(line)!!
+        assertTrue(s.channel)
+        assertFalse(s.movie)
+        assertEquals("Wion", s.title)
+        assertEquals("live:ENG", s.row)
+        assertEquals(line, s.line())
+    }
+
+    @Test
     fun readsASongWithoutDetailsOrPicture() {
         val s = Suggestion.parse("S s1267390213 SGF3YXllaW4= - WW91VHViZQ== - FF0000 FFFFFF")!!   // a TV from before the last three
         assertFalse(s.movie)

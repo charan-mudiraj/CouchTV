@@ -154,6 +154,7 @@ namespace CouchTV
             StartBluetooth();
             StartUpdateChecks();
             RefreshSuggestionsIfStale();
+            RefreshLiveIfStale();
 
             if (_opt.ExitAfterSeconds > 0)
             {
@@ -290,7 +291,7 @@ namespace CouchTV
             for (int i = 0; i < _content.Count; i++)
             {
                 ContentRow row = _content[i];
-                y = PlaceRow(i + 1, row.Heading, row.Host, row.Tiles.Count > 0, y, (row.Covers ? CoverSize : PosterH) + 2 * RingPad + SuggestionTextH);
+                y = PlaceRow(i + 1, row.Heading, row.Host, row.Tiles.Count > 0, y, row.H + 2 * RingPad + SuggestionTextH);
                 any |= row.Tiles.Count > 0;
             }
             PlaceRow(RowSystem, _sysHeading, _sysHost, true, y, 180);
@@ -756,7 +757,7 @@ namespace CouchTV
         double RowMetrics(int r, out double pitch, out double item)
         {
             bool suggestions = r > RowApps && r < RowSystem;
-            double width = r == RowApps ? TileW : suggestions ? (_content[r - 1].Covers ? CoverSize : PosterW) : 0;
+            double width = r == RowApps ? TileW : suggestions ? _content[r - 1].W : 0;
             pitch = r == RowApps ? TileW + TileGap : r == RowSystem ? SysW + SysGap : width + CardGap;
             item = r == RowSystem ? SysW : width + 2 * RingPad;
             double total = (Row(r).Count - 1) * pitch + item;
@@ -1301,6 +1302,7 @@ namespace CouchTV
             }
             if (_ticks % 600 == 3) UpdateBadges();
             if (_ticks % 60 == 7) RefreshSuggestionsIfStale();
+            if (_ticks % 30 == 17) RefreshLiveIfStale();
             if (_launch.Visibility == Visibility.Visible && now > _launchUntil) HideLaunch();
             if (_toastShown && now > _toastUntil)
             {
@@ -1374,6 +1376,7 @@ namespace CouchTV
             {
                 CheckForUpdatesSoon(45);
                 RefreshSuggestionsSoon(30);
+                _liveFetched = DateTime.MinValue;   // what's on now has moved on while it slept
                 UpdateClock();
                 UpdateNetwork();
                 if (_bluetooth != null) _bluetooth.Kick();   // headphones set to connect automatically: now
@@ -1698,6 +1701,16 @@ namespace CouchTV
                 UpdateSleepCaption();
             }
             if (state.Contains("toast")) Toast("Brave isn't installed, so this opened in Edge");
+            if (state.Contains("live"))
+            {
+                // The Live TV rows, fetched now (a preview doesn't fetch by itself), with the highlight on them.
+                try { _live = LiveTv.Fetch(_cfg.LiveTv.Count > 0 ? _cfg.LiveTv : new List<string> { "TEL" }, SmartSearch.FindHost(_cfg.AppTiles, "yupptv.com"), _cfg.Clock24, null); }
+                catch (Exception ex) { Log.Info("Preview: Live TV: " + ex.Message); }
+                RebuildSuggestions();
+                _row = Math.Min(row, RowCount - 1);
+                _col[_row] = Math.Max(0, Math.Min(col, Row(_row).Count - 1));
+                RefreshFocus(false);
+            }
             if (state.Contains("launch") && _apps.Count > 0) ShowLaunch(_apps[0].Tile);
             if (state.Contains("confirm")) RunAction(new Tile { Kind = TileKind.Action, Action = "shutdown" });
             if (state.Contains("appupdate"))

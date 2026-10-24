@@ -125,7 +125,8 @@ class SuggestionFeed(context: Context) {
             main.post {
                 fetching = false
                 if ((titles == null && songs == null) || generation != started) return@post   // offline, or the TV's list came meanwhile
-                val list = (titles ?: before.filter { it.movie }) + (songs ?: before.filter { !it.movie })
+                // (The TV's live channels go: what's on now needs the TV, which reads YuppTV's guide.)
+                val list = (titles ?: before.filter { it.movie }) + (songs ?: before.filter { !it.movie && !it.channel })
                 keep(list)
                 onChange?.invoke(list)
             }

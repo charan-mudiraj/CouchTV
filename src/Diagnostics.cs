@@ -515,9 +515,11 @@ namespace CouchTV
             plan = new SearchPlan();
             SmartSearch.Build(plan, guess, "panchayat", unsubscribed, noKeys);
             check("no TMDB key: the AI's guesses become the options", plan.Options.Count == 2 && plan.Options[0].Tile.Name == "Prime Video" && plan.Options[0].Query == "Panchayat");
+            // Netflix alone as yours (as before ACT's bundle), for how the choosing goes.
+            Config netflixOnly = Config.Parse(System.Text.RegularExpressions.Regex.Replace(Config.DefaultText(), @"(?m)^Subscriptions =.*$", "Subscriptions = Netflix"), "test");
             plan = new SearchPlan();
-            SmartSearch.Build(plan, guess, "panchayat", defaults, noKeys);
-            check("Subscriptions = Netflix (the default): Netflix alone when it has it", plan.Options.Count == 1 && plan.Options[0].Tile.Name == "Netflix");
+            SmartSearch.Build(plan, guess, "panchayat", netflixOnly, noKeys);
+            check("Subscriptions = Netflix: Netflix alone when it has it", plan.Options.Count == 1 && plan.Options[0].Tile.Name == "Netflix");
 
             // ----- shows and films: your subscriptions first, then other apps that have it, then a search of yours
             Tile prime = defaults.AppTiles.Find(x => x.Name == "Prime Video"), hotstar = defaults.AppTiles.Find(x => x.Name == "JioHotstar");
@@ -527,15 +529,18 @@ namespace CouchTV
                 SmartSearch.AddWatchOptions(p, new List<KeyValuePair<Tile, string>>(found), "Some Show", config);
                 return string.Join(", ", p.Options.ConvertAll(o => o.Tile.Name + "/" + o.Caption).ToArray());
             };
-            check("on Netflix and Prime: Netflix only", watch(defaults, new[] { Pair(prime, "Streams here"), Pair(netflix, "Streams here") }) == "Netflix/Streams here");
+            check("on Netflix and Prime: Netflix only", watch(netflixOnly, new[] { Pair(prime, "Streams here"), Pair(netflix, "Streams here") }) == "Netflix/Streams here");
             check("not on Netflix: Prime and JioHotstar, saying which needs a plan",
-                watch(defaults, new[] { Pair(prime, "Streams here"), Pair(hotstar, "Free with ads") }) == "Prime Video/Needs a subscription, JioHotstar/Free with ads");
-            check("only rentable on YouTube: search Netflix instead", watch(defaults, new[] { Pair(youtube, "Rent or buy") }) == "Netflix/Search Netflix");
-            check("nothing known: search Netflix", watch(defaults, new KeyValuePair<Tile, string>[0]) == "Netflix/Search Netflix");
+                watch(netflixOnly, new[] { Pair(prime, "Streams here"), Pair(hotstar, "Free with ads") }) == "Prime Video/Needs a subscription, JioHotstar/Free with ads");
+            check("only rentable on YouTube: search Netflix instead", watch(netflixOnly, new[] { Pair(youtube, "Rent or buy") }) == "Netflix/Search Netflix");
+            check("nothing known: search Netflix", watch(netflixOnly, new KeyValuePair<Tile, string>[0]) == "Netflix/Search Netflix");
             check("no subscriptions and nothing known: the plain app row", watch(unsubscribed, new KeyValuePair<Tile, string>[0]) == "");
 
             // ----- one-time settings changes on an installed couchtv.ini from before them
-            string oldIni = System.Text.RegularExpressions.Regex.Replace(Config.DefaultText(), @"(?m)^(Subscriptions = Netflix|ConfigVersion = \d+|Enabled = false\r?\n(?=Type = app\r?\nExe = %ProgramFiles%\\VideoLAN))\r?\n?", "");
+            string oldIni = System.Text.RegularExpressions.Regex.Replace(Config.DefaultText(), @"(?m)^(Subscriptions = [^\r\n]*|LiveTv = [^\r\n]*|ConfigVersion = \d+|Enabled = false\r?\n(?=Type = app\r?\nExe = %ProgramFiles%\\VideoLAN))\r?\n?", "");
+            // ...without the bundle's tiles, and ZEE5 as it was: hidden, after Web...
+            oldIni = System.Text.RegularExpressions.Regex.Replace(oldIni, @"\[(ZEE5|Sun NXT|ETV Win|YuppTV)\](\r?\n[^\r\n]+)*\r?\n\r?\n", "");
+            oldIni = oldIni.Replace("[Spotify]", "[ZEE5]\nEnabled = false\nType = web\nUrl = https://www.zee5.com\nBrowser = edge\nBackground = #8230C6\nForeground = #FFFFFF\n\n[Spotify]");
             // ...without the Settings tile...
             oldIni = System.Text.RegularExpressions.Regex.Replace(oldIni, @"; CouchTV's own settings[^\n]*\n\[Settings\](\r?\n[^\r\n]+)*\r?\n\r?\n", "");
             // ...and with the Bluetooth tile as it was: Windows' pairing wizard.
@@ -545,8 +550,13 @@ namespace CouchTV
             string upgraded = ConfigUpgrade.Apply(oldIni, changes);
             Config after = Config.Parse(upgraded, "test");
             check("upgrade: test file really is the old kind", ConfigUpgrade.Get(oldIni, "CouchTV", "ConfigVersion") == null && ConfigUpgrade.Get(oldIni, "VLC", "Enabled") == null);
-            check("upgrade: VLC hidden, Netflix subscribed, version recorded", ConfigUpgrade.Get(upgraded, "VLC", "Enabled") == "false"
-                && after.Subscriptions.Count == 1 && after.Subscriptions[0] == "Netflix" && ConfigUpgrade.Get(upgraded, "CouchTV", "ConfigVersion") == ConfigUpgrade.Latest.ToString());
+            check("upgrade: VLC hidden, the bundle's apps subscribed, version recorded", ConfigUpgrade.Get(upgraded, "VLC", "Enabled") == "false"
+                && after.Subscriptions.Count == 7 && after.Subscriptions[0] == "Netflix" && after.Subscriptions.Contains("YuppTV")
+                && ConfigUpgrade.Get(upgraded, "CouchTV", "ConfigVersion") == ConfigUpgrade.Latest.ToString());
+            check("upgrade: the bundle's tiles, ZEE5 shown and moved up, before Web (" + string.Join(", ", after.AppTiles.ConvertAll(t => t.Name)) + ")",
+                ConfigUpgrade.Get(oldIni, "Sun NXT", "Type") == null && string.Join(", ", after.AppTiles.ConvertAll(t => t.Name)) ==
+                "Netflix, YouTube, Prime Video, JioHotstar, ZEE5, Sun NXT, ETV Win, YuppTV, Web");
+            check("upgrade: Live TV in Telugu, Hindi and English", string.Join(", ", after.LiveTv) == "TEL, HIN, ENG");
             Tile bluetoothTile = after.SystemTiles.Find(t => t.Name == "Bluetooth");
             check("upgrade: the Bluetooth tile opens CouchTV's Bluetooth screen, not Windows' wizard",
                 ConfigUpgrade.Get(oldIni, "Bluetooth", "Exe") != null && bluetoothTile != null && bluetoothTile.Kind == TileKind.Action && bluetoothTile.Action == "bluetooth");
@@ -633,6 +643,14 @@ namespace CouchTV
                   "Netflix https://www.netflix.com/watch/82034837");
             check("phone's series opens on its page", fromPhone("mts296797 M nfx " + b64("https://www.netflix.com/title/80238012") + " " + b64("Black Clover") + " -"),
                   "Netflix https://www.netflix.com/title/80238012");
+            string guide = "{\"status\":true,\"response\":{\"data\":[{\"id\":3941,\"display\":{\"title\":\"Wion\",\"imageUrl\":\"common,channel/logos/xbzydg.png\"}," +
+                "\"target\":{\"path\":\"fast-tv/wion/live\",\"pageAttributes\":{\"liveProgramName\":\"World DNA\",\"startTime\":\"1792636200000\",\"endTime\":\"1792638000000\"}}}," +
+                "{\"id\":3941,\"display\":{\"title\":\"Wion again\"},\"target\":{\"path\":\"x\"}},{\"id\":7,\"display\":{\"title\":\"Odd\"},\"target\":{\"path\":\"../../etc\"}}]}}";
+            var yuppTile = new Tile { Name = "YuppTV", Label = "YuppTV", Url = "https://www.yupptv.com" };
+            List<Suggestion> channels = LiveTv.ParseChannels(guide, "ENG", yuppTile, "https://pictures.example/common/", true, new HashSet<string>());
+            check("a live channel: its name, what's on now, its logo and live page; once; no odd paths",
+                channels.Count == 1 ? channels[0].Id + " | " + channels[0].Title + " | " + channels[0].Subtitle.Split('·')[0].Trim() + " | " + channels[0].ImageUrl + " | " + channels[0].PlayUrl + " | " + channels[0].Row : channels.Count + " channels",
+                "c3941 | Wion | World DNA | https://pictures.example/common/channel/logos/xbzydg.png | https://www.yupptv.com/fast-tv/wion/live | live:ENG");
             check("phone's song is looked for", fromPhone("s1 S youtube - " + b64("Hawayein") + " " + b64("Hawayein Pritam")), "YouTube (look for: Hawayein Pritam)");
             check("phone's song with its video", fromPhone("s1 S youtube " + b64("https://www.youtube.com/watch?v=cYOB941gyXI&list=RDcYOB941gyXI") + " " + b64("Hawayein") + " -"),
                   "YouTube https://www.youtube.com/watch?v=cYOB941gyXI&list=RDcYOB941gyXI");
@@ -665,6 +683,25 @@ namespace CouchTV
             catch (Exception ex)
             {
                 report.AppendLine("FAIL  fetching: " + ex.Message);
+                failures++;
+            }
+
+            // The Live TV rows, from YuppTV's guide (yours, with a session kept from its page; else its free channels).
+            report.AppendLine();
+            report.AppendLine("Live TV (" + (LiveTv.HaveSession ? "YuppTV session from its page" : "as a guest") + "), languages: " +
+                              (cfg.LiveTv.Count == 0 ? "none set, trying TEL" : string.Join(", ", cfg.LiveTv)));
+            try
+            {
+                var liveNotes = new StringBuilder();
+                List<Suggestion> live = LiveTv.Fetch(cfg.LiveTv.Count == 0 ? new List<string> { "TEL" } : cfg.LiveTv, yuppTile, cfg.Clock24, liveNotes);
+                report.AppendLine(live.Count + " channels. " + liveNotes.ToString().Trim());
+                foreach (Suggestion c in live)
+                    report.AppendLine("  " + c.Row.PadRight(9) + " " + c.Title + "  |  " + c.Subtitle + "  |  " + c.PlayUrl + "  |  " + (c.ImageFile != null ? Path.GetFileName(c.ImageFile) : "no logo"));
+                if (live.Count == 0) failures++;
+            }
+            catch (Exception ex)
+            {
+                report.AppendLine("FAIL  live TV: " + ex.Message);
                 failures++;
             }
             report.Insert(0, (failures == 0 ? "All good" : failures + " failed") + "\r\n\r\n");

@@ -47,6 +47,7 @@ class SuggestionsView @JvmOverloads constructor(context: Context, attrs: Attribu
     var onUnwatch: ((Suggestion) -> Unit)? = null
 
     private var watching: List<WatchItem> = emptyList()
+    private val opened = HashSet<String>()    // rows shown whole ("Show all"); the others show their first SHORT
     private var watchingDay = Int.MIN_VALUE   // the day it was shown on: "Today" and "Tomorrow" change at midnight
 
     private val column = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
@@ -132,8 +133,32 @@ class SuggestionsView @JvmOverloads constructor(context: Context, attrs: Attribu
         // A section a row, in the TV's order: popular films, series, each app you pay for, songs.
         val rows = LinkedHashMap<String, MutableList<Suggestion>>()
         for (s in list) rows.getOrPut(s.rowKey) { ArrayList() }.add(s)
-        for ((key, items) in rows) section(rowName(key, items[0]), items, if (items[0].movie) 1.5f else 1f, rise)
+        for ((key, items) in rows) {
+            val whole = key in opened || items.size <= SHORT
+            section(rowName(key, items[0]), if (whole) items else items.take(SHORT), ratioOf(items[0]), rise)
+            if (items.size > SHORT) column.addView(showAll(key, whole, items.size), wrap(0, 6))
+        }
         column.addView(View(context), LinearLayout.LayoutParams(1, dp(24)))
+    }
+
+    /** A picture's height to its width: a poster, a channel's wide card, or a square song cover. */
+    private fun ratioOf(s: Suggestion) = if (s.movie) 1.5f else if (s.channel) 0.5625f else 1f
+
+    /** Under a long row: "Show all 35" opens the rest, "Show fewer" puts them away again. */
+    private fun showAll(key: String, whole: Boolean, count: Int) = TextView(context).apply {
+        text = if (whole) context.getString(R.string.show_fewer) else context.getString(R.string.show_all_count, count)
+        setTextColor(context.getColor(R.color.good))
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        setPadding(dp(2), dp(2), dp(16), dp(10))
+        isClickable = true
+        setOnClickListener {
+            Haptics.press(it)
+            if (!opened.remove(key)) opened.add(key)
+            val at = scrollY
+            build()
+            post { scrollTo(0, at) }
+        }
     }
 
     /** A row's name, as the TV gave it (or for a TV from before rows, the films' or the songs'). */
@@ -178,24 +203,29 @@ class SuggestionsView @JvmOverloads constructor(context: Context, attrs: Attribu
     /** A film or song; [watch]: a film on the watchlist, with when instead of its details. */
     private fun card(s: Suggestion, ratio: Float, watch: WatchItem? = null): View {
         val picture = Picture(context, ratio).apply {
-            scaleType = ImageView.ScaleType.CENTER_CROP
+            // A channel's logo sits whole in the middle of its card; posters and covers fill theirs.
+            scaleType = if (s.channel) ImageView.ScaleType.FIT_CENTER else ImageView.ScaleType.CENTER_CROP
+            if (s.channel) setPadding(dp(14), dp(10), dp(14), dp(10))
             background = GradientDrawable().apply {
                 cornerRadius = dp(10).toFloat()
-                setColor(context.getColor(R.color.surface))
+                if (s.channel) {
+                    colors = intArrayOf(context.getColor(R.color.surface_raised), context.getColor(R.color.surface))
+                    orientation = GradientDrawable.Orientation.TOP_BOTTOM
+                } else setColor(context.getColor(R.color.surface))
             }
             clipToOutline = true
         }
         s.image?.let { Pictures.load(context, it, picture, dp(160)) }
         val badge = TextView(context).apply {
-            text = s.app
-            setTextColor(s.appTextColor)
+            text = if (s.channel) context.getString(R.string.live_badge) else s.app
+            setTextColor(if (s.channel) 0xFFFFFFFF.toInt() else s.appTextColor)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
             typeface = Typeface.DEFAULT_BOLD
             maxLines = 1
             setPadding(dp(6), dp(2), dp(6), dp(3))
             background = GradientDrawable().apply {
                 cornerRadius = dp(5).toFloat()
-                setColor(s.appColor)
+                setColor(if (s.channel) context.getColor(R.color.power) else s.appColor)
             }
         }
         val frame = FrameLayout(context).apply {
@@ -203,7 +233,7 @@ class SuggestionsView @JvmOverloads constructor(context: Context, attrs: Attribu
             addView(badge, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.START).apply {
                 setMargins(dp(5), dp(5), dp(5), 0)
             })
-            if (!s.movie) {
+            if (!s.movie && !s.channel) {
                 // A song: a round button in its corner plays it next (after the one playing on the TV).
                 addView(ImageView(context).apply {
                     setImageResource(R.drawable.ic_queue_add)
@@ -282,8 +312,8 @@ class SuggestionsView @JvmOverloads constructor(context: Context, attrs: Attribu
                 val listed = s.movie && watching.any { it.id == WatchItem.idOf(s) }
                 android.widget.PopupMenu(context, v).apply {
                     menu.add(0, 1, 0, R.string.play_now)
-                    if (!s.movie) menu.add(0, 2, 1, R.string.play_next)
-                    else menu.add(0, 3, 1, if (listed) R.string.watch_change else R.string.watch_add_to)
+                    if (s.movie) menu.add(0, 3, 1, if (listed) R.string.watch_change else R.string.watch_add_to)
+                    else if (!s.channel) menu.add(0, 2, 1, R.string.play_next)
                     if (listed) menu.add(0, 4, 2, R.string.watch_remove_from)
                     setOnMenuItemClickListener { item ->
                         when (item.itemId) {
@@ -304,6 +334,7 @@ class SuggestionsView @JvmOverloads constructor(context: Context, attrs: Attribu
 
     private companion object {
         val RISE = PathInterpolator(0.2f, 0f, 0f, 1f)
+        const val SHORT = 6   // a long row's cards shown before "Show all": two lines of three
     }
 
     private fun wrap(top: Int, bottom: Int) =

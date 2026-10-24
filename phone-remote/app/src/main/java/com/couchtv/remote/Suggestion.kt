@@ -7,7 +7,8 @@ import java.util.Base64
  * what it is, the app it plays in (with that app's colours, as on the TV), its picture on the internet, what the TV
  * needs to play it ([playLine]): the app (JustWatch's name for it, or "youtube"), the title's or video's address, and
  * for a song, what to look for on YouTube; and the row it's in ([row], [rowTitle]). A series is a film here ([movie]),
- * told by its id ("mts…"); the TV opens it on its page.
+ * told by its id ("mts…"); the TV opens it on its page. A live channel ([channel]) has its name as the title, what's
+ * on now as the details, and its logo as the picture.
  */
 class Suggestion(
     val movie: Boolean,
@@ -23,16 +24,17 @@ class Suggestion(
     val query: String? = null,
     val row: String = "",        // "films", "series", "app:nfx" (popular on that app), "songs"; empty from a TV from before rows
     val rowTitle: String = "",   // "Popular on Netflix"
+    val channel: Boolean = false,
 ) {
     /** The same, as a SUGGEST line (without "SUGGEST "), for keeping it; its row only when it has one. */
-    fun line(): String = listOf(if (movie) "M" else "S", id, b64(title), b64(subtitle), b64(app), b64(image), hex(appColor),
+    fun line(): String = listOf(if (movie) "M" else if (channel) "C" else "S", id, b64(title), b64(subtitle), b64(app), b64(image), hex(appColor),
         hex(appTextColor), appKey.ifEmpty { "-" }, b64(link), b64(query)).joinToString(" ") + if (row.isEmpty()) "" else " $row ${b64(rowTitle)}"
 
     /** Its row, or for a TV from before rows, the films' or the songs'. */
     val rowKey: String get() = row.ifEmpty { if (movie) "films" else "songs" }
 
     /** The same in [row] (named [title]). */
-    fun inRow(row: String, title: String) = Suggestion(movie, id, this.title, subtitle, app, image, appColor, appTextColor, appKey, link, query, row, title)
+    fun inRow(row: String, title: String) = Suggestion(movie, id, this.title, subtitle, app, image, appColor, appTextColor, appKey, link, query, row, title, channel)
 
     /** The same without its row: the watchlist keeps a film the same whichever row it was picked from. */
     fun withoutRow() = if (row.isEmpty() && rowTitle.isEmpty()) this else inRow("", "")
@@ -42,17 +44,17 @@ class Suggestion(
 
     companion object {
         /**
-         * "M|S <id> <title> <details> <app> <picture> <RRGGBB> <RRGGBB> [<app key> <address> <query> [<row> <row name>]]"
+         * "M|S|C <id> <title> <details> <app> <picture> <RRGGBB> <RRGGBB> [<app key> <address> <query> [<row> <row name>]]"
          * (texts in base64, "-" for none; older TVs send without the last ones); null if it isn't one.
          */
         fun parse(line: String): Suggestion? {
             val p = line.trim().split(" ")
-            if (p.size < 8 || (p[0] != "M" && p[0] != "S") || p[1].isEmpty()) return null
+            if (p.size < 8 || p[0] !in setOf("M", "S", "C") || p[1].isEmpty()) return null
             val title = text(p[2]) ?: return null
             return Suggestion(p[0] == "M", p[1], title, text(p[3]) ?: "", text(p[4]) ?: "", text(p[5]),
                 colour(p[6], 0xFF262D3A.toInt()), colour(p[7], 0xFFFFFFFF.toInt()),
                 p.getOrNull(8)?.takeIf { it != "-" } ?: "", p.getOrNull(9)?.let { text(it) }, p.getOrNull(10)?.let { text(it) },
-                p.getOrNull(11)?.takeIf { it != "-" } ?: "", p.getOrNull(12)?.let { text(it) } ?: "")
+                p.getOrNull(11)?.takeIf { it != "-" } ?: "", p.getOrNull(12)?.let { text(it) } ?: "", p[0] == "C")
         }
 
         fun text(field: String): String? =

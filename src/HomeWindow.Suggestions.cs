@@ -26,17 +26,23 @@ namespace CouchTV
         bool _suggestFetching;
         List<string> _phoneSuggestions = new List<string> { "SUGGESTIONS 0" };   // what phones are told (read from the network thread)
 
-        /// <summary>The suggestions the settings ask for, whose app is on the TV.</summary>
+        List<Suggestion> _live = new List<Suggestion>();   // the Live TV rows' channels (LiveTv)
+        DateTime _liveFetched = DateTime.MinValue, _liveTried = DateTime.MinValue;   // UTC
+        bool _liveFetching;
+
+        /// <summary>The suggestions the settings ask for, whose app is on the TV: the live channels first.</summary>
         List<Suggestion> VisibleSuggestions()
         {
-            return _suggestions.FindAll(s => (s.Kind == SuggestionKind.Movie ? _cfg.SuggestMovies : _cfg.SuggestSongs) && FindTile(s.App) != null);
+            var shown = _live.FindAll(s => _cfg.LiveTv.Contains(s.Row.Substring(5)) && FindTile(s.App) != null);
+            shown.AddRange(_suggestions.FindAll(s => (s.Kind == SuggestionKind.Movie ? _cfg.SuggestMovies : _cfg.SuggestSongs) && FindTile(s.App) != null));
+            return shown;
         }
 
         /// <summary>A row of suggestions under the apps: its heading, and its tiles on a strip that slides sideways.</summary>
         sealed class ContentRow
         {
-            public string Key;            // Suggestion.Row: "films", "series", "app:nfx", "songs"
-            public bool Covers;           // square song covers, not posters
+            public string Key;            // Suggestion.Row: "live:TEL", "films", "series", "app:nfx", "songs"
+            public double W, H;           // a tile's card: a poster, a square song cover, or a channel's wide card
             public FrameworkElement Heading, Host;
             public StackPanel Strip;
             public readonly List<TileView> Tiles = new List<TileView>();
@@ -62,7 +68,7 @@ namespace CouchTV
                 if (row == null)
                 {
                     if (_content.Count == MostRows - 2) continue;
-                    row = NewContentRow(key, s.Kind == SuggestionKind.Song);
+                    row = NewContentRow(key, CardWidth(s.Kind), CardHeight(s.Kind));
                     _content.Add(row);
                 }
                 TileView v = MakeSuggestionTile(s, FindTile(s.App));
@@ -76,40 +82,59 @@ namespace CouchTV
             if (_wifi != null) _wifi.SendToPhones(lines);
         }
 
-        ContentRow NewContentRow(string key, bool covers)
+        static double CardWidth(SuggestionKind kind) { return kind == SuggestionKind.Movie ? PosterW : kind == SuggestionKind.Song ? CoverSize : TileW; }
+
+        static double CardHeight(SuggestionKind kind) { return kind == SuggestionKind.Movie ? PosterH : kind == SuggestionKind.Song ? CoverSize : TileH; }
+
+        ContentRow NewContentRow(string key, double w, double h)
         {
-            var row = new ContentRow { Key = key, Covers = covers };
+            var row = new ContentRow { Key = key, W = w, H = h };
             row.Heading = RowHeading(Suggestions.RowTitle(key, _cfg.AppTiles), Suggestions.RowNote(key));
             row.Strip = new StackPanel { Orientation = Orientation.Horizontal, RenderTransform = row.Shift };
-            row.Host = new Canvas { Width = DesignW - 2 * Side + 2 * RingPad, Height = (covers ? CoverSize : PosterH) + 2 * RingPad, Children = { row.Strip } };
+            row.Host = new Canvas { Width = DesignW - 2 * Side + 2 * RingPad, Height = h + 2 * RingPad, Children = { row.Strip } };
             Place(row.Heading, Side, 0);
             Place(row.Host, Side - RingPad, 0);
             return row;
         }
 
-        /// <summary>A poster (or a song's cover) with the app it plays in on it, and its title and details below.</summary>
+        /// <summary>
+        /// A poster (or a song's cover) with the app it plays in on it, or a channel's logo with LIVE and how far the
+        /// programme on now has got; its title and details below.
+        /// </summary>
         TileView MakeSuggestionTile(Suggestion s, Tile app)
         {
-            bool movie = s.Kind == SuggestionKind.Movie;
-            double w = movie ? PosterW : CoverSize, h = movie ? PosterH : CoverSize;
+            bool channel = s.Kind == SuggestionKind.Channel;
+            double w = CardWidth(s.Kind), h = CardHeight(s.Kind);
             var v = new TileView { Tile = app, Suggestion = s };
 
             var face = new Grid { Clip = new RectangleGeometry(new Rect(0, 0, w, h), 14, 14) };
+            if (channel) face.Background = new LinearGradientBrush(Color.FromRgb(0x2A, 0x31, 0x40), Color.FromRgb(0x16, 0x1A, 0x23), 90);
             TextBlock stand = Theme.Text(s.Title, 26, Theme.Muted, FontWeights.SemiBold);   // until the picture's there, or if it never comes
             stand.TextWrapping = TextWrapping.Wrap;
             stand.TextAlignment = TextAlignment.Center;
             stand.VerticalAlignment = VerticalAlignment.Center;
             stand.Margin = new Thickness(18);
-            face.Children.Add(stand);
-            var picture = new Image { Stretch = Stretch.UniformToFill };
+            if (!channel || s.ImageFile == null) face.Children.Add(stand);   // logos have see-through parts: not behind one
+            // A channel's logo sits whole in the middle of its card; posters and covers fill theirs.
+            var picture = channel ? new Image { Stretch = Stretch.Uniform, Margin = new Thickness(46, 30, 46, 30) } : new Image { Stretch = Stretch.UniformToFill };
             face.Children.Add(picture);
             LoadPicture(picture, s.ImageFile, (int)(1.25 * w));   // a little over its size: many rows of them now
             face.Children.Add(new Border
             {
-                CornerRadius = new CornerRadius(8), Background = Theme.Brush(app.Background), Padding = new Thickness(10, 3, 10, 5),
-                HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(10),
-                Child = Theme.Text("▶ " + app.Label, 16, app.Foreground, FontWeights.Bold),
+                CornerRadius = new CornerRadius(8), Background = channel ? Theme.Brush(Color.FromRgb(0xE5, 0x48, 0x4D)) : Theme.Brush(app.Background),
+                Padding = new Thickness(10, 3, 10, 5), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(10),
+                Child = channel ? Theme.Text("● LIVE", 15, Colors.White, FontWeights.Bold) : Theme.Text("▶ " + app.Label, 16, app.Foreground, FontWeights.Bold),
             });
+            if (channel && s.End > s.Start)
+            {
+                // How far the programme on now has got, along the bottom.
+                double done = Math.Max(0, Math.Min(1, (Watchlist.Now - s.Start) / (double)(s.End - s.Start)));
+                face.Children.Add(new System.Windows.Shapes.Rectangle
+                {
+                    Height = 6, Width = w * done, Fill = Theme.Brush(Color.FromRgb(0xE5, 0x48, 0x4D)),
+                    HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Bottom,
+                });
+            }
             v.Card = new Border
             {
                 Width = w, Height = h, CornerRadius = new CornerRadius(14), Background = Theme.Brush(Theme.Chip), Child = face,
@@ -226,6 +251,49 @@ namespace CouchTV
         }
 
         // ================================================================ keeping the list fresh
+
+        /// <summary>
+        /// The Live TV rows' channels and what's on now (on a background thread), every 10 minutes; after a failure,
+        /// a minute later. Only with a YuppTV tile, and languages chosen (LiveTv).
+        /// </summary>
+        void RefreshLiveIfStale()
+        {
+            if (_opt.Preview || _liveFetching || _cfg.LiveTv.Count == 0) return;
+            Tile yupp = SmartSearch.FindHost(_cfg.AppTiles, "yupptv.com");
+            if (yupp == null) return;
+            DateTime now = DateTime.UtcNow;
+            if (now - _liveFetched < LiveTv.FreshFor || now - _liveTried < TimeSpan.FromMinutes(1)) return;
+            _liveFetching = true;
+            _liveTried = now;
+            var languages = new List<string>(_cfg.LiveTv);
+            bool clock24 = _cfg.Clock24;
+            ThreadPool.QueueUserWorkItem(state =>
+            {
+                List<Suggestion> list = null;
+                var notes = new StringBuilder();
+                try { list = LiveTv.Fetch(languages, yupp, clock24, notes); }
+                catch (Exception ex) { Log.Info("Live TV: couldn't read YuppTV's guide: " + ex.Message); }
+                if (list != null && (notes.Length > 0 || _live.Count == 0))
+                    Log.Info("Live TV: " + list.Count + " channels" + (LiveTv.HaveSession ? " (yours)" : " (YuppTV's free ones)") + ". " + notes.ToString().Trim());
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    _liveFetching = false;
+                    if (list == null) return;
+                    _liveFetched = DateTime.UtcNow;
+                    _live = list;
+                    RebuildSuggestions();
+                }));
+            });
+        }
+
+        /// <summary>The Live TV languages changed (Settings): the rows at once, fetched afresh.</summary>
+        void LiveChoiceChanged()
+        {
+            SaveSetting("LiveTv", _cfg.LiveTv.Count == 0 ? "off" : string.Join(", ", _cfg.LiveTv));
+            RebuildSuggestions();
+            _liveFetched = _liveTried = DateTime.MinValue;
+            RefreshLiveIfStale();
+        }
 
         /// <summary>Fetches the list again (on a background thread) once it's a few hours old; after a failure, 15 minutes later.</summary>
         void RefreshSuggestionsIfStale()

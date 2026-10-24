@@ -32,6 +32,8 @@ namespace CouchTV
             public readonly Dictionary<int, string> Asked = new Dictionary<int, string>();   // what each waiting request was
             public readonly Dictionary<string, string> Sessions = new Dictionary<string, string>();   // session → its script's identifier
             public readonly HashSet<string> Targets = new HashSet<string>();
+            public readonly Dictionary<string, string> TargetSessions = new Dictionary<string, string>();   // target → its session
+            public readonly HashSet<string> Watched = new HashSet<string>();                                // sessions whose requests are seen (YuppTV)
         }
 
         static readonly Dictionary<string, Link> Links = new Dictionary<string, Link>(StringComparer.OrdinalIgnoreCase);
@@ -165,8 +167,35 @@ namespace CouchTV
                 lock (link.Targets) { if (!link.Targets.Add(target)) return; }
                 Send(link, null, "Target.attachToTarget", new Dictionary<string, object> { { "targetId", target }, { "flatten", true } }, result =>
                 {
-                    if (result != null) Inject(link, result["sessionId"] as string, target, info["url"] as string);
+                    if (result == null) return;
+                    string session = result["sessionId"] as string;
+                    lock (link.TargetSessions) link.TargetSessions[target] = session;
+                    Inject(link, session, target, info["url"] as string);
+                    WatchIfYupp(link, session, info["url"] as string);
                 });
+            }
+            else if (method == "Target.targetInfoChanged" && p != null)
+            {
+                // A page went somewhere new: YuppTV's, say.
+                var info = p["targetInfo"] as Dictionary<string, object>;
+                string session = null;
+                if (info != null) lock (link.TargetSessions) link.TargetSessions.TryGetValue(info["targetId"] as string ?? "", out session);
+                if (session != null) WatchIfYupp(link, session, info["url"] as string);
+            }
+            else if (method == "Network.requestWillBeSent" && p != null)
+            {
+                // YuppTV's page asking its own services: the session it uses, kept for the Live TV rows (LiveTv).
+                var request = p["request"] as Dictionary<string, object>;
+                var headers = request != null ? request["headers"] as Dictionary<string, object> : null;
+                string url = request != null ? request["url"] as string : null;
+                if (headers == null || url == null || !url.StartsWith("https://prod-", StringComparison.Ordinal) || url.IndexOf(".yupptv.com/", StringComparison.Ordinal) < 0) return;
+                string sessionId = null, box = null;
+                foreach (var h in headers)
+                {
+                    if (h.Key.Equals("session-id", StringComparison.OrdinalIgnoreCase)) sessionId = h.Value as string;
+                    else if (h.Key.Equals("box-id", StringComparison.OrdinalIgnoreCase)) box = h.Value as string;
+                }
+                if (sessionId != null && box != null) LiveTv.TakeSession(sessionId, box);
             }
             else if (method == "Target.detachedFromTarget" && p != null)
             {
@@ -175,7 +204,20 @@ namespace CouchTV
             else if (method == "Target.targetDestroyed" && p != null)
             {
                 lock (link.Targets) link.Targets.Remove(p["targetId"] as string);
+                lock (link.TargetSessions) link.TargetSessions.Remove(p["targetId"] as string);
             }
+        }
+
+        /// <summary>
+        /// YuppTV's pages only: their requests are seen (Network), for the session they send with them. Nothing else's
+        /// requests are looked at.
+        /// </summary>
+        static void WatchIfYupp(Link link, string session, string url)
+        {
+            Uri uri;
+            if (url == null || !Uri.TryCreate(url, UriKind.Absolute, out uri) || !(uri.Host == "yupptv.com" || uri.Host.EndsWith(".yupptv.com"))) return;
+            lock (link.Watched) { if (!link.Watched.Add(session)) return; }
+            Send(link, session, "Network.enable", new Dictionary<string, object>(), null);
         }
 
         /// <summary>The scripts into a page: for every page it loads from now on, and the one it shows.</summary>

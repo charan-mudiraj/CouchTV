@@ -64,6 +64,7 @@ namespace CouchTV
         public bool NetflixPickProfile = true;                // Netflix's "Who's watching?" answered by itself, with...
         public string NetflixProfile = "CouchTV";             // ...this profile
         public readonly List<string> Subscriptions = new List<string>();   // tile names you pay for; empty = don't filter
+        public readonly List<string> LiveTv = new List<string>();          // YuppTV's languages for the Live TV rows (TEL, HIN…); empty = none
         public string Source;
 
         public static string AppDir { get { return AppDomain.CurrentDomain.BaseDirectory; } }
@@ -203,6 +204,11 @@ namespace CouchTV
             NetflixTidy = GetBool(v, "NetflixTidy", true);
             NetflixPickProfile = GetBool(v, "NetflixPickProfile", true);
             NetflixProfile = (Get(v, "NetflixProfile", NetflixProfile) ?? "").Trim();
+            foreach (string code in Get(v, "LiveTv", "off").Split(','))
+            {
+                string c = code.Trim().ToUpperInvariant();
+                if (c.Length == 3 && !LiveTv.Contains(c) && CouchTV.LiveTv.LanguageName(c) != c) LiveTv.Add(c);
+            }
             string subscriptions = Get(v, "Subscriptions", null);
             if (subscriptions != null)
             {

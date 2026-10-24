@@ -10,7 +10,7 @@ using System.Web.Script.Serialization;
 
 namespace CouchTV
 {
-    internal enum SuggestionKind { Movie, Song }
+    internal enum SuggestionKind { Movie, Song, Channel }
 
     /// <summary>A film to watch or a song to play, from the home screen's suggestion rows or the phone's first page.</summary>
     internal sealed class Suggestion
@@ -24,7 +24,8 @@ namespace CouchTV
         public string ImageFile;   // the same, downloaded for the TV: a file name in Suggestions.Folder
         public string PlayUrl;     // what the app opens: the film's own page, made to play; the song's YouTube video
         public string Query;       // a song: what to look for on YouTube, if its video wasn't found beforehand
-        public string Row;         // the row it's in: "films", "series", "app:nfx" (popular on that app), "songs"
+        public string Row;         // the row it's in: "live:TEL", "films", "series", "app:nfx" (popular on that app), "songs"
+        public long Start, End;    // a channel: when the programme on now began and ends (ms since 1970)
     }
 
     /// <summary>
@@ -564,7 +565,8 @@ namespace CouchTV
         ///     while the TV is off. Each app as key:name:label:colour:text colour:Y|N (JustWatch's name for it, or
         ///     youtube; Y for one you subscribe to, or any with no Subscriptions), comma separated; "-" for none.
         ///   SUGGESTIONS &lt;count&gt;, then that many
-        ///   SUGGEST M|S &lt;id&gt; &lt;title&gt; &lt;details&gt; &lt;app&gt; &lt;picture&gt; &lt;colour&gt; &lt;text colour&gt; &lt;app key&gt; &lt;link&gt; &lt;query&gt; &lt;row&gt; &lt;row name&gt;
+        ///   SUGGEST M|S|C &lt;id&gt; &lt;title&gt; &lt;details&gt; &lt;app&gt; &lt;picture&gt; &lt;colour&gt; &lt;text colour&gt; &lt;app key&gt; &lt;link&gt; &lt;query&gt; &lt;row&gt; &lt;row name&gt;
+        ///   (C: a live channel, its name, what's on now, its logo and live page)
         /// Texts in base64 UTF-8, "-" for none; colours RRGGBB; the rows in order (Suggestion.Row, RowTitle). The phone
         /// plays one with PLAY (FromPhone).
         /// </summary>
@@ -604,6 +606,7 @@ namespace CouchTV
                 case "series": return "Popular series";
                 case "songs": return "Top songs";
             }
+            if (row != null && row.StartsWith("live:")) return "Live TV · " + LiveTv.LanguageName(row.Substring(5));
             Tile app = row != null && row.StartsWith("app:") ? TileForKey(row.Substring(4), apps) : null;
             return app != null ? "Popular on " + app.Label : "Popular now";
         }
@@ -612,6 +615,7 @@ namespace CouchTV
         public static string RowNote(string row)
         {
             if (row == "songs") return "India's most played · plays on YouTube";
+            if (row != null && row.StartsWith("live:")) return LiveTv.HaveSession ? "On YuppTV · what's on now" : "YuppTV's free channels · log in on YuppTV for yours";
             if (row != null && row.StartsWith("app:")) return "Films and series · from JustWatch";
             return "Streaming now in India · from JustWatch";
         }
@@ -619,7 +623,7 @@ namespace CouchTV
         /// <summary>A suggestion as the phone reads it, after "SUGGEST " (or "FITEM ").</summary>
         static string ItemLine(Suggestion s, Tile app)
         {
-            return (s.Kind == SuggestionKind.Movie ? "M" : "S") + " " + s.Id + " " + B64(s.Title) + " " + B64(s.Subtitle) + " " +
+            return (s.Kind == SuggestionKind.Movie ? "M" : s.Kind == SuggestionKind.Channel ? "C" : "S") + " " + s.Id + " " + B64(s.Title) + " " + B64(s.Subtitle) + " " +
                    B64(app.Label) + " " + B64(s.ImageUrl) + " " + Rgb(app.Background) + " " + Rgb(app.Foreground) + " " +
                    (AppKey(app) ?? "-") + " " + B64(s.PlayUrl) + " " + B64(s.Query);
         }

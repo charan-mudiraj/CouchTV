@@ -11,7 +11,7 @@ namespace CouchTV
     /// </summary>
     internal static class ConfigUpgrade
     {
-        public const int Latest = 3;
+        public const int Latest = 4;
 
         /// <summary>The file's text with any pending changes applied; changes lists what was done.</summary>
         public static string Apply(string text, List<string> changes)
@@ -58,7 +58,53 @@ namespace CouchTV
                     changes.Add("Settings tile added");
                 }
             }
+            if (version < 4)
+            {
+                // October 2026: ACT's bundle. ZEE5, Sun NXT, ETV Win and YuppTV join Netflix, Prime Video and JioHotstar
+                // as yours, as tiles before Web, and YuppTV's live channels in Telugu, Hindi and English go under the apps.
+                if (Get(text, "ZEE5", "Type") != null)
+                {
+                    // It was an optional tile, hidden down after Web: shown now, with the other apps.
+                    if (text.IndexOf("[ZEE5]", StringComparison.Ordinal) > text.IndexOf("[Web]", StringComparison.Ordinal)) text = MoveSectionBefore(text, "ZEE5", "Web");
+                    text = Set(text, "ZEE5", "Enabled", "true", false);
+                }
+                else text = InsertSectionBefore(text, "Web", BundleTile("ZEE5", "https://www.zee5.com", "ZEE5", "#8230C6", "#4B1580", "#FFFFFF"));
+                if (Get(text, "Sun NXT", "Type") == null)
+                    text = InsertSectionBefore(text, "Web", BundleTile("Sun NXT", "https://www.sunnxt.com", "SUN NXT", "#262626", "#000000", "#FF9A1F"));
+                if (Get(text, "ETV Win", "Type") == null)
+                    text = InsertSectionBefore(text, "Web", BundleTile("ETV Win", "https://www.etvwin.com", "ETV Win", "#0E2A6B", "#06122E", "#FFC21A"));
+                if (Get(text, "YuppTV", "Type") == null)
+                    text = InsertSectionBefore(text, "Web", BundleTile("YuppTV", "https://www.yupptv.com", "YuppTV", "#2B2B2B", "#0D0D0D", "#FFD400"));
+                text = Set(text, "CouchTV", "Subscriptions", "Netflix, Prime Video, JioHotstar, ZEE5, Sun NXT, ETV Win, YuppTV", true);
+                text = Set(text, "CouchTV", "LiveTv", "TEL, HIN, ENG", true);
+                changes.Add("ZEE5, Sun NXT, ETV Win and YuppTV tiles, all of ACT's bundle as subscriptions, Live TV in Telugu, Hindi and English");
+            }
             return Set(text, "CouchTV", "ConfigVersion", Latest.ToString(), true);
+        }
+
+        /// <summary>A tile of the bundle, opening in Edge (the paid services' best-supported Windows browser).</summary>
+        static string[] BundleTile(string name, string url, string label, string background, string background2, string foreground)
+        {
+            return new[]
+            {
+                "[" + name + "]", "Type = web", "Url = " + url, "Browser = edge", "Text = " + label, "Weight = Black",
+                "Background = " + background, "Background2 = " + background2, "Foreground = " + foreground, "",
+            };
+        }
+
+        /// <summary>[section] moved to just before [before]: its own lines, not the blank lines and comments leading to the next.</summary>
+        internal static string MoveSectionBefore(string text, string section, string before)
+        {
+            string newline = text.Contains("\r\n") ? "\r\n" : "\n";
+            List<string> lines = Lines(text);
+            int start, end;
+            if (!FindSection(lines, section, out start, out end)) return text;
+            int last = end;
+            while (last > start + 1 && (lines[last - 1].TrimStart().StartsWith(";") || lines[last - 1].Trim().Length == 0)) last--;
+            List<string> block = lines.GetRange(start, last - start);
+            block.Add("");
+            lines.RemoveRange(start, last - start);
+            return InsertSectionBefore(string.Join(newline, lines), before, block.ToArray());
         }
 
         /// <summary>New lines just before [section] (and the comments over it), or at the end without one.</summary>
