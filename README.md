@@ -247,6 +247,10 @@ CouchTV works with **any infrared remote** through **CouchIR**, a ₹500 USB rec
 
 Inside apps, remote buttons act as real keys (arrows, Enter, Back, Space for play/pause), so they work in Netflix and YouTube too. Holding Back goes Home, and there are buttons that jump straight into a tile.
 
+## Watching on the phone: CouchTV Watch
+
+A second phone app, **[CouchTV Watch](phone-watch/README.md)**, is the home screen for the phone: the same tabs (All, then each app), the chosen title big at the top with its trailer, rows of posters, and search. **Watch** opens the title in its own app on the phone (Netflix in the Netflix app, and so on); **Play on TV** hands it to the remote app, which turns the TV on and plays it there. Install it from [CouchTV-Watch.apk](https://github.com/charan-mudiraj/CouchTV/releases/download/phone-watch/CouchTV-Watch.apk); it updates itself after that.
+
 ---
 
 ## Updates

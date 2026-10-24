@@ -29,6 +29,8 @@ The **trackpad** is a dialog over the remote: its key at the D-pad's top right o
 
 **The TV's Bluetooth** has pages of its own in Settings (under TV, or the **Bluetooth** shortcut on the first page), doing what the TV's own Bluetooth screen does, over Wi-Fi: switch it on or off; the paired devices, each saying how it is (connected, playing with the TV speakers…), with a page to connect or disconnect it, connect it automatically, play it with the TV speakers or on its own, or forget it; and **Add a device**, which has the TV search while it's open (put the device in pairing mode, then tap it to pair). What the TV is doing and anything that went wrong shows at the top.
 
+**Play on TV from [CouchTV Watch](../phone-watch/README.md)** (the phone app for watching on the phone): the remote opens and plays the title on the TV, turning the TV on first if it's off, as Play on TV from a watchlist reminder does (`PlayOnTv.kt`). Only apps signed with this app's key can ask it to (the `com.couchtv.permission.PLAY_ON_TV` permission).
+
 The D-pad, trackpad and keyboard size themselves to the phone's screen. The keys look and feel like a real remote's: raised, with their sides showing, they sink when pressed and click under your finger (a short vibration going down, and a lighter one coming up on phones with a precise vibration motor).
 
 - **Voice search.** Tap the blue mic and say what to watch: a sheet rises from the bottom, rings round the big mic swelling with your voice. The phone turns your words into text and sends them to the TV, which lets you pick the app to search in. **Hum a song** and **Type** are under the mic.
