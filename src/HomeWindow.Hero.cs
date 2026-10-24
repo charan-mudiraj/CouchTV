@@ -35,6 +35,12 @@ namespace CouchTV
         Suggestion _heroShown;
         bool _trailerShown, _trailerDue, _trailerRolling;   // shown (its picture, then the video); due to start; the video playing
         DispatcherTimer _trailerTimer;
+        DateTime _trailerAsked;          // when the trailer showing was asked for
+        string _trailerState;            // YouTube's player's last state for it, if it said one (not playing yet)
+        string _trailerTrouble;          // why trailers aren't playing, for Settings (null: they are, or none tried yet)
+        string _trailerWaitLogged;       // the title whose trailer's wait went in the log
+
+        const string TrailersNote = "The highlighted film's or series' trailer, at the top of the home screen";
 
         /// <summary>The tab chosen: All, or an app.</summary>
         Tile SelectedTab { get { return _tabIndex >= 0 && _tabIndex < _apps.Count ? _apps[_tabIndex].Tile : AllTab; } }
@@ -102,6 +108,7 @@ namespace CouchTV
                 Place(_trailer.View, HeroMediaLeft, HeroTop);
                 _trailer.Said += TrailerSaid;
             }
+            else Dispatcher.BeginInvoke(new Action(() => TrailerTrouble(TrailerPlayer.Problem)));
             _trailerTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(TrailerDelay) };
             _trailerTimer.Tick += (s, e) =>
             {
@@ -323,9 +330,50 @@ namespace CouchTV
                 _trailerDue = false;
                 _trailer.Play(_heroShown.Trailer, _cfg.Trailers == "muted");
                 _trailerShown = true;
+                _trailerAsked = DateTime.UtcNow;
+                _trailerState = null;
                 _trailer.View.Visibility = Visibility.Visible;
             }
+            else if (_trailerShown && !_trailerRolling && (DateTime.UtcNow - _trailerAsked).TotalSeconds > 20)
+            {
+                // Asked for, and nothing: the page or YouTube's player is stuck.
+                string title = _heroShown != null ? _heroShown.Title : "?";
+                StopTrailer();
+                TrailerTrouble(!_trailer.PageReady ? "YouTube's player didn't load (can the TV reach youtube.com?)"
+                    : "YouTube's player didn't start " + title + "'s trailer (" + StateName(_trailerState) + ")");
+            }
+            else if (_trailerDue && _heroShown != null && _trailerWaitLogged != _heroShown.Id)
+            {
+                _trailerWaitLogged = _heroShown.Id;
+                Log.Info("Trailers: " + _heroShown.Title + "'s waits: " + TrailerWhyNot());
+            }
         }
+
+        static string StateName(string state)
+        {
+            switch (state)
+            {
+                case null: return "it said nothing";
+                case "-1": return "it stayed unstarted";
+                case "2": return "it stayed paused";
+                case "3": return "it kept loading";
+                case "5": return "it stayed cued";
+                default: return "state " + state;
+            }
+        }
+
+        /// <summary>Why trailers aren't playing (null: they are): under Trailers in Settings, on the TV and the phones, and in the log.</summary>
+        void TrailerTrouble(string why)
+        {
+            if (why == _trailerTrouble) return;
+            _trailerTrouble = why;
+            if (why != null) Log.Info("Trailers: not playing: " + why);
+            TvSetting setting = TvSettings().Find(t => t.Key == "trailers");
+            if (setting != null) setting.Note = TrailersNoteNow();
+            SettingsChanged();
+        }
+
+        string TrailersNoteNow() { return TrailersNote + (_trailerTrouble != null ? ". Not playing: " + _trailerTrouble : ""); }
 
         void TrailerSaid(string said)
         {
@@ -333,15 +381,22 @@ namespace CouchTV
             {
                 _trailerRolling = true;
                 ShowBackdrop(false);
+                TrailerTrouble(null);
             }
             else if (said == "playing") StopTrailer();   // too late: things changed while it loaded
+            else if (said.StartsWith("state ")) _trailerState = said.Substring(6);
+            else if (said.StartsWith("failed ")) TrailerTrouble(said.Substring(7));
             else if (said == "ended" || said.StartsWith("error") || said == "stopped")
             {
                 if (_trailerRolling) ShowBackdrop(true);   // the same backdrop, back beneath
                 _trailerShown = _trailerRolling = false;
                 _trailer.View.Visibility = Visibility.Hidden;
                 if (said.StartsWith("error"))
-                    Log.Info("Trailers: " + (_heroShown != null ? _heroShown.Title : "?") + "'s trailer wouldn't play (YouTube said " + said + ")");
+                {
+                    string code = said.Substring(5).Trim();
+                    TrailerTrouble("YouTube wouldn't play " + (_heroShown != null ? _heroShown.Title : "?") + "'s trailer (" +
+                        (code == "101" || code == "150" ? "its owner allows it only on YouTube" : code == "100" ? "it's gone" : "error " + code) + ")");
+                }
             }
         }
 
@@ -349,6 +404,23 @@ namespace CouchTV
         internal bool TrailerPlaying { get { return _trailerRolling; } }
         internal string HeroTitle { get { return _heroShown != null ? _heroShown.Title : null; } }
         internal void ProbeTrailer(Action<string> said) { if (_trailer != null) _trailer.Probe(said); }
+        internal string TrailerTroubleNow { get { return _trailerTrouble; } }
+
+        /// <summary>For the self-test: the highlight on the first poster that has a trailer.</summary>
+        internal bool FocusTrailer()
+        {
+            for (int r = RowApps + 1; r < RowSystem; r++)
+                for (int c = 0; c < Row(r).Count; c++)
+                {
+                    Suggestion s = Row(r)[c].Suggestion;
+                    if (s == null || s.Trailer == null) continue;
+                    _row = r;
+                    _col[r] = c;
+                    RefreshFocus(true);
+                    return true;
+                }
+            return false;
+        }
 
         /// <summary>What's keeping the trailer from playing, for the self-test's report.</summary>
         internal string TrailerWhyNot()

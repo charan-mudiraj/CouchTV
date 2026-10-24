@@ -4,8 +4,8 @@
   fading out at the left and bottom edges. The page is see-through (WebView2's background is transparent), so the
   home screen's backdrop picture shows until the video fades in (CouchTV fades the picture out meanwhile), and its
   background through those edges. CouchTV says play('id',
-  muted) or stop(); this says back "ready" (once YouTube's player can be asked), "playing", "ended", "error" or
-  "stopped". {{BASE}}, the screen's own background colour, is unused while the page is see-through.
+  muted) or stop(); this says back "ready" (once YouTube's player can be asked), "playing", "ended", "error <code>",
+  "stopped", or "state <n>" for YouTube's other states (unstarted, paused, buffering, cued). {{BASE}}, the screen's own background colour, is unused while the page is see-through.
 -->
 <html>
 <head>
@@ -70,6 +70,7 @@
         onStateChange: function (e) {
           if (e.data === 1 && wanted) { stage.className = 'layer on'; send('playing'); }
           else if (e.data === 0) { stage.className = 'layer'; send('ended'); }
+          else if (wanted) send('state ' + e.data);
         },
         onError: function (e) { stage.className = 'layer'; send('error ' + e.data); }
       }

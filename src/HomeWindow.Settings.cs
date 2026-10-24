@@ -51,7 +51,7 @@ namespace CouchTV
                 BackgroundSetting(),
                 new TvSetting
                 {
-                    Key = "trailers", Label = "Trailers", Note = "The highlighted film's or series' trailer, at the top of the home screen",
+                    Key = "trailers", Label = "Trailers", Note = TrailersNoteNow(),
                     Values = new[] { "sound", "muted", "off" }, Names = new[] { "With sound", "Muted", "Off" },
                     Get = () => _cfg.Trailers,
                     Set = v => { _cfg.Trailers = v; SaveSetting("Trailers", v); if (v == "off") StopTrailer(); },

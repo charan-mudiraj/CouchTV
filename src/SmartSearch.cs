@@ -598,6 +598,13 @@ Examples:
         /// <summary>Reads YouTube's own search page, as a browser would, and takes the first video.</summary>
         internal static YouTubeVideo FirstYouTubeVideo(string query, bool newest)
         {
+            List<YouTubeVideo> found = YouTubeVideos(query, newest, 1);
+            return found.Count > 0 ? found[0] : null;
+        }
+
+        /// <summary>The first few videos of YouTube's own search page, read as a browser would.</summary>
+        internal static List<YouTubeVideo> YouTubeVideos(string query, bool newest, int most)
+        {
             // sp: videos only (no channels or playlists); CAISAhAB also sorts by upload date.
             string url = "https://www.youtube.com/results?search_query=" + Uri.EscapeDataString(query) + "&sp=" + (newest ? "CAISAhAB" : "EgIQAQ%3D%3D");
             var request = (HttpWebRequest)WebRequest.Create(url);
@@ -610,18 +617,27 @@ Examples:
             using (var response = (HttpWebResponse)request.GetResponse())
             using (var reader = new StreamReader(response.GetResponseStream(), Encoding.UTF8))
                 page = reader.ReadToEnd();
-            return ParseYouTube(page);
+            return ParseYouTube(page, most);
         }
 
         internal static YouTubeVideo ParseYouTube(string page)
         {
-            Match m = VideoResult.Match(page);
-            if (!m.Success) return null;
-            string title;
-            try { title = Json.Deserialize<string>("\"" + m.Groups[2].Value + "\""); }
-            catch (Exception) { title = m.Groups[2].Value; }
-            string id = m.Groups[1].Value;
-            return new YouTubeVideo { Id = id, Title = title, Thumbnail = "https://i.ytimg.com/vi/" + id + "/mqdefault.jpg" };
+            List<YouTubeVideo> found = ParseYouTube(page, 1);
+            return found.Count > 0 ? found[0] : null;
+        }
+
+        internal static List<YouTubeVideo> ParseYouTube(string page, int most)
+        {
+            var found = new List<YouTubeVideo>();
+            for (Match m = VideoResult.Match(page); m.Success && found.Count < most; m = m.NextMatch())
+            {
+                string title;
+                try { title = Json.Deserialize<string>("\"" + m.Groups[2].Value + "\""); }
+                catch (Exception) { title = m.Groups[2].Value; }
+                string id = m.Groups[1].Value;
+                found.Add(new YouTubeVideo { Id = id, Title = title, Thumbnail = "https://i.ytimg.com/vi/" + id + "/mqdefault.jpg" });
+            }
+            return found;
         }
 
         // ================================================================ rules, for when the AI isn't available

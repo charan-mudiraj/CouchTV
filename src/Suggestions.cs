@@ -48,6 +48,7 @@ namespace CouchTV
         const string AppleChart = "https://rss.applemarketingtools.com/api/v2/in/music/most-played/50/songs.json";
         const string BrowserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
         const string ListHeader = "CouchTV suggestions 1";
+        const int ListVersion = 2;   // 2: trailers looked for on YouTube too; a list saved before is fetched again at once
         static readonly JavaScriptSerializer Json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
 
         // JustWatch's names for the apps CouchTV knows, and the address that tells their tile.
@@ -133,6 +134,7 @@ namespace CouchTV
             if (tried > 0 && errors.Count == tried) throw new Exception(string.Join("; ", errors));
             foreach (string e in errors) Note(notes, "Couldn't fetch the " + e);
 
+            FindTrailers(list, known, notes);
             Directory.CreateDirectory(Folder);
             foreach (Suggestion s in list)
             {
@@ -510,6 +512,77 @@ namespace CouchTV
             return Regex.Split(artist, @"\s*(?:&|,|\bfeat\.?\s)\s*", RegexOptions.IgnoreCase)[0].Trim();
         }
 
+        /// <summary>
+        /// The trailers JustWatch doesn't list (a third of the popular films, most on ZEE5 and Sun NXT), for the hero:
+        /// the title's trailer among YouTube's first results. One found before is kept; a title without one is looked
+        /// for again next time.
+        /// </summary>
+        static void FindTrailers(List<Suggestion> list, Dictionary<string, Suggestion> known, StringBuilder notes)
+        {
+            var looked = new Dictionary<string, string>();   // a title in two rows (All's and its app's) is looked for once
+            int found = 0, missed = 0;
+            foreach (Suggestion s in list)
+            {
+                if (s.Kind != SuggestionKind.Movie || s.Trailer != null) continue;
+                Suggestion old;
+                if (known.TryGetValue(s.Id, out old) && old.Trailer != null)
+                {
+                    s.Trailer = old.Trailer;
+                    continue;
+                }
+                string video;
+                if (!looked.TryGetValue(s.Id, out video))
+                {
+                    try { video = TrailerOnYouTube(s); }
+                    catch (Exception) { video = null; }
+                    looked[s.Id] = video;
+                    if (video != null) found++;
+                    else missed++;
+                    Thread.Sleep(300);   // gently: these are YouTube's own search pages
+                }
+                s.Trailer = video;
+            }
+            if (found + missed > 0) Note(notes, "Trailers found on YouTube: " + found + (missed > 0 ? " (" + missed + " titles without one)" : ""));
+        }
+
+        static string TrailerOnYouTube(Suggestion s)
+        {
+            bool series = IsSeries(s.Id);
+            Match year = Regex.Match(s.Subtitle ?? "", @"\b(?:19|20)\d\d\b");
+            string query = s.Title + (series ? " series" : year.Success ? " " + year.Value : "") + " official trailer";
+            foreach (SmartSearch.YouTubeVideo v in SmartSearch.YouTubeVideos(query, false, 5))
+                if (TrailerMatches(s.Title, v.Title)) return v.Id;
+            return null;
+        }
+
+        /// <summary>Whether a video is a trailer for this title: it says trailer (teaser, promo), not a reaction to one, and has most of the title's words.</summary>
+        internal static bool TrailerMatches(string title, string video)
+        {
+            if (!Regex.IsMatch(video, @"\b(?:trailer|teaser|promo)\b", RegexOptions.IgnoreCase)) return false;
+            if (Regex.IsMatch(video, @"\b(?:reaction|reacts?|review|explained|breakdown|spoof|parody|recap)\b", RegexOptions.IgnoreCase)) return false;
+            string have = " " + Words(video) + " ";
+            string[] words = Words(title).Split(' ');
+            if (words.Length == 1)
+            {
+                // One word ("Simon", "Solo"): the whole of the video's name before its first "|" or " - ", but for "Official
+                // Trailer" and the like; not "Love, Simon" or "Solo Boy Trailer".
+                string name = Words(Regex.Split(video, @"\s[|\-–:]\s|[|(\[]")[0]);
+                string rest = name.StartsWith(words[0]) ? name.Substring(words[0].Length) : null;
+                return rest != null && (rest.Length == 0 ||
+                    Regex.IsMatch(rest, @"^ (?:official|trailer|teaser|promo|movie|film|series|web|release|tamil|telugu|hindi|malayalam|kannada|bengali|marathi)\b"));
+            }
+            int needed = 0, matched = 0;
+            foreach (string w in words)
+            {
+                if (w.Length == 0) continue;
+                needed++;
+                if (have.Contains(" " + w + " ")) matched++;
+            }
+            return needed > 0 && matched * 10 >= needed * 6;
+        }
+
+        static string Words(string text) { return Regex.Replace(text.ToLowerInvariant(), @"[^\p{L}\p{N}]+", " ").Trim(); }
+
         /// <summary>A song's YouTube video, as a mix of similar songs after it (as voice search plays songs); null if none.</summary>
         public static string FindVideo(string query)
         {
@@ -589,8 +662,11 @@ namespace CouchTV
                 if (!File.Exists(ListFile)) return list;
                 string[] lines = File.ReadAllLines(ListFile, Encoding.UTF8);
                 if (lines.Length == 0 || !lines[0].StartsWith(ListHeader + "\t")) return list;
+                string[] header = lines[0].Substring(ListHeader.Length + 1).Split('\t');
                 long ticks;
-                if (long.TryParse(lines[0].Substring(ListHeader.Length + 1), out ticks)) fetched = new DateTime(ticks, DateTimeKind.Utc);
+                int version;
+                if (header.Length < 2 || !int.TryParse(header[1], out version)) version = 1;
+                if (version >= ListVersion && long.TryParse(header[0], out ticks)) fetched = new DateTime(ticks, DateTimeKind.Utc);
                 for (int i = 1; i < lines.Length; i++)
                 {
                     string[] f = lines[i].Split('\t');
@@ -612,7 +688,7 @@ namespace CouchTV
 
         static void Save(List<Suggestion> list, DateTime fetched)
         {
-            var text = new StringBuilder(ListHeader + "\t" + fetched.Ticks + "\n");
+            var text = new StringBuilder(ListHeader + "\t" + fetched.Ticks + "\t" + ListVersion + "\n");
             foreach (Suggestion s in list)
             {
                 text.Append(string.Join("\t", new[]

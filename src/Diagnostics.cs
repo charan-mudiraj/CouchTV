@@ -621,6 +621,17 @@ namespace CouchTV
             check("song title", Suggestions.SongTitle("KALYANI (Remix)"), "KALYANI (Remix)");
             check("lead artist", Suggestions.LeadArtist("Karan Aujla & MXRCI"), "Karan Aujla");
             check("lead artist", Suggestions.LeadArtist("Shashwat Sachdev, Arijit Singh, Irshad Kamil & Armaan Khan"), "Shashwat Sachdev");
+            check("trailer", Suggestions.TrailerMatches("Drishyam 3", "Drishyam 3 - Official Telugu Trailer | Mohanlal | Jeethu Joseph").ToString(), "True");
+            check("trailer", Suggestions.TrailerMatches("Epic - First Semester", "EPIC - First Semester Trailer | Anand Deverakonda").ToString(), "True");
+            check("trailer", Suggestions.TrailerMatches("DC", "DC - Release Trailer (Telugu) | Lokesh Kanagaraj").ToString(), "True");
+            check("trailer", Suggestions.TrailerMatches("Simon", "Love, Simon | Official Trailer [HD] | 20th Century FOX").ToString(), "False");
+            check("trailer", Suggestions.TrailerMatches("Azhagu", "Azhagae Azhagu | Episode Promo | 23rd October 2026").ToString(), "False");
+            check("trailer", Suggestions.TrailerMatches("Solo", "Solo Boy Trailer | Gautham Krishna | Ramya Pasupuleti").ToString(), "False");
+            check("trailer", Suggestions.TrailerMatches("Dorothy", "DOROTHY Official Trailer (Telugu) | Karthik Subbaraj").ToString(), "True");
+            check("trailer", Suggestions.TrailerMatches("Bandar", "BANDAR | Official Trailer | Bobby D, Sanya M").ToString(), "True");
+            check("trailer", Suggestions.TrailerMatches("Jigris", "JIGRIS Movie Official Trailer | Krishna B").ToString(), "True");
+            check("trailer", Suggestions.TrailerMatches("Drishyam 3", "Drishyam 3 Trailer Reaction | Mohanlal").ToString(), "False");
+            check("trailer", Suggestions.TrailerMatches("Drishyam 3", "Drishyam 3 | Full Movie Review").ToString(), "False");
             check("Netflix plays", Suggestions.PlayableUrl("https://www.netflix.com/title/82034837"), "https://www.netflix.com/watch/82034837");
             check("Netflix plays", Suggestions.PlayableUrl("https://www.netflix.com/in/title/82034837?s=a"), "https://www.netflix.com/watch/82034837");
             check("JioHotstar plays", Suggestions.PlayableUrl("https://www.hotstar.com/in/movies/bethlehem-kudumba-unit/1271710275?search_query=Bethlehem+Kudumba+Unit"),
@@ -1535,13 +1546,15 @@ namespace CouchTV
             string whyNot = "";
             var app = new Application();
             Config cfg = Config.Load();
-            cfg.Trailers = "muted";
+            cfg.Trailers = "sound";        // as on the TV, but with WebView2 itself muted
+            TrailerPlayer.Silent = true;
             var home = new HomeWindow(cfg, new HomeOptions { Windowed = true, IgnoreMedia = true });
             home.Topmost = true;
             DateTime started = DateTime.Now;
             home.ContentRendered += (s, e) =>
             {
                 home.Activate();   // a windowed home screen opens without the focus; trailers play only when it's in front
+                if (!home.FocusTrailer()) report.AppendLine("  no title in the rows has a trailer");
                 var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
                 timer.Tick += (s2, e2) =>
                 {
@@ -1571,9 +1584,9 @@ namespace CouchTV
                         };
                         later.Start();
                     }
-                    else if (waited > 25)
+                    else if (waited > 30)
                     {
-                        whyNot = home.TrailerWhyNot();
+                        whyNot = home.TrailerWhyNot() + (home.TrailerTroubleNow != null ? "; Settings says: " + home.TrailerTroubleNow : "");
                         timer.Stop();
                         app.Shutdown();
                     }

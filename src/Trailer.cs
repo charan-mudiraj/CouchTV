@@ -31,6 +31,9 @@ namespace CouchTV
 
         static string Folder { get { return Path.Combine(Config.DataDir, "webview2"); } }
 
+        /// <summary>The self-test: the page plays with sound as asked, but WebView2 itself is muted (nothing comes out).</summary>
+        internal static bool Silent;
+
         /// <summary>At start-up, before anything uses WebView2: its assemblies come from the copies unpacked to Folder.</summary>
         public static void Prepare()
         {
@@ -96,8 +99,17 @@ namespace CouchTV
         readonly System.Collections.Generic.List<object> _frames = new System.Collections.Generic.List<object>();   // YouTube's frames (CoreWebView2Frame)
         string _pending;                   // a play asked for before then
 
-        /// <summary>What the page says: "playing", "ended", "error" or "stopped". On the UI thread.</summary>
+        /// <summary>
+        /// What the page says: "playing", "ended", "error N", "stopped" or "state N"; or "failed why" if WebView2
+        /// didn't start. On the UI thread.
+        /// </summary>
         public event Action<string> Said;
+
+        /// <summary>Why Create gave no player, in a few words.</summary>
+        public static string Problem { get; private set; }
+
+        /// <summary>YouTube's player has loaded in the page.</summary>
+        public bool PageReady { get { return _pageReady; } }
 
         /// <summary>The view, for the hero (hidden until a trailer plays).</summary>
         public FrameworkElement View { get { return _view; } }
@@ -114,6 +126,7 @@ namespace CouchTV
             catch (Exception ex)
             {
                 Log.Info("Trailers: no WebView2 here (" + ex.Message + "); the hero shows pictures only");
+                Problem = "WebView2 couldn't be loaded (" + ex.Message + ")";
                 return null;
             }
         }
@@ -144,6 +157,7 @@ namespace CouchTV
                 CoreWebView2Environment environment = await CoreWebView2Environment.CreateAsync(null, Path.Combine(Config.DataDir, "trailers"), options);
                 await view.EnsureCoreWebView2Async(environment);
                 CoreWebView2 core = view.CoreWebView2;
+                if (Silent) core.IsMuted = true;
                 core.Settings.AreDefaultContextMenusEnabled = false;
                 core.Settings.AreDevToolsEnabled = false;
                 core.Settings.IsStatusBarEnabled = false;
@@ -179,7 +193,11 @@ namespace CouchTV
                 _core = core;
                 Log.Info("Trailers: ready (WebView2 " + environment.BrowserVersionString + ")");
             }
-            catch (Exception ex) { Log.Info("Trailers: WebView2 didn't start (" + ex.Message + "); the hero shows pictures only"); }
+            catch (Exception ex)
+            {
+                Log.Info("Trailers: WebView2 didn't start (" + ex.Message + "); the hero shows pictures only");
+                if (Said != null) Said("failed " + (ex is WebView2RuntimeNotFoundException ? "WebView2 isn't installed on this PC" : "WebView2 didn't start (" + ex.Message + ")"));
+            }
         }
 
         const string HideYouTubeChrome =
