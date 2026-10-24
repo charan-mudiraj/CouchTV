@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
@@ -54,7 +55,9 @@ class PlayerActivity : Activity() {
     private lateinit var web: WebView
     private var fullView: View? = null                               // the video, full screen (the site's button)
     private var fullDone: WebChromeClient.CustomViewCallback? = null
-    private val tests = TestHooks(this) { false }
+    // From a PC over adb (TestHooks): taps and swipes, and "back" (as the Back key, which Xiaomi's adb can't press).
+    @Suppress("DEPRECATION")
+    private val tests = TestHooks(this) { command -> command == "back" && run { onBackPressed(); true } }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -110,6 +113,9 @@ class PlayerActivity : Activity() {
             override fun onHideCustomView() {
                 leaveFullScreen()
             }
+
+            // Nothing (not WebView's grey play sign) where a video is still loading.
+            override fun getDefaultVideoPoster(): Bitmap = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
         }
         if (savedInstanceState == null || web.restoreState(savedInstanceState) == null) web.loadUrl(url)
     }

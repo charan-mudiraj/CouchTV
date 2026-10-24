@@ -400,17 +400,13 @@ class MainActivity : Activity() {
         hero = t
         val app = Apps.find(t.appKey)
         heroTitle.text = t.title
-        heroMeta.text = listOfNotNull(t.details.ifEmpty { null }, t.score?.let { "★ $it" }).joinToString("  ·  ")
+        heroMeta.text = listOfNotNull(t.details.ifEmpty { null }, t.score?.let { "★ $it" }, app?.label).joinToString("  ·  ")
         heroMeta.visibility = if (heroMeta.text.isEmpty()) View.GONE else View.VISIBLE
         heroGenres.text = t.genres
         heroGenres.visibility = if (t.genres.isEmpty()) View.GONE else View.VISIBLE
         heroText.text = t.description
         heroText.visibility = if (t.description.isEmpty()) View.GONE else View.VISIBLE
-        watchButton.text = when {
-            t.kind == Kind.SONG -> "Play on YouTube"
-            app != null -> "Watch on ${app.label}"
-            else -> "Watch"
-        }
+        watchButton.text = if (t.kind == Kind.SONG) "Play" else "Watch"   // the app's named in the line above
         watchButton.visibility = View.VISIBLE
         tvButton.visibility = View.VISIBLE
         for (p in posters) p.chosen = p.title.id == t.id
@@ -437,7 +433,8 @@ class MainActivity : Activity() {
         stopTrailer()
         heroTitle.text = app.label
         heroMeta.text = when {
-            catalog.fetching -> "Fetching its films and series…"
+            catalog.fetching -> "Fetching what's on it…"
+            app.key == "youtube" -> "The top songs couldn't be fetched just now: they're tried again soon."
             app.listed -> "Nothing listed right now."
             else -> "Its films and shows aren't listed here."
         }

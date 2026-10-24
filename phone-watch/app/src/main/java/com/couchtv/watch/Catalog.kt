@@ -29,6 +29,7 @@ class Catalog(context: Context) {
         private const val TAG = "CouchTV"
         private const val STALE_MS = 6 * 3600 * 1000L
         private const val RETRY_MS = 60 * 1000L
+        private const val SONGS_RETRY_MS = 30 * 60 * 1000L
         private const val MOST = 20
         private const val JUSTWATCH = "https://apis.justwatch.com/graphql"
         private const val IMAGES = "https://images.justwatch.com"
@@ -92,7 +93,9 @@ class Catalog(context: Context) {
         val now = System.currentTimeMillis()
         val key = apps.joinToString(",") { it.key }
         if (fetching) return
-        if (!force && key == forApps && now - updatedAt < STALE_MS) return
+        // Without the songs (Apple's chart didn't answer), the lists count as old after a while, not 6 hours.
+        val songsMissing = apps.any { it.key == "youtube" } && rows.none { it.key == "songs" }
+        if (!force && key == forApps && now - updatedAt < (if (songsMissing) SONGS_RETRY_MS else STALE_MS)) return
         if (!force && now - triedAt < RETRY_MS) return   // offline just now: not again straight away
         fetching = true
         triedAt = now

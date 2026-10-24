@@ -47,6 +47,11 @@
     if (muted) player.mute(); else { player.unMute(); player.setVolume(100); }
   }
 
+  // No subtitles over the trailer (YouTube turns them on by itself for some, and the phone's own captions setting).
+  function noCaptions() {
+    try { if (player && player.unloadModule) player.unloadModule('captions'); } catch (e) {}
+  }
+
   function start() {
     if (!wanted || !ready) return;
     if (player && player.loadVideoById) {
@@ -57,10 +62,11 @@
     player = new YT.Player('player', {
       videoId: wanted,
       playerVars: { autoplay: 1, controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3, modestbranding: 1, playsinline: 1, rel: 0,
-                    mute: muted ? 1 : 0, origin: location.origin },
+                    cc_load_policy: 0, mute: muted ? 1 : 0, origin: location.origin },
       events: {
         onReady: function (e) { fit(); sound(); e.target.playVideo(); },
         onStateChange: function (e) {
+          if (e.data === 1) noCaptions();
           if (e.data === 1 && wanted) { stage.className = 'on'; send('playing'); }
           else if (e.data === 0) { stage.className = ''; send('ended'); }
         },
