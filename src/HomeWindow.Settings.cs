@@ -101,6 +101,12 @@ namespace CouchTV
                 },
                 new TvSetting
                 {
+                    Key = "hotstarads", Label = "Block JioHotstar's ads", Note = "On its films and shows (live streams keep theirs); off if one won't play",
+                    Values = OnOffValues, Names = OnOffNames, Get = () => OnOff(_cfg.HotstarAds),
+                    Set = v => { _cfg.HotstarAds = v == "on"; Sites.WriteSettings(_cfg); SaveSetting("HotstarAds", v); },
+                },
+                new TvSetting
+                {
                     Key = "netflixprofile", Label = "Netflix profile",
                     Note = "Skips “Who's watching?” for this profile (NetflixProfile in couchtv.ini names it)",
                     Values = OnOffValues, Names = new[] { "“" + _cfg.NetflixProfile + "”", "Ask each time" },

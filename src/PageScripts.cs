@@ -33,7 +33,10 @@ namespace CouchTV
             public readonly Dictionary<string, string> Sessions = new Dictionary<string, string>();   // session → its script's identifier
             public readonly HashSet<string> Targets = new HashSet<string>();
             public readonly Dictionary<string, string> TargetSessions = new Dictionary<string, string>();   // target → its session
-            public readonly HashSet<string> Watched = new HashSet<string>();                                // sessions whose requests are seen (YuppTV)
+            public readonly HashSet<string> Watched = new HashSet<string>();                                // sessions whose requests are seen (YuppTV, JioHotstar)
+            public readonly HashSet<string> Hotstar = new HashSet<string>();                                // sessions on JioHotstar: its ad servers refused
+            public readonly Dictionary<string, string> PageIds = new Dictionary<string, string>();          // session → its page script's identifier
+            public readonly Dictionary<string, int> Refused = new Dictionary<string, int>();                // session → ad requests refused
         }
 
         static readonly Dictionary<string, Link> Links = new Dictionary<string, Link>(StringComparer.OrdinalIgnoreCase);
@@ -171,7 +174,7 @@ namespace CouchTV
                     string session = result["sessionId"] as string;
                     lock (link.TargetSessions) link.TargetSessions[target] = session;
                     Inject(link, session, target, info["url"] as string);
-                    WatchIfYupp(link, session, info["url"] as string);
+                    SiteRules(link, session, info["url"] as string);
                 });
             }
             else if (method == "Target.targetInfoChanged" && p != null)
@@ -180,7 +183,18 @@ namespace CouchTV
                 var info = p["targetInfo"] as Dictionary<string, object>;
                 string session = null;
                 if (info != null) lock (link.TargetSessions) link.TargetSessions.TryGetValue(info["targetId"] as string ?? "", out session);
-                if (session != null) WatchIfYupp(link, session, info["url"] as string);
+                if (session != null)
+                {
+                    SiteRules(link, session, info["url"] as string);
+                    if (IsHost(info["url"] as string, "hotstar.com") && (info["url"] as string).Contains("/watch")) SayAds(link, session);
+                }
+            }
+            else if (method == "Network.loadingFailed" && p != null)
+            {
+                // One of JioHotstar's ad servers refused (by setBlockedURLs): counted, for the log.
+                string session = m.ContainsKey("sessionId") ? m["sessionId"] as string : null;
+                if (session != null && p.ContainsKey("blockedReason") && p["blockedReason"] as string == "inspector")
+                    lock (link.Refused) { int n; link.Refused.TryGetValue(session, out n); link.Refused[session] = n + 1; }
             }
             else if (method == "Network.requestWillBeSent" && p != null)
             {
@@ -199,7 +213,12 @@ namespace CouchTV
             }
             else if (method == "Target.detachedFromTarget" && p != null)
             {
-                lock (link.Sessions) link.Sessions.Remove(p["sessionId"] as string);
+                string gone = p["sessionId"] as string;
+                lock (link.Sessions) link.Sessions.Remove(gone);
+                lock (link.PageIds) link.PageIds.Remove(gone);
+                lock (link.Hotstar) link.Hotstar.Remove(gone);
+                lock (link.Watched) link.Watched.Remove(gone);
+                lock (link.Refused) link.Refused.Remove(gone);
             }
             else if (method == "Target.targetDestroyed" && p != null)
             {
@@ -209,15 +228,61 @@ namespace CouchTV
         }
 
         /// <summary>
-        /// YuppTV's pages only: their requests are seen (Network), for the session they send with them. Nothing else's
-        /// requests are looked at.
+        /// What some sites' pages get. YuppTV's: their requests are seen (Network), for the session they send with
+        /// them. JioHotstar's: Edge refuses its ad servers (with HotstarAds on). Nothing else's requests are looked at.
         /// </summary>
-        static void WatchIfYupp(Link link, string session, string url)
+        static void SiteRules(Link link, string session, string url)
+        {
+            bool yupp = IsHost(url, "yupptv.com"), hotstar = IsHost(url, "hotstar.com");
+            if (!yupp && !hotstar) return;
+            bool first;
+            lock (link.Watched) first = link.Watched.Add(session);
+            if (first) Send(link, session, "Network.enable", new Dictionary<string, object>(), null);
+            if (!hotstar) return;
+            lock (link.Hotstar) { if (!link.Hotstar.Add(session)) return; }
+            BlockAds(link, session);
+        }
+
+        static bool IsHost(string url, string site)
         {
             Uri uri;
-            if (url == null || !Uri.TryCreate(url, UriKind.Absolute, out uri) || !(uri.Host == "yupptv.com" || uri.Host.EndsWith(".yupptv.com"))) return;
-            lock (link.Watched) { if (!link.Watched.Add(session)) return; }
-            Send(link, session, "Network.enable", new Dictionary<string, object>(), null);
+            return url != null && Uri.TryCreate(url, UriKind.Absolute, out uri) && (uri.Host == site || uri.Host.EndsWith("." + site));
+        }
+
+        /// <summary>
+        /// JioHotstar's ad servers refused on this page, or let through again (HotstarAds off). Edge's older way of
+        /// saying it first ("urls"), then its newer one ("urlPatterns") if it won't take that.
+        /// </summary>
+        static void BlockAds(Link link, string session)
+        {
+            string[] servers = Sites.BlockHotstarAds ? Sites.HotstarAdServers : new string[0];
+            Send(link, session, "Network.setBlockedURLs", new Dictionary<string, object> { { "urls", servers } }, result =>
+            {
+                if (result != null) return;
+                var patterns = new List<object>();
+                foreach (string s in servers) patterns.Add(new Dictionary<string, object> { { "urlPattern", s }, { "block", true } });
+                Send(link, session, "Network.setBlockedURLs", new Dictionary<string, object> { { "urlPatterns", patterns } }, null);
+            });
+        }
+
+        /// <summary>A JioHotstar film or show opened: in the log a while later, how many ad slots and ad requests were kept off it.</summary>
+        static void SayAds(Link link, string session)
+        {
+            ThreadPool.QueueUserWorkItem(state =>
+            {
+                Thread.Sleep(20000);
+                Send(link, session, "Runtime.evaluate", new Dictionary<string, object>
+                {
+                    { "expression", "document.documentElement.getAttribute('data-couchtv-ads') || '0'" }, { "returnByValue", true },
+                }, result =>
+                {
+                    var value = result != null && result.ContainsKey("result") ? result["result"] as Dictionary<string, object> : null;
+                    int refused;
+                    lock (link.Refused) link.Refused.TryGetValue(session, out refused);
+                    Log.Info("Websites: JioHotstar: " + (Sites.BlockHotstarAds ? "ads kept off, " + (value != null ? value["value"] : "?") +
+                             " ad slots taken out of the player's data, " + refused + " ad requests refused" : "ads allowed (HotstarAds off)"));
+                });
+            });
         }
 
         /// <summary>The scripts into a page: for every page it loads from now on, and the one it shows.</summary>
@@ -229,7 +294,10 @@ namespace CouchTV
                 {
                     if (result != null) lock (link.Sessions) link.Sessions[session] = result["identifier"] as string;
                 });
-            Send(link, session, "Page.addScriptToEvaluateOnNewDocument", new Dictionary<string, object> { { "source", Sites.PageBundle() } }, null);
+            Send(link, session, "Page.addScriptToEvaluateOnNewDocument", new Dictionary<string, object> { { "source", Sites.PageBundle() } }, result =>
+            {
+                if (result != null) lock (link.PageIds) link.PageIds[session] = result["identifier"] as string;
+            });
             Send(link, session, "Page.createIsolatedWorld", new Dictionary<string, object> { { "frameId", target }, { "worldName", World } }, result =>
             {
                 if (result == null) return;
@@ -283,6 +351,17 @@ namespace CouchTV
                         {
                             if (result != null) lock (link.Sessions) if (link.Sessions.ContainsKey(session)) link.Sessions[session] = result["identifier"] as string;
                         });
+                    // The page scripts too (JioHotstar's ads on or off for its next page), and its ad servers.
+                    string page;
+                    lock (link.PageIds) link.PageIds.TryGetValue(session, out page);
+                    if (page != null) Send(link, session, "Page.removeScriptToEvaluateOnNewDocument", new Dictionary<string, object> { { "identifier", page } }, null);
+                    Send(link, session, "Page.addScriptToEvaluateOnNewDocument", new Dictionary<string, object> { { "source", Sites.PageBundle() } }, result =>
+                    {
+                        if (result != null) lock (link.PageIds) link.PageIds[session] = result["identifier"] as string;
+                    });
+                    bool hotstar;
+                    lock (link.Hotstar) hotstar = link.Hotstar.Contains(session);
+                    if (hotstar) BlockAds(link, session);
                 }
             }
         }

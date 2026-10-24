@@ -76,8 +76,25 @@ namespace CouchTV
                    ", \"youtubeRow\": " + cfg.YouTubeRow +
                    ", \"netflixTidy\": " + (cfg.NetflixTidy ? "true" : "false") +
                    ", \"netflixPick\": " + (cfg.NetflixPickProfile && cfg.NetflixProfile.Length > 0 ? "true" : "false") +
-                   ", \"netflixProfile\": " + new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(cfg.NetflixProfile) + "}\n";
+                   ", \"netflixProfile\": " + new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(cfg.NetflixProfile) +
+                   ", \"hotstarAds\": " + (cfg.HotstarAds ? "true" : "false") + "}\n";
         }
+
+        /// <summary>Whether JioHotstar's ads are kept off its films and shows (HotstarAds), as last written.</summary>
+        public static bool BlockHotstarAds
+        {
+            get { string s = CurrentSettings; return s == null || s.Contains("\"hotstarAds\": true"); }
+        }
+
+        /// <summary>
+        /// JioHotstar's ad servers, for Edge to refuse on its pages (PageScripts): from uBlock Origin's and EasyList
+        /// India's filters for the site.
+        /// </summary>
+        public static readonly string[] HotstarAdServers =
+        {
+            "*://hesads.akamaized.net/*", "*://videoads.hotstar.com/*", "*://*.hotstar.com/*preroll*", "*://*.hotstar.com/*midroll*",
+            "*://*.videoplaza.tv/proxy/distributor/*",
+        };
 
         /// <summary>
         /// The browser's command line for it: on one of CouchTV's own profiles (userDataDir), a DevTools port for
@@ -269,7 +286,9 @@ namespace CouchTV
         public static string PageBundle()
         {
             return "if (location.hostname === 'www.youtube.com' && location.pathname.indexOf('/tv') !== 0 && !window.__couchtvPage) {\n" +
-                   "window.__couchtvPage = true;\n" + Text("youtube-page.js") + "\n}\n";
+                   "window.__couchtvPage = true;\n" + Text("youtube-page.js") + "\n}\n" +
+                   (BlockHotstarAds ? "if (/(^|\\.)hotstar\\.com$/.test(location.hostname) && !window.__couchtvAds) {\n" +
+                                      "window.__couchtvAds = true;\n" + Text("hotstar-page.js") + "\n}\n" : "");
         }
 
         static void WriteIfChanged(string path, byte[] bytes)

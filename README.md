@@ -86,6 +86,10 @@ The phone remote shows the same thing as a player in the phone's notifications, 
 
 **Up next** (YouTube): the phone's player lists what plays next: songs you added with **Play next** on a song in the phone's *Top songs* (its round button, or hold it down), then YouTube's own list beside the video (the mix or playlist). Tap one to play it now; ✕ takes one of yours out. When the song playing ends, or you press Next, the next of yours goes on in the same YouTube page (CouchTV uses YouTube's search for it, through Windows' accessibility, so no window opens and nothing in front of it changes, even over Netflix); after yours, YouTube carries on with its own list. A video playing full screen in YouTube leaves full screen for this.
 
+### JioHotstar without ads
+
+**JioHotstar's films and shows play without their ads** (`HotstarAds = on`; *Block JioHotstar's ads* on the Settings screen). As uBlock Origin's filters for the site do, the player's data has its before-film and mid-film ad slots taken out as the page reads it, Edge refuses JioHotstar's ad servers, and its video banners are hidden (`sites/hotstar-page.js`, `src/PageScripts.cs`, in Edge on CouchTV's own profile). Live streams (cricket, channels) have their ads inside the video, so those stay. If a film ever won't play, switch it off. The TV's log says, for each film or show opened, how many ad slots and ad requests were kept off it.
+
 ### YouTube and Netflix with the remote
 
 On YouTube and Netflix, **the arrows move a highlight from video to video**, like a TV app, and **OK plays the highlighted one**. The first press shows where the highlight is; rows scroll to the middle of the screen as it moves.
