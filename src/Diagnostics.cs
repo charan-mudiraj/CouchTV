@@ -537,7 +537,7 @@ namespace CouchTV
             check("no subscriptions and nothing known: the plain app row", watch(unsubscribed, new KeyValuePair<Tile, string>[0]) == "");
 
             // ----- one-time settings changes on an installed couchtv.ini from before them
-            string oldIni = System.Text.RegularExpressions.Regex.Replace(Config.DefaultText(), @"(?m)^(Subscriptions = [^\r\n]*|LiveTv = [^\r\n]*|LiveTvLanguages = [^\r\n]*|ConfigVersion = \d+|Enabled = false\r?\n(?=Type = app\r?\nExe = %ProgramFiles%\\VideoLAN))\r?\n?", "");
+            string oldIni = System.Text.RegularExpressions.Regex.Replace(Config.DefaultText(), @"(?m)^(Subscriptions = [^\r\n]*|Tab = [^\r\n]*|LiveTv = [^\r\n]*|LiveTvLanguages = [^\r\n]*|ConfigVersion = \d+|Enabled = false\r?\n(?=Type = app\r?\nExe = %ProgramFiles%\\VideoLAN))\r?\n?", "");
             // ...without the bundle's tiles, and ZEE5 as it was: hidden, after Web...
             oldIni = System.Text.RegularExpressions.Regex.Replace(oldIni, @"\[(ZEE5|Sun NXT|ETV Win|YuppTV)\](\r?\n[^\r\n]+)*\r?\n\r?\n", "");
             oldIni = oldIni.Replace("[Spotify]", "[ZEE5]\nEnabled = false\nType = web\nUrl = https://www.zee5.com\nBrowser = edge\nBackground = #8230C6\nForeground = #FFFFFF\n\n[Spotify]");
@@ -570,6 +570,9 @@ namespace CouchTV
                 after.SystemTiles.Count > 0 && after.SystemTiles[0].Action == "settings" && after.SystemTiles.FindAll(t => t.Action == "settings").Count == 1);
             check("upgrade: the new line goes with the other settings, before the tiles' comments",
                 upgraded.IndexOf("Subscriptions = Netflix") < upgraded.IndexOf(";  Tiles: each"));
+            check("upgrade: YuppTV and Web off the tabs, the films' apps on them",
+                after.AppTiles.Exists(t => t.Name == "YuppTV" && !t.OnTabs) && after.AppTiles.Exists(t => t.Name == "Web" && !t.OnTabs)
+                && after.AppTiles.FindAll(t => t.OnTabs).Count == after.AppTiles.Count - 2 && ConfigUpgrade.Get(oldIni, "Web", "Tab") == null);
             check("upgrade: runs once (changing it back afterwards sticks)", ConfigUpgrade.Apply(ConfigUpgrade.Set(upgraded, "VLC", "Enabled", "true", false), new List<string>()).Contains("Enabled = true"));
             check("upgrade: a new install's file is left alone", ConfigUpgrade.Apply(Config.DefaultText(), new List<string>()) == Config.DefaultText());
             check("upgrade: everything else in the file is kept", upgraded.Contains("[Netflix]") && upgraded.Contains("HomeKeys = ") && after.AppTiles.Count == defaults.AppTiles.Count);

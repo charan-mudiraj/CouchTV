@@ -23,6 +23,7 @@ namespace CouchTV
         public FontWeight Weight = FontWeights.Bold;
         public Color Background = Theme.Chip, Background2, Foreground = Theme.Ink;
         public bool HasBackground2;
+        public bool OnTabs = true;     // along the top of the home screen (off: still on the phone's apps, in search and for its rows)
 
         /// <summary>The same tile, opening a different address (e.g. its search results).</summary>
         public Tile WithUrl(string url)
@@ -261,6 +262,7 @@ namespace CouchTV
             t.Args = Get(v, "Args", null);
             t.Scale = Get(v, "Scale", null);
             t.Search = Get(v, "Search", null);
+            t.OnTabs = GetBool(v, "Tab", true);
             t.Action = Get(v, "Action", "").ToLowerInvariant();
             t.Text = Get(v, "Text", null);
             t.ImagePath = ResolvePath(Get(v, "Image", null));

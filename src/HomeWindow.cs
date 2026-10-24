@@ -445,9 +445,9 @@ namespace CouchTV
             _sys.Clear();
             _appsRow.Children.Clear();
             _sysRow.Children.Clear();
-            // The tabs: All, then each app (still the way to open one: OK on its tab).
+            // The tabs: All, then each app (still the way to open one: OK on its tab), but those kept off them (Tab = off).
             var tabs = new List<Tile> { AllTab };
-            tabs.AddRange(_cfg.AppTiles);
+            tabs.AddRange(_cfg.AppTiles.FindAll(t => t.OnTabs));
             foreach (Tile t in tabs)
             {
                 TileView v = MakeTabTile(t);

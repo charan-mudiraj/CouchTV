@@ -11,7 +11,7 @@ namespace CouchTV
     /// </summary>
     internal static class ConfigUpgrade
     {
-        public const int Latest = 5;
+        public const int Latest = 6;
 
         /// <summary>The file's text with any pending changes applied; changes lists what was done.</summary>
         public static string Apply(string text, List<string> changes)
@@ -98,6 +98,19 @@ namespace CouchTV
                     text = Set(text, "CouchTV", "LiveTvLanguages", live, true);
                 text = Set(text, "CouchTV", "LiveTv", "off", true);
                 changes.Add("Live TV rows off");
+            }
+            if (version < 6)
+            {
+                // October 2026: YuppTV and Web off the home screen's tabs (they're for channels and browsing, not films
+                // and series); the phone's apps and search keep them.
+                var off = new List<string>();
+                foreach (string name in new[] { "YuppTV", "Web" })
+                {
+                    if (Get(text, name, "Type") == null) continue;
+                    text = Set(text, name, "Tab", "off", false);
+                    off.Add(name);
+                }
+                if (off.Count > 0) changes.Add(string.Join(" and ", off) + " off the home screen's tabs");
             }
             return Set(text, "CouchTV", "ConfigVersion", Latest.ToString(), true);
         }
