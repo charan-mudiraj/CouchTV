@@ -76,4 +76,6 @@
     <color name="slot_pressed_bottom">#202733</color>
     <color name="slot_shadow">#040507</color>
     <color name="slot_lip">#262D3A</color>
+    <!-- Share screen, on the first page's shortcuts. -->
+    <color name="share">#8E5CF7</color>
 </resources>

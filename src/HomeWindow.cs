@@ -1077,6 +1077,7 @@ namespace CouchTV
         /// </summary>
         void GoHome()
         {
+            if (CloseShares()) return;   // phones' screens showing: Home closes them first
             bool alreadyHome = IsActive && WindowState != WindowState.Minimized;
             IntPtr keep = Shell.ExplorerRunning ? IntPtr.Zero : KeepPlaying();
             int closed = Shell.ExplorerRunning ? 0 : Shell.CloseAppWindows(_hwnd, keep);
@@ -1711,6 +1712,7 @@ namespace CouchTV
             if (_osd != null) _osd.Close();
             if (_ir != null) _ir.Stop();
             if (_wifi != null) _wifi.Stop();
+            StopPhoneShares();
             if (_typing != null) _typing.Stop();
             if (_bluetooth != null) _bluetooth.Stop();
             if (_sound != null) _sound.Stop();

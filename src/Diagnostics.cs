@@ -1542,6 +1542,104 @@ namespace CouchTV
         /// CouchTV.exe --trailertest report.txt: the home screen in a window for a few seconds (muted), waiting for the
         /// hero's trailer to play in its WebView2; the screen there is saved beside the report (report.png).
         /// </summary>
+        /// <summary>
+        /// CouchTV.exe --sharetest report.txt pictures.h264dump: two pretend phones show their screens on the TV
+        /// (PhoneShare, in a small ShareWindow): the same H.264 pictures (each its length, 4 bytes big-endian, then 1 if
+        /// whole, then its bytes), 30 a second, with a tone for their sound, for 6 seconds. The report says what the page
+        /// decoded and how its sound is, and the window's picture is saved beside it (report.png).
+        /// </summary>
+        public static int ShareTest(string path, string picturesPath)
+        {
+            var report = new StringBuilder();
+            var pictures = new List<KeyValuePair<bool, byte[]>>();
+            byte[] dump = File.ReadAllBytes(picturesPath);
+            for (int at = 0; at + 5 <= dump.Length;)
+            {
+                int length = (dump[at] << 24) | (dump[at + 1] << 16) | (dump[at + 2] << 8) | dump[at + 3];
+                pictures.Add(new KeyValuePair<bool, byte[]>(dump[at + 4] == 1, Secure.Take(dump, at + 5, length)));
+                at += 5 + length;
+            }
+            var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+            var share = new PhoneShare();
+            var window = new ShareWindow(share.PageUrl, true);
+            int keyAsks = 0;
+            bool passed = false;
+            window.Loaded += (s, e) => new System.Threading.Thread(() =>
+            {
+                var phones = new List<PhoneShare.Phone>();
+                for (int i = 0; i < 2; i++)
+                    phones.Add(share.Begin("Test phone " + (i + 1), line => { if (line == "KEY") System.Threading.Interlocked.Increment(ref keyAsks); }, () => { }));
+                var size = new byte[] { 1, 576 >> 8, 576 & 0xFF, 1280 >> 8, 1280 & 0xFF };
+                foreach (PhoneShare.Phone p in phones) share.Received(p, size);
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                long sample = 0;
+                for (int n = 0; n < 180; n++)
+                {
+                    KeyValuePair<bool, byte[]> picture = pictures[n % pictures.Count];
+                    var message = new byte[10 + picture.Value.Length];
+                    message[0] = 2;
+                    message[1] = (byte)(picture.Key ? 1 : 0);
+                    long time = n * 33333L;
+                    for (int b = 0; b < 8; b++) message[2 + b] = (byte)(time >> (56 - 8 * b));
+                    Buffer.BlockCopy(picture.Value, 0, message, 10, picture.Value.Length);
+                    foreach (PhoneShare.Phone p in phones) share.Received(p, message);
+                    // A quiet 440 Hz tone, in 10 ms chunks (three a picture).
+                    for (int c = 0; c < 3; c++)
+                    {
+                        var chunk = new byte[1 + 480 * 4];
+                        chunk[0] = 3;
+                        for (int f = 0; f < 480; f++, sample++)
+                        {
+                            short v = (short)(Math.Sin(2 * Math.PI * 440 * sample / 48000.0) * 3000);
+                            chunk[1 + f * 4] = chunk[3 + f * 4] = (byte)v;
+                            chunk[2 + f * 4] = chunk[4 + f * 4] = (byte)(v >> 8);
+                        }
+                        share.Received(phones[0], chunk);
+                    }
+                    long wait = (n + 1) * 33 - clock.ElapsedMilliseconds;
+                    if (wait > 0) System.Threading.Thread.Sleep((int)wait);
+                }
+                System.Threading.Thread.Sleep(1500);
+                window.Dispatcher.Invoke(new Action(() =>
+                {
+                    try
+                    {
+                        Matrix device = PresentationSource.FromVisual(window).CompositionTarget.TransformToDevice;
+                        int x = (int)(window.Left * device.M11), y = (int)(window.Top * device.M22), w = (int)(window.ActualWidth * device.M11), h = (int)(window.ActualHeight * device.M22);
+                        using (var bitmap = new System.Drawing.Bitmap(w, h))
+                        {
+                            using (var g = System.Drawing.Graphics.FromImage(bitmap)) g.CopyFromScreen(x, y, 0, 0, new System.Drawing.Size(w, h));
+                            bitmap.Save(Path.ChangeExtension(path, ".png"), System.Drawing.Imaging.ImageFormat.Png);
+                        }
+                    }
+                    catch (Exception ex) { report.AppendLine("screen: " + ex.Message); }
+                }));
+                string stats = share.Stats ?? "";
+                report.AppendLine("  page: " + stats);
+                report.AppendLine("  whole pictures asked for: " + keyAsks);
+                try
+                {
+                    var parsed = new System.Web.Script.Serialization.JavaScriptSerializer().Deserialize<Dictionary<string, object>>(stats);
+                    var shown = (System.Collections.ArrayList)parsed["phones"];
+                    int decoding = 0;
+                    foreach (Dictionary<string, object> p in shown) if (Convert.ToInt32(p["decoded"]) > 30) decoding++;
+                    bool sound = (string)parsed["sound"] == "running";
+                    report.AppendLine((decoding == 2 ? "PASS  " : "FAIL  ") + "both phones' pictures decoded (" + decoding + " of 2 past 30 pictures)");
+                    report.AppendLine((sound ? "PASS  " : "FAIL  ") + "their sound plays (" + parsed["sound"] + ", " + parsed["latency"] + " ms of output delay)");
+                    passed = decoding == 2 && sound;
+                }
+                catch (Exception ex) { report.AppendLine("FAIL  the page said nothing usable (" + ex.Message + ")"); }
+                foreach (PhoneShare.Phone p in phones) share.End(p);
+                window.Dispatcher.Invoke(new Action(() => app.Shutdown()));
+            }) { IsBackground = true }.Start();
+            window.Show();
+            app.Run();
+            share.Dispose();
+            foreach (string line in Log.Tail(40).FindAll(l => l.Contains("Phone screens"))) report.AppendLine("  log: " + line);
+            File.WriteAllText(path, report.ToString());
+            return passed ? 0 : 1;
+        }
+
         public static int TrailerTest(string path)
         {
             var report = new StringBuilder();

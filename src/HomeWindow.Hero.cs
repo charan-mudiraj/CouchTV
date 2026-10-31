@@ -312,6 +312,7 @@ namespace CouchTV
         {
             get
             {
+                if (SharesShown) return true;   // a phone's screen over everything, with its sound
                 if (_opt.IgnoreMedia) return false;
                 MediaNow now = NowPlaying.Current;
                 return (now != null && now.Playing) || _cardShown;

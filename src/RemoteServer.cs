@@ -39,6 +39,9 @@ namespace CouchTV
     ///     KEY &lt;vk&gt; D|U             the keyboard page: a PC key down or up (Windows virtual-key code, hex)
     ///     TOUCH &lt;finger&gt; D|M|U &lt;x&gt; &lt;y&gt;   the screen mirror: a finger down, moved or up (0-65535 across the screen)
     ///     MIRROR &lt;width&gt; &lt;kbps&gt;   on a connection of its own: from then on the TV sends its screen (ScreenMirror)
+    ///     SHARE &lt;width&gt; &lt;height&gt;   on a connection of its own: the phone's screen and sound on the TV (PhoneShare)
+    ///                  →  SHARE OK, then the phone sends them; SHARE FULL (3 phones already); later KEY (send a whole
+    ///                     picture) and STOP (the TV closed it)
     ///     EDIT &lt;backspaces&gt; &lt;base64 UTF-8&gt;   the phone's own keyboard: delete that many, then type the text
     ///                  →  INPUT TEXT|PASSWORD &lt;name&gt; &lt;value&gt;, INPUT OFF   a text box got (or lost) the focus on the
     ///                               TV, so the phone pops up its keyboard: told to the phone used last
@@ -131,6 +134,7 @@ namespace CouchTV
 
         /// <summary>The watchlist the phones share: told to each phone as it connects, and kept up to date by them (WATCH).</summary>
         internal Watchlist Watchlist;
+        internal PhoneShare Share;   // phones' screens on the TV (SHARE); null: not offered
 
         // What the trackpad lines do, straight from the network thread for the least delay. The self-test swaps
         // these to watch rather than move the real pointer.
@@ -320,6 +324,11 @@ namespace CouchTV
                         Mirror(client, stream, session, plain);   // until the phone goes: the connection carries pictures now
                         break;
                     }
+                    if (plain.StartsWith("SHARE "))
+                    {
+                        ShareScreen(client, stream, lines, session);   // until it stops: the connection carries the phone's screen
+                        break;
+                    }
                     string reply = Handle(plain.Trim(), who, held, session, keys);
                     if (reply != null)
                         foreach (string r in reply.Split('\n')) session.Send(r);
@@ -361,6 +370,36 @@ namespace CouchTV
             catch (Exception ex) { Log.Info("Screen mirror: " + ex.Message); }
             Log.Info("Screen mirror: " + session.Name + " stopped");
             Raise(() => { if (Mirroring != null) Mirroring(session.Name, false); });
+        }
+
+        /// <summary>
+        /// "SHARE &lt;width&gt; &lt;height&gt;": the phone's screen and sound on the TV (PhoneShare), from this connection until
+        /// the phone stops, goes, or the TV closes it (STOP). The phone waits for SHARE OK before sending any of it.
+        /// </summary>
+        void ShareScreen(TcpClient client, NetworkStream stream, LineReader lines, RemoteSession session)
+        {
+            PhoneShare share = Share;
+            PhoneShare.Phone phone = share == null ? null : share.Begin(session.Name, line => session.Send(line), () => client.Close());
+            if (phone == null)
+            {
+                session.Send(share == null ? "SHARE OFF" : "SHARE FULL");
+                return;
+            }
+            session.Send("SHARE OK");
+            client.ReceiveTimeout = 5000;   // a still screen still sends 10 pictures a second, and the sound 100 chunks
+            client.SendTimeout = 5000;
+            try
+            {
+                using (var frames = new FrameReader(stream, lines.TakeBuffered(), session.ShareEnc, session.ShareMac))
+                {
+                    byte[] message;
+                    while (!_stop && !phone.Stopped && (message = frames.Next()) != null) share.Received(phone, message);
+                }
+            }
+            catch (IOException) { }   // it stopped, or went (or the TV closed it)
+            catch (ObjectDisposedException) { }
+            catch (Exception ex) { Log.Info("Phone screens: " + session.Name + ": " + ex.Message); }
+            share.End(phone);
         }
 
         static void Send(Stream stream, string line)
@@ -431,7 +470,8 @@ namespace CouchTV
                 session = new RemoteSession
                 {
                     Id = Secure.Hex(Secure.Random(8)), Phone = ((IPEndPoint)client.Client.RemoteEndPoint).Address, Name = name,
-                    AudioEnc = keys.AudioEnc, AudioMac = keys.AudioMac, MirrorEnc = keys.MirrorEnc, MirrorMac = keys.MirrorMac, Client = client,
+                    AudioEnc = keys.AudioEnc, AudioMac = keys.AudioMac, MirrorEnc = keys.MirrorEnc, MirrorMac = keys.MirrorMac,
+                    ShareEnc = keys.ShareEnc, ShareMac = keys.ShareMac, Client = client,
                 };
                 return new Channel(keys.TvEnc, keys.TvMac, keys.PhoneEnc, keys.PhoneMac);
             }
@@ -1031,7 +1071,8 @@ namespace CouchTV
         public string Name;
         public byte[] AudioEnc, AudioMac;
         public byte[] MirrorEnc, MirrorMac;
-        public long LastListen;        // the number of its last sound request: each must be higher (no replays)
+        public byte[] ShareEnc, ShareMac;
+        public long LastListen;       // the number of its last sound request: each must be higher (no replays)
         public volatile bool Closed;
         public volatile bool Remote;   // said HELLO: the remote itself (not the phone's sound service)
         public volatile bool DevTool;  // the laptop's test tool (CouchTV.exe --tv), not a phone: the banner shows while it works

@@ -48,6 +48,7 @@ $cscArgs = @('/nologo', '/target:winexe', '/platform:anycpu', '/optimize+', '/co
 $cscArgs += Get-ChildItem (Join-Path $root 'sites') -File | ForEach-Object { "/resource:$($_.FullName),CouchTV.sites.$($_.Name)" }
 $cscArgs += Get-ChildItem $webview2 -Filter *.dll | ForEach-Object { "/resource:$($_.FullName),CouchTV.lib.$($_.Name)" }
 $cscArgs += "/resource:$(Join-Path $root 'home\trailer.html'),CouchTV.home.trailer.html"
+$cscArgs += "/resource:$(Join-Path $root 'home\share.html'),CouchTV.home.share.html"
 $cscArgs += $references | ForEach-Object { "/r:$_" }
 $cscArgs += Get-ChildItem (Join-Path $root 'src\*.cs') | ForEach-Object { $_.FullName }
 

@@ -254,6 +254,7 @@ namespace CouchTV
         public byte[] PhoneEnc, PhoneMac, TvEnc, TvMac;   // what the phone sends; what the TV sends
         public byte[] AudioEnc, AudioMac;
         public byte[] MirrorEnc, MirrorMac;   // the screen mirror's pictures, TV to phone, on their own connection
+        public byte[] ShareEnc, ShareMac;     // a phone's screen and sound shown on the TV, phone to TV, on their own connection
 
         public static SessionKeys Derive(byte[] shared, byte[] pairKey, byte[] transcript)
         {
@@ -269,6 +270,8 @@ namespace CouchTV
             };
             keys.MirrorEnc = Secure.Hmac(keys.TvEnc, Secure.Utf8("mirror enc"));
             keys.MirrorMac = Secure.Hmac(keys.TvMac, Secure.Utf8("mirror mac"));
+            keys.ShareEnc = Secure.Hmac(keys.PhoneEnc, Secure.Utf8("share enc"));
+            keys.ShareMac = Secure.Hmac(keys.PhoneMac, Secure.Utf8("share mac"));
             return keys;
         }
 
@@ -374,6 +377,80 @@ namespace CouchTV
                 if (line.Length > _most) return null;
                 if (newline >= 0) return new UTF8Encoding(false).GetString(line.ToArray()).TrimEnd('\r');
             }
+        }
+
+        /// <summary>What's been read past the last line (the start of what follows it, when that isn't lines).</summary>
+        public byte[] TakeBuffered()
+        {
+            var rest = new byte[_end - _start];
+            Buffer.BlockCopy(_buffer, _start, rest, 0, rest.Length);
+            _start = _end = 0;
+            return rest;
+        }
+    }
+
+    /// <summary>
+    /// Binary messages from a phone (its screen and sound: PhoneShare), sealed as FrameWriter seals the TV's: each is
+    /// its length (4 bytes, big-endian), the AES-CTR ciphertext and a 16-byte HMAC tag over the message number (8 bytes,
+    /// big-endian, from 0) and the ciphertext. A message replayed, dropped, reordered or changed fails.
+    /// </summary>
+    internal sealed class FrameReader : IDisposable
+    {
+        public const int Most = 4 << 20;
+        readonly Stream _stream;
+        readonly Ctr _cipher;
+        readonly HMACSHA256 _mac;
+        readonly byte[] _pending;   // read already, with the line before it (LineReader.TakeBuffered)
+        int _pendingAt;
+        ulong _number;
+
+        public FrameReader(Stream stream, byte[] pending, byte[] enc, byte[] mac)
+        {
+            _stream = stream;
+            _pending = pending ?? new byte[0];
+            _cipher = new Ctr(enc);
+            _mac = new HMACSHA256(mac);
+        }
+
+        /// <summary>The next message, decrypted; null when the connection closed. Throws for one the phone didn't seal, in order.</summary>
+        public byte[] Next()
+        {
+            var head = new byte[4];
+            if (!Exactly(head, 4)) return null;
+            int length = (head[0] << 24) | (head[1] << 16) | (head[2] << 8) | head[3];
+            if (length < Secure.TagBytes || length > Most) throw new IOException("not a message from the phone");
+            var body = new byte[length];
+            if (!Exactly(body, length)) return null;
+            int size = length - Secure.TagBytes;
+            var counter = new byte[8];
+            Ctr.BigEndian(_number, counter, 0);
+            _mac.Initialize();
+            _mac.TransformBlock(counter, 0, 8, null, 0);
+            _mac.TransformFinalBlock(body, 0, size);
+            if (!Secure.Same(Secure.Take(_mac.Hash, 0, Secure.TagBytes), Secure.Take(body, size, Secure.TagBytes)))
+                throw new IOException("a message that didn't come from the phone");
+            _cipher.Apply(_number, body, 0, size);
+            _number++;
+            return Secure.Take(body, 0, size);
+        }
+
+        bool Exactly(byte[] into, int count)
+        {
+            int done = 0;
+            while (done < count && _pendingAt < _pending.Length) into[done++] = _pending[_pendingAt++];
+            while (done < count)
+            {
+                int n = _stream.Read(into, done, count - done);
+                if (n <= 0) return false;
+                done += n;
+            }
+            return true;
+        }
+
+        public void Dispose()
+        {
+            _cipher.Dispose();
+            _mac.Dispose();
         }
     }
 }

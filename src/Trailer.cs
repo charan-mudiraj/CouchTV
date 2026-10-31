@@ -131,11 +131,28 @@ namespace CouchTV
             }
         }
 
+        static bool _loaderSet;
+
+        /// <summary>
+        /// Before any WebView2 is made (the trailers', the phone screens'): its files out of CouchTV.exe, and its loader
+        /// found there. Throws without them; call it inside a try, from a method of its own (WebView2's types load there).
+        /// </summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static void UseWebView2()
+        {
+            Unpack();
+            lock (UnpackLock)
+            {
+                if (_loaderSet) return;
+                CoreWebView2Environment.SetLoaderDllFolderPath(Folder);   // once: not again after an environment's made
+                _loaderSet = true;
+            }
+        }
+
         [MethodImpl(MethodImplOptions.NoInlining)]   // WebView2's types load in here, inside Create's try
         static TrailerPlayer CreateNow(Color background)
         {
-            Unpack();
-            CoreWebView2Environment.SetLoaderDllFolderPath(Folder);
+            UseWebView2();
             var view = new WebView2
             {
                 Visibility = Visibility.Hidden, Focusable = false, IsHitTestVisible = false,

@@ -52,6 +52,7 @@ class MainActivity : Activity() {
         private const val REQUEST_BLUETOOTH_OFF = 45   // Android's "turn off Bluetooth?" question
         private const val REQUEST_PHOTO = 46           // a photo for this remote's background
         private const val REQUEST_TV_PHOTO = 47        // a photo for the TV's home screen
+        private const val REQUEST_SHARE = 48           // Android's "start recording?", to show this phone on the TV
         private const val ACTION_REQUEST_DISABLE = "android.bluetooth.adapter.action.REQUEST_DISABLE"
         private const val TV_GAP_MS = 15_000L          // the TV ignores its power button this long after switching
     }
@@ -371,6 +372,7 @@ class MainActivity : Activity() {
         }
         showShortcuts()
         sleepTimer.showKey()
+        ScreenShare.onChange = { _, _ -> showShortcuts() }   // Share screen reads Stop sharing while it's on
 
         // Testing from a PC over adb (TestHooks): pages, the mirror and the dialogs, besides fingers.
         tests = TestHooks(this) { command ->
@@ -757,6 +759,7 @@ class MainActivity : Activity() {
         watchlist.onChange = null
         watchlist.toTv = null
         ListenService.onChange = null
+        ScreenShare.onChange = null
         InstallReceiver.onFailure = null
         sleepTimer.stop()
         handler.removeCallbacksAndMessages(null)
@@ -829,6 +832,12 @@ class MainActivity : Activity() {
         }
         if (requestCode == REQUEST_BLUETOOTH_OFF) {
             if (BluetoothGuard.isOn(this) && resultCode != RESULT_OK) toast(getString(R.string.bluetooth_still_on))
+            return
+        }
+        if (requestCode == REQUEST_SHARE) {
+            val host = shareHost
+            shareHost = null
+            if (resultCode == RESULT_OK && data != null && host != null) ScreenShare.start(this, resultCode, data, host)
             return
         }
         if (!voice.onActivityResult(requestCode, resultCode, data)) super.onActivityResult(requestCode, resultCode, data)
@@ -1189,14 +1198,37 @@ class MainActivity : Activity() {
 
     private lateinit var sleepLabel: TextView
 
+    private var shareHost: String? = null   // the TV's address, while Android asks whether to record the screen
+
     /**
-     * The shortcuts panel at the top of the first page: Settings, the Web app, the sleep timer, the TV's Bluetooth,
-     * Menu, and the TV's apps that don't fit the remote's bottom row.
+     * Share screen: this phone's screen and sound on the TV (ScreenShare), once Android's said yes to recording it; or,
+     * while it's showing, stop.
+     */
+    private fun shareScreen() {
+        if (ScreenShare.running) {
+            ScreenShare.stop(this)
+            return
+        }
+        val host = remote.wifi.tvAddress?.hostAddress ?: remote.wifi.manualAddress
+        if (!remote.wifi.connected || host == null) {
+            toast(getString(R.string.share_needs_tv))
+            return
+        }
+        shareHost = host
+        startActivityForResult(getSystemService(android.media.projection.MediaProjectionManager::class.java).createScreenCaptureIntent(), REQUEST_SHARE)
+    }
+
+    /**
+     * The shortcuts panel at the top of the first page: Settings, Share screen, the Web app, the sleep timer, the TV's
+     * Bluetooth, Menu, and the TV's apps that don't fit the remote's bottom row.
      */
     private fun showShortcuts() {
         val all = listOf(
             Shortcut(R.drawable.ic_settings, R.color.surface_pressed, getString(R.string.settings_title)) {
                 findViewById<SettingsScreen>(R.id.settings_screen).open()
+            },
+            Shortcut(R.drawable.ic_screen_share, R.color.share, getString(if (ScreenShare.running) R.string.share_stop_short else R.string.share_title)) {
+                shareScreen()
             },
             Shortcut(R.drawable.ic_web, R.color.web, getString(R.string.app_web)) {
                 openApp(remote.wifi.apps.find { it.name == "Web" } ?: TvApp("Web", getString(R.string.app_web), 0, 0))

@@ -368,7 +368,22 @@
     <string name="perm_settings_title">Allow in Settings</string>
     <string name="perm_settings_message">Android won\'t ask again, so please turn these on under Permissions on the next screen:\n\n%1$s</string>
     <string name="perm_notifications">• Notifications: the watchlist\'s reminders, and what the TV plays</string>
-    <string name="perm_microphone">• Microphone: voice search</string>
+    <string name="perm_microphone">• Microphone: voice search, and the phone\'s sound when you share its screen on the TV</string>
     <string name="perm_nearby">• Nearby devices: switching Bluetooth off while the remote\'s in use</string>
+
+    <!-- Showing this phone's screen on the TV (ScreenShare). -->
+    <string name="share_title">Share screen</string>
+    <string name="share_stop_short">Stop sharing</string>
+    <string name="share_channel">Showing this phone on the TV</string>
+    <string name="share_on">Showing this phone on the TV</string>
+    <string name="share_on_text">Its screen and sound. Stop here, or press Back on the TV.</string>
+    <string name="share_needs_tv">Showing this phone needs the TV on and connected over Wi-Fi</string>
+    <string name="share_refused">Android didn\'t let the app record the screen</string>
+    <string name="share_not_paired">This phone isn\'t paired with the TV: pair it first</string>
+    <string name="share_full">The TV is showing 3 phones already</string>
+    <string name="share_old_tv">The TV needs updating to show phones</string>
+    <string name="share_closed_on_tv">The TV stopped showing this phone</string>
+    <string name="share_lost">Lost the TV: stopped showing this phone</string>
+    <string name="share_no_picture">This phone\'s screen couldn\'t be recorded</string>
 
 </resources>

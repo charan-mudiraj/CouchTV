@@ -86,6 +86,7 @@ namespace CouchTV
             // Only phones paired with this TV (a code shown here, typed on the phone) can use it.
             _phones = PhoneStore.Load();
             _wifi = new RemoteServer(Dispatcher, _phones);
+            StartPhoneShares();   // phones' screens on the TV (HomeWindow.Share.cs)
             // The watchlist the phones share (they remind their people themselves): kept here for good.
             _wifi.Watchlist = Watchlist.Load();
             _wifi.PairingCode += ShowPairingCode;
@@ -363,6 +364,7 @@ namespace CouchTV
         void RunRemoteAction(string action)
         {
             string name = action.ToLowerInvariant();
+            if ((name == "back" || name == "home") && CloseShares()) return;   // phones' screens showing: they go first
             if (_mini != null && _mini.Opened && _mini.Key(name)) return;   // the mini player, opened over an app
             switch (name)
             {

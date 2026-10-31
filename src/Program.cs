@@ -56,6 +56,8 @@ namespace CouchTV
                 if (tv >= 0 && tv + 1 < args.Length) return TvLink.Run(args, tv + 1);
                 string trailerTest = Arg(args, "--trailertest");
                 if (trailerTest != null) return Diagnostics.TrailerTest(trailerTest);
+                int shareTest = Array.IndexOf(args, "--sharetest");
+                if (shareTest >= 0 && shareTest + 2 < args.Length) return Diagnostics.ShareTest(args[shareTest + 1], args[shareTest + 2]);
                 string dragTest = Arg(args, "--dragtest");
                 if (dragTest != null) return Diagnostics.DragTest(dragTest);
                 string touchTest = Arg(args, "--touchtest");

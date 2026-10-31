@@ -170,6 +170,10 @@ class SessionKeys(
     val mirrorEnc: ByteArray get() = Secure.hmac(tvEnc, Secure.utf8("mirror enc"))
     val mirrorMac: ByteArray get() = Secure.hmac(tvMac, Secure.utf8("mirror mac"))
 
+    /** This phone's screen and sound shown on the TV (phone to TV, on a connection of their own: ScreenShare). */
+    val shareEnc: ByteArray get() = Secure.hmac(phoneEnc, Secure.utf8("share enc"))
+    val shareMac: ByteArray get() = Secure.hmac(phoneMac, Secure.utf8("share mac"))
+
     companion object {
         fun derive(shared: ByteArray, pairKey: ByteArray, transcript: ByteArray): SessionKeys {
             val okm = Secure.hkdf(shared, pairKey, Secure.utf8("CouchTV session 1") + transcript, 7 * 32)
@@ -302,6 +306,37 @@ class FrameReader(private val input: InputStream, enc: ByteArray, mac: ByteArray
             done += n
         }
         return bytes
+    }
+}
+
+/**
+ * This phone's binary messages to the TV (its screen and sound: ScreenShare), sealed as the TV seals its own
+ * (FrameReader's other side): the length (4 bytes, big-endian), the AES-CTR ciphertext and a 16-byte HMAC tag over the
+ * message number (8 bytes, big-endian, from 0) and the ciphertext. From any thread, one message at a time.
+ */
+class FrameWriter(private val output: OutputStream, enc: ByteArray, mac: ByteArray) {
+    private val cipher = Ctr(enc)
+    private val hmac = Mac.getInstance("HmacSHA256").apply { init(SecretKeySpec(mac, "HmacSHA256")) }
+    private var number = 0L
+
+    /** Seals [message] (left as it is) and sends it. */
+    @Synchronized
+    fun send(message: ByteArray) {
+        val length = message.size + Secure.TAG_BYTES
+        val sealed = ByteArray(4 + length)
+        sealed[0] = (length ushr 24).toByte()
+        sealed[1] = (length ushr 16).toByte()
+        sealed[2] = (length ushr 8).toByte()
+        sealed[3] = length.toByte()
+        message.copyInto(sealed, 4)
+        cipher.apply(number, sealed, 4, message.size)
+        val counter = ByteArray(8) { (number ushr (56 - 8 * it)).toByte() }
+        hmac.update(counter)
+        hmac.update(sealed, 4, message.size)
+        hmac.doFinal().copyInto(sealed, 4 + message.size, 0, Secure.TAG_BYTES)
+        number++
+        output.write(sealed)
+        output.flush()
     }
 }
 
