@@ -1546,19 +1546,37 @@ namespace CouchTV
         /// CouchTV.exe --sharetest report.txt pictures.h264dump: two pretend phones show their screens on the TV
         /// (PhoneShare, in a small ShareWindow): the same H.264 pictures (each its length, 4 bytes big-endian, then 1 if
         /// whole, then its bytes), 30 a second, with a tone for their sound, for 6 seconds. The report says what the page
-        /// decoded and how its sound is, and the window's picture is saved beside it (report.png).
+        /// decoded and how its sound is, and the window's picture is saved beside it (report.png). With [sidewaysPath]
+        /// (pictures 1280x576), the first phone turns sideways halfway: its picture must turn, keep coming, take the wider
+        /// column and stay on the screen.
         /// </summary>
-        public static int ShareTest(string path, string picturesPath)
+        public static int ShareTest(string path, string picturesPath, string sidewaysPath = null)
         {
             var report = new StringBuilder();
-            var pictures = new List<KeyValuePair<bool, byte[]>>();
-            byte[] dump = File.ReadAllBytes(picturesPath);
-            for (int at = 0; at + 5 <= dump.Length;)
+            Func<string, List<KeyValuePair<bool, byte[]>>> read = file =>
             {
-                int length = (dump[at] << 24) | (dump[at + 1] << 16) | (dump[at + 2] << 8) | dump[at + 3];
-                pictures.Add(new KeyValuePair<bool, byte[]>(dump[at + 4] == 1, Secure.Take(dump, at + 5, length)));
-                at += 5 + length;
-            }
+                var list = new List<KeyValuePair<bool, byte[]>>();
+                byte[] dump = File.ReadAllBytes(file);
+                for (int at = 0; at + 5 <= dump.Length;)
+                {
+                    int length = (dump[at] << 24) | (dump[at + 1] << 16) | (dump[at + 2] << 8) | dump[at + 3];
+                    list.Add(new KeyValuePair<bool, byte[]>(dump[at + 4] == 1, Secure.Take(dump, at + 5, length)));
+                    at += 5 + length;
+                }
+                return list;
+            };
+            List<KeyValuePair<bool, byte[]>> pictures = read(picturesPath);
+            List<KeyValuePair<bool, byte[]>> sideways = sidewaysPath != null ? read(sidewaysPath) : null;
+            Func<KeyValuePair<bool, byte[]>, int, byte[]> pictureMessage = (picture, n) =>
+            {
+                var message = new byte[10 + picture.Value.Length];
+                message[0] = 2;
+                message[1] = (byte)(picture.Key ? 1 : 0);
+                long time = n * 33333L;
+                for (int b = 0; b < 8; b++) message[2 + b] = (byte)(time >> (56 - 8 * b));
+                Buffer.BlockCopy(picture.Value, 0, message, 10, picture.Value.Length);
+                return message;
+            };
             var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
             var share = new PhoneShare();
             var window = new ShareWindow(share.PageUrl, true);
@@ -1577,14 +1595,15 @@ namespace CouchTV
                 long sample = 0;
                 for (int n = 0; n < 180; n++)
                 {
-                    KeyValuePair<bool, byte[]> picture = pictures[n % pictures.Count];
-                    var message = new byte[10 + picture.Value.Length];
-                    message[0] = 2;
-                    message[1] = (byte)(picture.Key ? 1 : 0);
-                    long time = n * 33333L;
-                    for (int b = 0; b < 8; b++) message[2 + b] = (byte)(time >> (56 - 8 * b));
-                    Buffer.BlockCopy(picture.Value, 0, message, 10, picture.Value.Length);
-                    foreach (PhoneShare.Phone p in phones) share.Received(p, message);
+                    byte[] upright = pictureMessage(pictures[n % pictures.Count], n);
+                    share.Received(phones[1], upright);
+                    if (sideways != null && n >= 90)
+                    {
+                        // The first phone turned sideways: its new size, then its sideways pictures (the first of them whole).
+                        if (n == 90) share.Received(phones[0], new byte[] { 1, 1280 >> 8, 1280 & 0xFF, 576 >> 8, 576 & 0xFF });
+                        share.Received(phones[0], pictureMessage(sideways[(n - 90) % sideways.Count], n));
+                    }
+                    else share.Received(phones[0], upright);
                     // A quiet 440 Hz tone, in 10 ms chunks (three a picture).
                     for (int c = 0; c < 3; c++)
                     {
@@ -1646,6 +1665,20 @@ namespace CouchTV
                     report.AppendLine((decoding == 2 ? "PASS  " : "FAIL  ") + "both phones' pictures decoded (" + decoding + " of 2 past 30 pictures)");
                     report.AppendLine((sound ? "PASS  " : "FAIL  ") + "their sound plays (" + parsed["sound"] + ", " + parsed["latency"] + " ms of output delay)");
                     report.AppendLine((behind ? "PASS  " : "FAIL  ") + "the page says what's playing behind the phones");
+                    if (sideways != null)
+                    {
+                        // The turned phone: a sideways picture, still coming, in the wider column, inside the window.
+                        var first = (Dictionary<string, object>)shown[0];
+                        var second = (Dictionary<string, object>)shown[1];
+                        string[] firstColumn = ((string)first["column"]).Split('x'), secondColumn = ((string)second["column"]).Split('x');
+                        int width = int.Parse(firstColumn[0]), height = int.Parse(firstColumn[1]), otherWidth = int.Parse(secondColumn[0]);
+                        double windowWidth = window.Dispatcher.Invoke(() => window.ActualWidth), windowHeight = window.Dispatcher.Invoke(() => window.ActualHeight);
+                        bool turned = (string)first["size"] == "1280x576" && Convert.ToInt32(first["decoded"]) > 120 && width > otherWidth
+                                      && width + otherWidth <= windowWidth + 1 && height <= windowHeight + 1;
+                        report.AppendLine((turned ? "PASS  " : "FAIL  ") + "a phone turned sideways: its picture turns, keeps coming, gets the wider column, and stays on the screen (" +
+                                          first["size"] + ", " + first["decoded"] + " pictures, column " + first["column"] + " beside " + second["column"] + ", window " + windowWidth + "x" + windowHeight + ")");
+                        behind = behind && turned;
+                    }
                     report.AppendLine(mix);
                     var sessions = OtherSounds.List();
                     report.AppendLine("PASS  Windows' apps with a sound now (muted while phones show): " + (sessions.Count > 0 ? string.Join(", ", sessions) : "none"));

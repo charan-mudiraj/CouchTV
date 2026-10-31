@@ -121,6 +121,8 @@ namespace CouchTV
         {
             if (message.Length == 0) return;
             if (message[0] == 2) phone.Pictures++;
+            else if (message[0] == 1 && message.Length >= 5)
+                Log.Info("Phone screens: " + phone.Name + "'s picture is " + ((message[1] << 8) | message[2]) + "x" + ((message[3] << 8) | message[4]));
             else if (message[0] == 3)
             {
                 phone.Sounds++;

@@ -13,9 +13,13 @@
 <meta charset="utf-8">
 <style>
   html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
+  /* Side by side, each as wide as its picture's shape asks at the same height (flex-grow: its width over its height,
+     set as pictures come), so a phone turned sideways gets a wide column, and phones held upright equal ones. */
   #phones { display: flex; width: 100%; height: 100%; gap: 14px; box-sizing: border-box; }
-  .phone { flex: 1 1 0; position: relative; min-width: 0; display: flex; align-items: center; justify-content: center; }
-  .phone canvas { width: 100%; height: 100%; object-fit: contain; }
+  .phone { flex: 0.45 1 0; position: relative; min-width: 0; min-height: 0; overflow: hidden;
+           display: flex; align-items: center; justify-content: center; }
+  /* The picture fills its column without ever spilling out of it, whatever its shape. */
+  .phone canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
   .name { position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%); white-space: nowrap; max-width: 90%;
           overflow: hidden; text-overflow: ellipsis; color: #F4F6FA; background: rgba(11, 14, 20, 0.6); padding: 7px 18px;
           border-radius: 20px; font-size: 22px; transition: opacity 0.6s ease; }
@@ -93,7 +97,7 @@
     el.append(canvas, wait, label);
     box.appendChild(el);
     const s = { slot, el, canvas, ctx: canvas.getContext('2d'), label, wait, decoder: null, codec: null, needWhole: true,
-                decoded: 0, nameTimer: 0 };
+                fresh: false, decoded: 0, nameTimer: 0 };
     slots.set(slot, s);
     return s;
   }
@@ -117,7 +121,11 @@
   function media(b) {
     const s = slots.get(b[0]);
     if (!s) return;
-    if (b[1] === 1) s.needWhole = true;   // a new size (the phone turned): its next whole picture starts afresh
+    if (b[1] === 1) {
+      // A new size (the phone turned): a new decoder from its next whole picture, rather than trust the old one with it.
+      s.needWhole = true;
+      s.fresh = true;
+    }
     else if (b[1] === 2) picture(s, b);
     else if (b[1] === 3) sound(b[0], b);
   }
@@ -130,7 +138,8 @@
     if (s.needWhole && !whole) return;
     if (whole) {
       const codec = codecOf(data);
-      if (codec && (codec !== s.codec || !s.decoder || s.decoder.state !== 'configured')) configure(s, codec);
+      if (codec && (s.fresh || codec !== s.codec || !s.decoder || s.decoder.state !== 'configured')) configure(s, codec);
+      s.fresh = false;
     }
     if (!s.decoder || s.decoder.state !== 'configured') return;
     if (!whole && s.decoder.decodeQueueSize > 3) {
@@ -169,6 +178,7 @@
     if (s.canvas.width !== frame.displayWidth || s.canvas.height !== frame.displayHeight) {
       s.canvas.width = frame.displayWidth;
       s.canvas.height = frame.displayHeight;
+      s.el.style.flexGrow = (frame.displayWidth / frame.displayHeight).toFixed(3);   // its column, by its shape
     }
     s.ctx.drawImage(frame, 0, 0);
     frame.close();
@@ -256,7 +266,8 @@
 
   setInterval(() => {
     if (!slots.size) return;
-    const phones = [...slots.values()].map(s => ({ slot: s.slot, decoded: s.decoded, codec: s.codec, size: s.canvas.width + 'x' + s.canvas.height }));
+    const phones = [...slots.values()].map(s => ({ slot: s.slot, decoded: s.decoded, codec: s.codec, size: s.canvas.width + 'x' + s.canvas.height,
+                                                   column: s.el.clientWidth + 'x' + s.el.clientHeight }));
     say('stats ' + JSON.stringify({ phones, sound: audio ? audio.state : 'none', latency: audio ? Math.round((audio.baseLatency + (audio.outputLatency || 0)) * 1000) : 0,
                                     behind: document.getElementById('behind').classList.contains('on') }));
   }, 1000);

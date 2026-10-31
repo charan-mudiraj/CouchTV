@@ -97,6 +97,9 @@ class ScreenShare : Service() {
     @Volatile private var why: String? = null
     private var width = 0
     private var height = 0
+    // What's shared, as Android 14 and newer say it (the whole screen, or the one app's window), in pixels; 0 till then.
+    @Volatile private var contentWidth = 0
+    @Volatile private var contentHeight = 0
     private var config: ByteArray? = null         // the encoder's sequence and picture parameters, for each whole picture
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -132,6 +135,13 @@ class ScreenShare : Service() {
         p.registerCallback(object : MediaProjection.Callback() {
             override fun onStop() {
                 main.post { finish(null) }   // stopped from Android's own controls (or another app took the screen)
+            }
+
+            // Android 14 and newer say when what's shared changes size: the phone turned, or the one app shared resized.
+            override fun onCapturedContentResize(width: Int, height: Int) {
+                contentWidth = width
+                contentHeight = height
+                codec?.post { fitPicture() }
             }
         }, main)
         Thread({ connect(host) }, "CouchTV share").start()
@@ -206,14 +216,23 @@ class ScreenShare : Service() {
 
     // ---------------------------------------------------------------- the picture
 
-    /** The picture's size: the screen's shape, its longer side 1280, in multiples of 16 (as encoders like). */
+    /**
+     * The picture's size: the shape of what's shared (as Android 14 and newer say it; else the screen's, as it is
+     * now), its longer side 1280, in multiples of 16 (as encoders like).
+     */
     @Suppress("DEPRECATION")
     private fun pictureSize(): Pair<Int, Int> {
-        val metrics = DisplayMetrics()
-        getSystemService(DisplayManager::class.java).getDisplay(Display.DEFAULT_DISPLAY).getRealMetrics(metrics)
-        val scale = minOf(1f, LONG_SIDE.toFloat() / maxOf(metrics.widthPixels, metrics.heightPixels))
+        var w = contentWidth
+        var h = contentHeight
+        if (w <= 0 || h <= 0) {
+            val metrics = DisplayMetrics()
+            getSystemService(DisplayManager::class.java).getDisplay(Display.DEFAULT_DISPLAY).getRealMetrics(metrics)
+            w = metrics.widthPixels
+            h = metrics.heightPixels
+        }
+        val scale = minOf(1f, LONG_SIDE.toFloat() / maxOf(w, h))
         fun fit(v: Int) = maxOf(16, (v * scale).toInt() / 16 * 16)
-        return fit(metrics.widthPixels) to fit(metrics.heightPixels)
+        return fit(w) to fit(h)
     }
 
     private fun startPicture(w: Int, h: Int) {
@@ -233,10 +252,12 @@ class ScreenShare : Service() {
                 runCatching { socket?.close() }
                 return@post
             }
-            // Turned sideways (or back): the picture turns too.
+            // Turned sideways (or back): the picture turns too. Android says the screen changed, but sometimes before
+            // its new size is there to read, so it's looked at again a moment later, and every half second besides.
             val manager = getSystemService(DisplayManager::class.java)
             displays = manager
             manager.registerDisplayListener(turned, handler)
+            handler.postDelayed(lookAgain, 500)
         }
     }
 
@@ -245,20 +266,41 @@ class ScreenShare : Service() {
         override fun onDisplayRemoved(displayId: Int) = Unit
         override fun onDisplayChanged(displayId: Int) {
             if (displayId != Display.DEFAULT_DISPLAY || stopping) return
-            val (w, h) = pictureSize()
-            if ((w > h) == (width > height)) return
-            val old = encoder
-            try {
-                val surface = newEncoder(w, h)
-                display?.resize(w, h, resources.displayMetrics.densityDpi)
-                display?.surface = surface
-            } catch (e: Exception) {
-                Log.i(TAG, "Share picture, turned: ${e.message}")
-            }
-            old?.let {
-                runCatching { it.stop() }
-                runCatching { it.release() }
-            }
+            fitPicture()
+            codec?.postDelayed({ fitPicture() }, 300)
+        }
+    }
+
+    private val lookAgain = object : Runnable {
+        override fun run() {
+            if (stopping) return
+            fitPicture()
+            codec?.postDelayed(this, 500)
+        }
+    }
+
+    /**
+     * The picture the size of what's shared now (the phone turned, or the shared app's window resized): a new encoder
+     * that size, and the screen drawn into it. Nothing's drawn meanwhile, so no picture of the wrong size slips out.
+     * On the encoder's thread.
+     */
+    private fun fitPicture() {
+        if (stopping || display == null) return
+        val (w, h) = pictureSize()
+        if (w == width && h == height) return
+        val old = encoder
+        try {
+            display?.surface = null
+            val surface = newEncoder(w, h)
+            display?.resize(w, h, resources.displayMetrics.densityDpi)
+            display?.surface = surface
+            Log.i(TAG, "Share: the picture's ${w}x$h now")
+        } catch (e: Exception) {
+            Log.i(TAG, "Share picture, resized: ${e.message}")
+        }
+        old?.let {
+            runCatching { it.stop() }
+            runCatching { it.release() }
         }
     }
 
