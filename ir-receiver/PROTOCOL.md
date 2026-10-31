@@ -246,6 +246,23 @@ Also worth doing on a shared Wi-Fi: set the TV PC's network to **Public** (Setti
 
 `CouchTV.exe --mirrortest report.txt` mirrors the PC's screen to a pretend phone over the loopback and reports the first picture's size and time, the bandwidth after it, the CPU and how close the phone's picture is to the screen. The code is `src/ScreenMirror.cs` and `phone-remote/.../ScreenLink.kt` and `MirrorView.kt`.
 
+## Phone screens
+
+*Share screen* (a shortcut on the remote's first page) shows the phone's screen and sound on the TV, for showing everyone in front of it something on the phone. Up to 3 phones at once, side by side in equal columns, their sounds mixed; about a tenth of a second behind the phone.
+
+- The phone asks Android to record its screen (Android's own question, each time), then opens a paired connection of its own (*Security*) and, after `AUTH`, sends `SHARE <width> <height>`. CouchTV answers `SHARE OK`, or `SHARE FULL` (3 phones already) or `SHARE OFF`; only after `SHARE OK` does the phone send anything more. From then on the phone sends binary messages on that connection, and CouchTV may send lines: `KEY` (send a whole picture now: the TV's decoder is starting, or fell behind) and `STOP` (the TV closed it: Back or Home on the remote), then hangs up.
+- The phone's messages are sealed as the mirror's are (length, AES-256-CTR ciphertext, 16-byte HMAC-SHA256 over the message number and ciphertext), with keys of their own: HMAC(phone encryption key, `share enc`) and HMAC(phone MAC key, `share mac`). Inside, the first byte says what it is:
+
+| Type | Then | Meaning |
+|---|---|---|
+| 1 | width, height (16-bit) | the picture's size: at the start, and when the phone turns sideways or back |
+| 2 | flags (1 = a whole picture), time (µs, 64-bit), H.264 | a picture, Annex B; a whole one brings its sequence and picture parameters |
+| 3 | samples | 10 ms of what the phone plays: 48 kHz, stereo, 16-bit little-endian |
+
+- The phone: its screen through its own video encoder (H.264, about 5 Mbps, 30 pictures a second, its longer side 1280 pixels, no B-frames, real-time priority, each picture sent the moment it's made, a whole one every 2 s or when the TV asks, and 10 a second even when nothing moves), and its sound by Android's playback capture (Android 10 and newer, with the microphone permission; media and games, not calls, nor apps that refuse to be recorded). Copy-protected apps (Netflix, Prime Video…) show black, as in any screen recording. A foreground service with Stop in its notification (`ScreenShare.kt`).
+- CouchTV doesn't decode anything itself: it passes each message, as it comes and with the phone's slot (0-2) in front, to a page in a WebView2 of its own (`home/share.html`, in `ShareWindow`, over everything, without taking the keyboard), over a WebSocket on this PC only (127.0.0.1, with a random token in the address). There Edge's decoder (WebCodecs, on the graphics chip) shows the pictures, skipping to the next whole picture rather than fall behind, and an AudioWorklet mixes the phones' sounds through a buffer of 40 ms (never more than 150). While phones show, whatever was playing is paused (Play carries on afterwards) and the home screen's trailer stops (`src/PhoneShare.cs`, `src/HomeWindow.Share.cs`).
+- `CouchTV.exe --sharetest report.txt pictures.h264dump` plays H.264 pictures (each its length, 4 bytes big-endian, 1 if whole, then its bytes; made by Edge's own encoder) as two pretend phones, with a tone, and checks both phones' pictures decode and their sound plays; the window's picture goes beside the report.
+
 ## Receiver box Wi-Fi
 
 With an ESP32 wired to the receiver (firmware `firmware/CouchLink`), the box has Wi-Fi of its own. It's on while the PC is asleep or off, so any phone paired with the TV can switch the PC and the TV on, and see whether they're on. Its first start opens the network *CouchTV-Setup*, whose page takes your Wi-Fi's name and password (kept on the ESP32 only); after that it's `couchtv-board` on your Wi-Fi. To change networks, hold its BOOT button for 3 seconds: its blue light blinks and CouchTV-Setup opens for 10 minutes. Its page on the home Wi-Fi only shows its version and whether it has its key.
