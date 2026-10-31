@@ -169,6 +169,7 @@ namespace CouchTV
             // The TV's sound on phones too, each into its own headphones ("Listen on this phone" in the remote app).
             _sound = new AudioShare();
             _sound.Sessions = _wifi.FindSession;
+            _sound.Share = _share;   // a phone sharing its screen gets the other phones' sound, not its own back
             _sound.ListenersChanged += count => Dispatcher.BeginInvoke(new Action(() =>
             {
                 string message = count == 0 ? "No phones are playing the TV's sound now" : "The TV's sound is also playing on " + count + (count == 1 ? " phone" : " phones");

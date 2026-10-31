@@ -1564,11 +1564,13 @@ namespace CouchTV
             var window = new ShareWindow(share.PageUrl, true);
             int keyAsks = 0;
             bool passed = false;
+            string mix = "FAIL  the others' sound wasn't checked";
             window.Loaded += (s, e) => new System.Threading.Thread(() =>
             {
                 var phones = new List<PhoneShare.Phone>();
                 for (int i = 0; i < 2; i++)
-                    phones.Add(share.Begin("Test phone " + (i + 1), line => { if (line == "KEY") System.Threading.Interlocked.Increment(ref keyAsks); }, () => { }));
+                    phones.Add(share.Begin("Test phone " + (i + 1), System.Net.IPAddress.Parse("10.0.0." + (i + 1)),
+                        line => { if (line == "KEY") System.Threading.Interlocked.Increment(ref keyAsks); }, () => { }));
                 var size = new byte[] { 1, 576 >> 8, 576 & 0xFF, 1280 >> 8, 1280 & 0xFF };
                 foreach (PhoneShare.Phone p in phones) share.Received(p, size);
                 var clock = System.Diagnostics.Stopwatch.StartNew();
@@ -1595,6 +1597,22 @@ namespace CouchTV
                             chunk[2 + f * 4] = chunk[4 + f * 4] = (byte)(v >> 8);
                         }
                         share.Received(phones[0], chunk);
+                    }
+                    if (n == 60) share.TellPlayingBehind("Test song · Test singer");   // music started behind them
+                    if (n == 150)
+                    {
+                        // The second phone, listening while it shares, hears the first's tone; the first hears nothing back.
+                        var others = new short[180 * 2];
+                        bool two = share.OthersFor(System.Net.IPAddress.Parse("10.0.0.2"), others, 48000);
+                        int loudest = 0;
+                        foreach (short v in others) loudest = Math.Max(loudest, Math.Abs((int)v));
+                        var back = new short[180 * 2];
+                        bool one = share.OthersFor(System.Net.IPAddress.Parse("10.0.0.1"), back, 48000);
+                        int echo = 0;
+                        foreach (short v in back) echo = Math.Max(echo, Math.Abs((int)v));
+                        bool stranger = share.OthersFor(System.Net.IPAddress.Parse("10.0.0.9"), back, 48000);
+                        mix = (two && loudest > 1000 && one && echo == 0 && !stranger ? "PASS  " : "FAIL  ") +
+                              "a phone listening while it shares hears the others, not itself (" + loudest + " from the other, " + echo + " of its own)";
                     }
                     long wait = (n + 1) * 33 - clock.ElapsedMilliseconds;
                     if (wait > 0) System.Threading.Thread.Sleep((int)wait);
@@ -1624,9 +1642,14 @@ namespace CouchTV
                     int decoding = 0;
                     foreach (Dictionary<string, object> p in shown) if (Convert.ToInt32(p["decoded"]) > 30) decoding++;
                     bool sound = (string)parsed["sound"] == "running";
+                    bool behind = parsed.ContainsKey("behind") && (bool)parsed["behind"];
                     report.AppendLine((decoding == 2 ? "PASS  " : "FAIL  ") + "both phones' pictures decoded (" + decoding + " of 2 past 30 pictures)");
                     report.AppendLine((sound ? "PASS  " : "FAIL  ") + "their sound plays (" + parsed["sound"] + ", " + parsed["latency"] + " ms of output delay)");
-                    passed = decoding == 2 && sound;
+                    report.AppendLine((behind ? "PASS  " : "FAIL  ") + "the page says what's playing behind the phones");
+                    report.AppendLine(mix);
+                    var sessions = OtherSounds.List();
+                    report.AppendLine("PASS  Windows' apps with a sound now (muted while phones show): " + (sessions.Count > 0 ? string.Join(", ", sessions) : "none"));
+                    passed = decoding == 2 && sound && behind && mix.StartsWith("PASS");
                 }
                 catch (Exception ex) { report.AppendLine("FAIL  the page said nothing usable (" + ex.Message + ")"); }
                 foreach (PhoneShare.Phone p in phones) share.End(p);

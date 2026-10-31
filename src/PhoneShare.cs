@@ -29,16 +29,29 @@ namespace CouchTV
     {
         public const int Most = 3;
 
-        /// <summary>One phone sharing its screen: its slot on the TV, its name, and how to tell it or let it go.</summary>
+        /// <summary>One phone sharing its screen: its slot on the TV, its name and address, and how to tell it or let it go.</summary>
         public sealed class Phone
         {
             public int Slot;
             public string Name;
+            public IPAddress Address;
             public volatile bool Stopped;
             internal Action<string> Tell;
             internal Action Close;
             internal int Pictures, Sounds;
+            // Its sound, kept a moment (half a second, 48 kHz stereo) for the others' mixes (OthersFor).
+            internal readonly short[] Ring = new short[RingSamples];
+            internal long Written;   // samples written to Ring ever: where the next goes is Written % RingSamples
+            // Where this phone, listening, has got to in each of the others' sound (by slot), and the part of a sample.
+            internal readonly long[] ReadAt = new long[Most];
+            internal readonly double[] ReadPart = new double[Most];
+            internal readonly bool[] Reading = new bool[Most];
         }
+
+        const int Rate = 48000;
+        const int RingSamples = Rate;                 // half a second of stereo
+        const int CushionSamples = Rate * 2 / 25;     // 40 ms, as the page keeps
+        const int MostBehindSamples = Rate * 2 * 3 / 20;   // 150 ms: further behind than that, it catches up
 
         /// <summary>Phones came or went: their names now (on a background thread).</summary>
         public event Action<List<string>, string, bool> Changed;
@@ -74,14 +87,14 @@ namespace CouchTV
         // ---------------------------------------------------------------- the phones
 
         /// <summary>A phone starting to share: its slot, or null when 3 are already on the TV.</summary>
-        public Phone Begin(string name, Action<string> tell, Action close)
+        public Phone Begin(string name, IPAddress address, Action<string> tell, Action close)
         {
             Phone phone;
             lock (_phones)
             {
                 int slot = Array.IndexOf(_phones, null);
                 if (slot < 0) return null;
-                phone = _phones[slot] = new Phone { Slot = slot, Name = string.IsNullOrEmpty(name) ? "A phone" : name, Tell = tell, Close = close };
+                phone = _phones[slot] = new Phone { Slot = slot, Name = string.IsNullOrEmpty(name) ? "A phone" : name, Address = address, Tell = tell, Close = close };
             }
             Log.Info("Phone screens: " + phone.Name + " started showing its screen");
             TellPage(false);   // (its first picture is whole anyway; and it hasn't been told SHARE OK yet)
@@ -108,9 +121,82 @@ namespace CouchTV
         {
             if (message.Length == 0) return;
             if (message[0] == 2) phone.Pictures++;
-            else if (message[0] == 3) phone.Sounds++;
+            else if (message[0] == 3)
+            {
+                phone.Sounds++;
+                lock (phone.Ring)
+                {
+                    for (int i = 1; i + 1 < message.Length; i += 2)
+                        phone.Ring[phone.Written++ % RingSamples] = (short)(message[i] | (message[i + 1] << 8));
+                }
+            }
             SendPage(phone.Slot, message);
         }
+
+        /// <summary>
+        /// For a phone that listens to the TV's sound while it shares its screen ("Listen on this phone"; AudioShare
+        /// asks): the other phones' sound mixed, without its own, which it plays itself, with no delay. [into]: that many
+        /// samples, 16-bit stereo, at [rate] (the TV's own sound's). False when that phone isn't sharing: it gets the
+        /// TV's sound as it is.
+        /// </summary>
+        public bool OthersFor(IPAddress address, short[] into, int rate)
+        {
+            Phone listener = null;
+            var others = new List<Phone>();
+            lock (_phones)
+                foreach (Phone p in _phones)
+                {
+                    if (p == null) continue;
+                    if (listener == null && p.Address != null && p.Address.Equals(address)) listener = p;
+                    else others.Add(p);
+                }
+            if (listener == null) return false;
+            Array.Clear(into, 0, into.Length);
+            int frames = into.Length / 2;
+            double step = (double)Rate / rate;   // the phones' sound is 48 kHz; the TV's may be 44.1
+            foreach (Phone other in others)
+            {
+                lock (other.Ring)
+                {
+                    int slot = other.Slot;
+                    long written = other.Written;
+                    long at = listener.ReadAt[slot];
+                    // From 40 ms behind the newest when it starts, or after falling more than 150 ms behind.
+                    if (!listener.Reading[slot] || written - at > MostBehindSamples || at > written)
+                    {
+                        at = Math.Max(0, written - CushionSamples) & ~1L;
+                        listener.ReadPart[slot] = 0;
+                        listener.Reading[slot] = true;
+                    }
+                    double part = listener.ReadPart[slot];
+                    for (int f = 0; f < frames; f++)
+                    {
+                        long sample = at + 2 * (long)part;
+                        if (sample + 1 >= written) break;   // ran dry: silence for the rest, and no further on
+                        into[2 * f] = Clip(into[2 * f] + other.Ring[sample % RingSamples]);
+                        into[2 * f + 1] = Clip(into[2 * f + 1] + other.Ring[(sample + 1) % RingSamples]);
+                        part += step;
+                    }
+                    long whole = (long)part;
+                    listener.ReadAt[slot] = Math.Min(at + 2 * whole, written & ~1L);
+                    listener.ReadPart[slot] = part - whole;
+                }
+            }
+            return true;
+        }
+
+        static short Clip(int v) { return (short)Math.Max(short.MinValue, Math.Min(short.MaxValue, v)); }
+
+        /// <summary>What's playing on the TV behind the phones (muted meanwhile), for the page to say; null when nothing is.</summary>
+        public void TellPlayingBehind(string what)
+        {
+            if (what == _behind) return;
+            _behind = what;
+            var json = new JavaScriptSerializer().Serialize(new Dictionary<string, object> { { "behind", what } });
+            SendFrame(0x81, Encoding.UTF8.GetBytes(json), 0, -1);
+        }
+
+        string _behind;
 
         /// <summary>The TV closes them all (Back or Home on the remote): each phone's told, and let go.</summary>
         public void StopAll()
@@ -256,7 +342,13 @@ namespace CouchTV
                 if (opcode == 8) break;   // closing
                 if (opcode != 1) continue;
                 string text = Encoding.UTF8.GetString(payload);
-                if (text == "ready") TellPage(true);
+                if (text == "ready")
+                {
+                    TellPage(true);
+                    string behind = _behind;
+                    _behind = null;
+                    TellPlayingBehind(behind);
+                }
                 else if (text.StartsWith("key ")) { int slot; if (int.TryParse(text.Substring(4), out slot)) AskWholePicture(slot); }
                 else if (text.StartsWith("stats ")) Stats = text.Substring(6);
             }

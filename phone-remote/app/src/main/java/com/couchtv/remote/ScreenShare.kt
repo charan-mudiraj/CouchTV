@@ -355,10 +355,13 @@ class ScreenShare : Service() {
     @SuppressLint("MissingPermission", "NewApi")
     private fun sound(p: MediaProjection) {
         val record = try {
+            // Not this app's own sound: while it shares, Listen on this phone plays the other phones' sound, which must
+            // not go back to the TV.
             val capture = AudioPlaybackCaptureConfiguration.Builder(p)
                 .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
                 .addMatchingUsage(AudioAttributes.USAGE_GAME)
                 .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
+                .excludeUid(android.os.Process.myUid())
                 .build()
             val format = AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(RATE)
                 .setChannelMask(AudioFormat.CHANNEL_IN_STEREO).build()

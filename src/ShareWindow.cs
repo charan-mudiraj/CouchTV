@@ -22,6 +22,9 @@ namespace CouchTV
         readonly TextBlock _note;
         FrameworkElement _view;   // the WebView2 (as its base type, so this class loads without it)
 
+        /// <summary>Its WebView2's own process, once it's started (0 before): the phones' sound comes from one of its helpers.</summary>
+        internal volatile int BrowserProcess;
+
         /// <summary>[windowed]: a small window, for the self-test, instead of the whole screen.</summary>
         public ShareWindow(string url, bool windowed)
         {
@@ -96,6 +99,7 @@ namespace CouchTV
                 CoreWebView2Environment environment = await CoreWebView2Environment.CreateAsync(null, Path.Combine(Config.DataDir, "phonescreens"), options);
                 await view.EnsureCoreWebView2Async(environment);
                 CoreWebView2 core = view.CoreWebView2;
+                BrowserProcess = (int)core.BrowserProcessId;
                 core.Settings.AreDefaultContextMenusEnabled = false;
                 core.Settings.AreDevToolsEnabled = false;
                 core.Settings.IsStatusBarEnabled = false;

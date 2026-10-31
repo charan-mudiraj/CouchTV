@@ -379,7 +379,7 @@ namespace CouchTV
         void ShareScreen(TcpClient client, NetworkStream stream, LineReader lines, RemoteSession session)
         {
             PhoneShare share = Share;
-            PhoneShare.Phone phone = share == null ? null : share.Begin(session.Name, line => session.Send(line), () => client.Close());
+            PhoneShare.Phone phone = share == null ? null : share.Begin(session.Name, session.Phone, line => session.Send(line), () => client.Close());
             if (phone == null)
             {
                 session.Send(share == null ? "SHARE OFF" : "SHARE FULL");

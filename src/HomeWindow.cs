@@ -1328,6 +1328,7 @@ namespace CouchTV
         {
             _ticks++;
             TrailerTick();
+            TickShares();
             DateTime now = DateTime.Now;
             UpdateClock();
             if (_ticks % 5 == 0)

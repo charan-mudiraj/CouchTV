@@ -38,7 +38,14 @@ namespace CouchTV
             public Ctr Cipher;
             public HMACSHA256 Mac;
             public readonly byte[] Packet = new byte[PacketBytes];
+            // While this phone shares its screen on the TV (PhoneShare): the other phones' sound instead, in a packet
+            // of its own (this chunk, then its last), as it plays its own sound itself.
+            public readonly short[] Others = new short[Frames * 2];
+            public readonly byte[] Own = new byte[HeaderBytes + 2 * ChunkBytes];
         }
+
+        /// <summary>Phones' screens on the TV: a phone that shares its own gets the others' sound, not the TV's (PhoneShare.OthersFor).</summary>
+        public PhoneShare Share;
 
         public event Action<int> ListenersChanged;   // on a background thread
 
@@ -296,11 +303,27 @@ namespace CouchTV
                                 repairing[HeaderBytes + i * 2 + 1] = (byte)(s >> 8);
                             }
                             offset += perPacket * 2;
+                            PhoneShare share = Share;
                             foreach (Listener phone in Targets())
                             {
+                                byte[] source = repairing;
+                                if (share != null && share.OthersFor(phone.Phone.Address, phone.Others, loopback.SampleRate))
+                                {
+                                    // It's sharing its screen: the other phones' sound, without its own (which it plays itself),
+                                    // which the TV's sound has in it.
+                                    byte[] own = phone.Own;
+                                    Buffer.BlockCopy(own, HeaderBytes, own, HeaderBytes + chunkBytes, chunkBytes);
+                                    Buffer.BlockCopy(repairing, 0, own, 0, HeaderBytes);
+                                    for (int i = 0; i < perPacket * 2; i++)
+                                    {
+                                        own[HeaderBytes + i * 2] = (byte)phone.Others[i];
+                                        own[HeaderBytes + i * 2 + 1] = (byte)(phone.Others[i] >> 8);
+                                    }
+                                    source = own;
+                                }
                                 // Sealed for this phone alone: encrypted with its key, then tagged, header included.
                                 byte[] packet = phone.Packet;
-                                Buffer.BlockCopy(repairing, 0, packet, 0, sealedBytes);
+                                Buffer.BlockCopy(source, 0, packet, 0, sealedBytes);
                                 phone.Cipher.Apply(sequence, packet, HeaderBytes, 2 * chunkBytes);
                                 Buffer.BlockCopy(phone.Mac.ComputeHash(packet, 0, sealedBytes), 0, packet, sealedBytes, Secure.TagBytes);
                                 try { sender.Send(packet, packet.Length, phone.Phone); }
