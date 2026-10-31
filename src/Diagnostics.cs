@@ -1583,6 +1583,7 @@ namespace CouchTV
             int keyAsks = 0;
             bool passed = false;
             string mix = "FAIL  the others' sound wasn't checked";
+            string midStats = "";
             window.Loaded += (s, e) => new System.Threading.Thread(() =>
             {
                 var phones = new List<PhoneShare.Phone>();
@@ -1600,7 +1601,7 @@ namespace CouchTV
                     if (sideways != null && n >= 90)
                     {
                         // The first phone turned sideways: its new size, then its sideways pictures (the first of them whole).
-                        if (n == 90) share.Received(phones[0], new byte[] { 1, 1280 >> 8, 1280 & 0xFF, 576 >> 8, 576 & 0xFF });
+                        if (n == 90) share.Received(phones[0], new byte[] { 1, 1600 >> 8, 1600 & 0xFF, 720 >> 8, 720 & 0xFF });
                         share.Received(phones[0], pictureMessage(sideways[(n - 90) % sideways.Count], n));
                     }
                     else share.Received(phones[0], upright);
@@ -1632,7 +1633,9 @@ namespace CouchTV
                         bool stranger = share.OthersFor(System.Net.IPAddress.Parse("10.0.0.9"), back, 48000);
                         mix = (two && loudest > 1000 && one && echo == 0 && !stranger ? "PASS  " : "FAIL  ") +
                               "a phone listening while it shares hears the others, not itself (" + loudest + " from the other, " + echo + " of its own)";
+                        midStats = share.Stats ?? "";
                     }
+                    if (n == 160 && sideways != null) share.End(phones[1]);   // the other phone stops: the film's alone on the TV
                     long wait = (n + 1) * 33 - clock.ElapsedMilliseconds;
                     if (wait > 0) System.Threading.Thread.Sleep((int)wait);
                 }
@@ -1656,8 +1659,12 @@ namespace CouchTV
                 report.AppendLine("  whole pictures asked for: " + keyAsks);
                 try
                 {
-                    var parsed = new System.Web.Script.Serialization.JavaScriptSerializer().Deserialize<Dictionary<string, object>>(stats);
-                    var shown = (System.Collections.ArrayList)parsed["phones"];
+                    var json = new System.Web.Script.Serialization.JavaScriptSerializer();
+                    var parsed = json.Deserialize<Dictionary<string, object>>(stats);
+                    // Both phones as they were before the second stopped (with a phone turning sideways), else at the end.
+                    var both = sideways != null ? json.Deserialize<Dictionary<string, object>>(midStats) : parsed;
+                    if (sideways != null) report.AppendLine("  page, both phones: " + midStats);
+                    var shown = (System.Collections.ArrayList)both["phones"];
                     int decoding = 0;
                     foreach (Dictionary<string, object> p in shown) if (Convert.ToInt32(p["decoded"]) > 30) decoding++;
                     bool sound = (string)parsed["sound"] == "running";
@@ -1673,11 +1680,20 @@ namespace CouchTV
                         string[] firstColumn = ((string)first["column"]).Split('x'), secondColumn = ((string)second["column"]).Split('x');
                         int width = int.Parse(firstColumn[0]), height = int.Parse(firstColumn[1]), otherWidth = int.Parse(secondColumn[0]);
                         double windowWidth = window.Dispatcher.Invoke(() => window.ActualWidth), windowHeight = window.Dispatcher.Invoke(() => window.ActualHeight);
-                        bool turned = (string)first["size"] == "1280x576" && Convert.ToInt32(first["decoded"]) > 120 && width > otherWidth
+                        bool turned = (string)first["picture"] == "1600x720" && Convert.ToInt32(first["decoded"]) > 60 && width > otherWidth
                                       && width + otherWidth <= windowWidth + 1 && height <= windowHeight + 1;
                         report.AppendLine((turned ? "PASS  " : "FAIL  ") + "a phone turned sideways: its picture turns, keeps coming, gets the wider column, and stays on the screen (" +
-                                          first["size"] + ", " + first["decoded"] + " pictures, column " + first["column"] + " beside " + second["column"] + ", window " + windowWidth + "x" + windowHeight + ")");
-                        behind = behind && turned;
+                                          first["picture"] + ", " + first["decoded"] + " pictures, column " + first["column"] + " beside " + second["column"] + ", window " + windowWidth + "x" + windowHeight + ")");
+                        // Then alone on the TV: the film in it (16:9, with black bars either side on the 20:9 phone) fills it.
+                        var alone = (System.Collections.ArrayList)parsed["phones"];
+                        var film = (Dictionary<string, object>)alone[0];
+                        string[] trimmed = ((string)film["size"]).Split('x'), column = ((string)film["column"]).Split('x');
+                        double shape = double.Parse(trimmed[0]) / double.Parse(trimmed[1]), windowShape = windowWidth / windowHeight;
+                        bool fills = alone.Count == 1 && Math.Abs(int.Parse(trimmed[0]) - 1280) <= 40 && Math.Abs(shape - windowShape) < 0.06
+                                     && Math.Abs(int.Parse(column[0]) - windowWidth) <= 2 && Math.Abs(int.Parse(column[1]) - windowHeight) <= 2;
+                        report.AppendLine((fills ? "PASS  " : "FAIL  ") + "alone on the TV, a film on a sideways phone fills it, its black bars trimmed (" +
+                                          film["picture"] + " shown as " + film["size"] + ", column " + film["column"] + ")");
+                        behind = behind && turned && fills;
                     }
                     report.AppendLine(mix);
                     var sessions = OtherSounds.List();
@@ -1685,7 +1701,7 @@ namespace CouchTV
                     passed = decoding == 2 && sound && behind && mix.StartsWith("PASS");
                 }
                 catch (Exception ex) { report.AppendLine("FAIL  the page said nothing usable (" + ex.Message + ")"); }
-                foreach (PhoneShare.Phone p in phones) share.End(p);
+                foreach (PhoneShare.Phone p in phones) if (!p.Stopped) share.End(p);
                 window.Dispatcher.Invoke(new Action(() => app.Shutdown()));
             }) { IsBackground = true }.Start();
             window.Show();

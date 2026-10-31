@@ -175,15 +175,67 @@
   }
 
   function draw(s, frame) {
-    if (s.canvas.width !== frame.displayWidth || s.canvas.height !== frame.displayHeight) {
-      s.canvas.width = frame.displayWidth;
-      s.canvas.height = frame.displayHeight;
-      s.el.style.flexGrow = (frame.displayWidth / frame.displayHeight).toFixed(3);   // its column, by its shape
+    const w = frame.displayWidth, h = frame.displayHeight;
+    if (s.pictureW !== w || s.pictureH !== h) {
+      s.pictureW = w;
+      s.pictureH = h;
+      s.crop = { x: 0, y: 0, w, h };   // a new shape (the phone turned): all of it, till its bars are found again
+      s.seen = null;
     }
-    s.ctx.drawImage(frame, 0, 0);
+    const now = performance.now();
+    if (now - (s.lookedAt || 0) > 500) {
+      s.lookedAt = now;
+      trimBars(s, frame);
+    }
+    const c = s.crop;
+    if (s.canvas.width !== c.w || s.canvas.height !== c.h) {
+      s.canvas.width = c.w;
+      s.canvas.height = c.h;
+      s.el.style.flexGrow = (c.w / c.h).toFixed(3);   // its column, by its shape
+    }
+    s.ctx.drawImage(frame, c.x, c.y, c.w, c.h, 0, 0, c.w, c.h);
     frame.close();
     s.decoded++;
     if (s.wait.parentNode) s.wait.remove();
+  }
+
+  // ---------------------------------------------------------------- black bars, trimmed
+
+  // A video on a phone is often narrower than its screen (a 16:9 film on a 20:9 phone turned sideways has black bars
+  // left and right; held upright, above and below). Twice a second the picture is looked at small, and black bars all
+  // along its edges are trimmed off before it's fitted to the TV, so the film itself fills it. A new trim only takes
+  // once two looks a moment apart agree, so a dark scene or a fade to black doesn't make the picture jump.
+  const look = document.createElement('canvas');
+  const lookCtx = look.getContext('2d', { willReadFrequently: true });
+
+  function trimBars(s, frame) {
+    const w = frame.displayWidth, h = frame.displayHeight;
+    const lw = 192, lh = Math.max(8, Math.round(192 * h / w));
+    look.width = lw;
+    look.height = lh;
+    lookCtx.drawImage(frame, 0, 0, lw, lh);
+    const px = lookCtx.getImageData(0, 0, lw, lh).data;
+    const dark = (x, y) => { const i = (y * lw + x) * 4; return px[i] * 0.3 + px[i + 1] * 0.59 + px[i + 2] * 0.11 < 22; };
+    const columnDark = x => { for (let y = 0; y < lh; y++) if (!dark(x, y)) return false; return true; };
+    const rowDark = (y, x0, x1) => { for (let x = x0; x <= x1; x++) if (!dark(x, y)) return false; return true; };
+    let left = 0, right = lw - 1, top = 0, bottom = lh - 1;
+    while (left < right && columnDark(left)) left++;
+    while (right > left && columnDark(right)) right--;
+    while (top < bottom && rowDark(top, left, right)) top++;
+    while (bottom > top && rowDark(bottom, left, right)) bottom--;
+    // Nearly all dark (a dark scene, a fade): leave the trim as it is.
+    if (right - left < lw * 0.3 || bottom - top < lh * 0.3) return;
+    // Bars thinner than 3% aren't worth trimming (nor a dark edge of the phone's own screen).
+    if (left < lw * 0.03) left = 0;
+    if (lw - 1 - right < lw * 0.03) right = lw - 1;
+    if (top < lh * 0.03) top = 0;
+    if (lh - 1 - bottom < lh * 0.03) bottom = lh - 1;
+    const sx = w / lw, sy = h / lh;
+    const x = Math.round(left * sx), y = Math.round(top * sy);
+    const found = { x, y, w: Math.min(w - x, Math.round((right + 1) * sx) - x), h: Math.min(h - y, Math.round((bottom + 1) * sy) - y) };
+    const same = (a, b) => a && Math.abs(a.x - b.x) <= sx && Math.abs(a.y - b.y) <= sy && Math.abs(a.w - b.w) <= 2 * sx && Math.abs(a.h - b.h) <= 2 * sy;
+    if (same(s.seen, found) && !same(s.crop, found)) s.crop = found;   // two looks agree: the trim changes
+    s.seen = found;
   }
 
   // "avc1.PPCCLL" from the picture's sequence parameters (profile, constraints, level), as WebCodecs wants it.
@@ -266,8 +318,8 @@
 
   setInterval(() => {
     if (!slots.size) return;
-    const phones = [...slots.values()].map(s => ({ slot: s.slot, decoded: s.decoded, codec: s.codec, size: s.canvas.width + 'x' + s.canvas.height,
-                                                   column: s.el.clientWidth + 'x' + s.el.clientHeight }));
+    const phones = [...slots.values()].map(s => ({ slot: s.slot, decoded: s.decoded, codec: s.codec, picture: s.pictureW + 'x' + s.pictureH,
+                                                   size: s.canvas.width + 'x' + s.canvas.height, column: s.el.clientWidth + 'x' + s.el.clientHeight }));
     say('stats ' + JSON.stringify({ phones, sound: audio ? audio.state : 'none', latency: audio ? Math.round((audio.baseLatency + (audio.outputLatency || 0)) * 1000) : 0,
                                     behind: document.getElementById('behind').classList.contains('on') }));
   }, 1000);

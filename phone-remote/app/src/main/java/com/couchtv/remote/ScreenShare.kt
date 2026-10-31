@@ -60,7 +60,7 @@ class ScreenShare : Service() {
         private const val EXTRA_DATA = "data"
         private const val EXTRA_HOST = "host"
         private const val ACTION_STOP = "com.couchtv.remote.STOP_SHARING"
-        private const val LONG_SIDE = 1280         // the picture's longer side: sharp on the TV, light on the Wi-Fi
+        private const val LONG_SIDE = 1600         // the picture's longer side: sharp on the TV (a film's trimmed out of it there), light on the Wi-Fi
         private const val FPS = 30
         private const val BITRATE = 5_000_000
         private const val RATE = 48000
